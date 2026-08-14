@@ -44,6 +44,14 @@ uuid = "1"
 # derive macros that a generated composite struct needs, and tokio-postgres
 # does not forward that feature. Hence the direct declaration.
 postgres-types = { version = "0.2", features = ["derive"] }
+# postgres-protocol is likewise transitive (postgres-types depends on it
+# unconditionally for its own array codec), but it is never re-exported under
+# any `tokio_postgres::` path, so the generated `PgRange<T>` wrapper's
+# `use postgres_protocol::types::{range_from_sql, range_to_sql}` cannot name it
+# without this line. tokio-postgres ships no range type of its own -- unlike
+# sqlx, which has `sqlx::postgres::types::PgRange` -- so the wrapper is
+# hand-emitted against the wire-format primitives.
+postgres-protocol = "0.6"
 {%- endif %}
 
 # cargo-machete reports both of the above as unused, and by its own lights it is
@@ -61,7 +69,7 @@ postgres-types = { version = "0.2", features = ["derive"] }
 # Rust backends had no regression coverage from that gate at all.
 [package.metadata.cargo-machete]
 {%- if driver == "tokio-postgres" %}
-ignored = ["serde_json", "uuid", "postgres-types"]
+ignored = ["serde_json", "uuid", "postgres-types", "postgres-protocol"]
 {%- else %}
 ignored = ["serde_json", "uuid"]
 {%- endif %}

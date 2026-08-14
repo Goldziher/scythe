@@ -28,6 +28,7 @@ inet = "std::net::IpAddr"
 [types.containers]
 array = "Vec<{T}>"
 nullable = "Option<{T}>"
+range = "PgRange<{T}>"
 json_typed = "{T}"
 json_nested = "postgres_types::Json<{T}>"
 

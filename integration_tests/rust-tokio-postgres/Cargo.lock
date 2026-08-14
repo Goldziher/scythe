@@ -821,6 +821,7 @@ name = "scythe-integration-test-rust-tokio-postgres"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "postgres-protocol",
  "postgres-types",
  "rust_decimal",
  "serde_json",

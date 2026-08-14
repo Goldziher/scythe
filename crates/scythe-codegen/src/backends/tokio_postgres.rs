@@ -7,6 +7,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::GeneratedCode;
 use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::parse_bool_option;
@@ -14,6 +15,154 @@ use crate::backends::typescript_common::parse_bool_option;
 /// Default embedded manifest TOML for rust-tokio-postgres, used as fallback.
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/rust-tokio-postgres.toml");
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/rust-tokio-postgres.redshift.toml");
+
+/// Hand-rolled `FromSql`/`ToSql` for the `range = "PgRange<{T}>"` container mapping.
+///
+/// `postgres-types` 0.2.14 ships no `Range<T>` with a `FromSql`/`ToSql` impl (unlike
+/// `sqlx::postgres::types::PgRange<T>`, which this mirrors in shape), so the backend defines its
+/// own -- on top of `postgres_protocol::types::{range_from_sql, range_to_sql}`, the binary
+/// wire-format primitives `postgres-types` itself uses internally for arrays (read from the
+/// vendored crate source). Emitted once per output file, only when a generated fragment actually
+/// names `PgRange<`, via `file_header_for_results` below.
+///
+/// `Empty` is kept distinct from `Range { start: Bound::Unbounded, end: Bound::Unbounded }`: an
+/// empty range and a fully-unbounded one are different values on the wire, and collapsing them
+/// (as some other clients do) would make an empty-range column decode as if it contained
+/// everything.
+const PG_RANGE_SUPPORT: &str = r#"#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PgRange<T> {
+    Empty,
+    Range {
+        start: std::ops::Bound<T>,
+        end: std::ops::Bound<T>,
+    },
+}
+
+impl<'a, T> tokio_postgres::types::FromSql<'a> for PgRange<T>
+where
+    T: tokio_postgres::types::FromSql<'a>,
+{
+    fn from_sql(
+        ty: &tokio_postgres::types::Type,
+        raw: &'a [u8],
+    ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        let element_type = match ty.kind() {
+            tokio_postgres::types::Kind::Range(element) => element,
+            _ => return Err("PgRange::from_sql called on a non-range type".into()),
+        };
+        match postgres_protocol::types::range_from_sql(raw)? {
+            postgres_protocol::types::Range::Empty => Ok(PgRange::Empty),
+            postgres_protocol::types::Range::Nonempty(lower, upper) => Ok(PgRange::Range {
+                start: pg_range_bound_from_sql(element_type, lower)?,
+                end: pg_range_bound_from_sql(element_type, upper)?,
+            }),
+        }
+    }
+
+    fn accepts(ty: &tokio_postgres::types::Type) -> bool {
+        matches!(ty.kind(), tokio_postgres::types::Kind::Range(element) if T::accepts(element))
+    }
+}
+
+fn pg_range_bound_from_sql<'a, T>(
+    element_type: &tokio_postgres::types::Type,
+    bound: postgres_protocol::types::RangeBound<Option<&'a [u8]>>,
+) -> Result<std::ops::Bound<T>, Box<dyn std::error::Error + Sync + Send>>
+where
+    T: tokio_postgres::types::FromSql<'a>,
+{
+    match bound {
+        postgres_protocol::types::RangeBound::Inclusive(raw) => {
+            Ok(std::ops::Bound::Included(T::from_sql_nullable(element_type, raw)?))
+        }
+        postgres_protocol::types::RangeBound::Exclusive(raw) => {
+            Ok(std::ops::Bound::Excluded(T::from_sql_nullable(element_type, raw)?))
+        }
+        postgres_protocol::types::RangeBound::Unbounded => Ok(std::ops::Bound::Unbounded),
+    }
+}
+
+impl<T> tokio_postgres::types::ToSql for PgRange<T>
+where
+    T: tokio_postgres::types::ToSql,
+{
+    fn to_sql(
+        &self,
+        ty: &tokio_postgres::types::Type,
+        out: &mut tokio_postgres::types::private::BytesMut,
+    ) -> Result<tokio_postgres::types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        let element_type = match ty.kind() {
+            tokio_postgres::types::Kind::Range(element) => element,
+            _ => return Err("PgRange::to_sql called on a non-range type".into()),
+        };
+        match self {
+            PgRange::Empty => postgres_protocol::types::empty_range_to_sql(out),
+            PgRange::Range { start, end } => {
+                postgres_protocol::types::range_to_sql(
+                    |buf| pg_range_bound_to_sql(start, element_type, buf),
+                    |buf| pg_range_bound_to_sql(end, element_type, buf),
+                    out,
+                )?;
+            }
+        }
+        Ok(tokio_postgres::types::IsNull::No)
+    }
+
+    fn accepts(ty: &tokio_postgres::types::Type) -> bool {
+        matches!(ty.kind(), tokio_postgres::types::Kind::Range(element) if T::accepts(element))
+    }
+
+    tokio_postgres::types::to_sql_checked!();
+}
+
+fn pg_range_bound_to_sql<T>(
+    bound: &std::ops::Bound<T>,
+    element_type: &tokio_postgres::types::Type,
+    buf: &mut tokio_postgres::types::private::BytesMut,
+) -> Result<postgres_protocol::types::RangeBound<postgres_protocol::IsNull>, Box<dyn std::error::Error + Sync + Send>>
+where
+    T: tokio_postgres::types::ToSql,
+{
+    match bound {
+        std::ops::Bound::Included(value) => Ok(postgres_protocol::types::RangeBound::Inclusive(
+            pg_range_element_is_null(value, element_type, buf)?,
+        )),
+        std::ops::Bound::Excluded(value) => Ok(postgres_protocol::types::RangeBound::Exclusive(
+            pg_range_element_is_null(value, element_type, buf)?,
+        )),
+        std::ops::Bound::Unbounded => Ok(postgres_protocol::types::RangeBound::Unbounded),
+    }
+}
+
+fn pg_range_element_is_null<T: tokio_postgres::types::ToSql>(
+    value: &T,
+    element_type: &tokio_postgres::types::Type,
+    buf: &mut tokio_postgres::types::private::BytesMut,
+) -> Result<postgres_protocol::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+    Ok(match value.to_sql(element_type, buf)? {
+        tokio_postgres::types::IsNull::No => postgres_protocol::IsNull::No,
+        tokio_postgres::types::IsNull::Yes => postgres_protocol::IsNull::Yes,
+    })
+}"#;
+
+/// Whether any generated fragment in `generated` contains `needle` -- used to gate emitting
+/// [`PG_RANGE_SUPPORT`] on a file actually naming `PgRange<`, so a file with no range column
+/// does not carry an unused type (`dead_code` is already allowed file-wide, but there is no
+/// reason to ship the definition where nothing reaches it).
+fn generated_code_uses(generated: &[GeneratedCode], needle: &str) -> bool {
+    generated.iter().any(|code| {
+        [
+            code.enum_def.as_deref(),
+            code.model_struct.as_deref(),
+            code.row_struct.as_deref(),
+            code.query_fn.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|fragment| fragment.contains(needle))
+            || code.nested_struct_defs.iter().any(|def| def.code.contains(needle))
+    })
+}
 
 /// TokioPostgresBackend generates Rust code targeting the tokio-postgres crate.
 pub struct TokioPostgresBackend {
@@ -119,6 +268,14 @@ impl CodegenBackend for TokioPostgresBackend {
 
     fn file_header(&self) -> String {
         "#![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]".to_string()
+    }
+
+    fn file_header_for_results(&self, generated: &[GeneratedCode]) -> String {
+        if generated_code_uses(generated, "PgRange<") {
+            format!("{}\n\n{}", self.file_header(), PG_RANGE_SUPPORT)
+        } else {
+            self.file_header()
+        }
     }
 
     fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {

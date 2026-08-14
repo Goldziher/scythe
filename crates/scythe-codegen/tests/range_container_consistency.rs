@@ -117,33 +117,51 @@
 //!   mutually incompatible `Range` classes -- see
 //!   `RANGE_SPELLING_EXCEPTIONS`.
 //!
-//! **Confirmed WRONG, not fixable within this manifest**:
+//! **Confirmed WRONG in the previous pass, now fixed**:
 //!
-//! - `rust-tokio-postgres` said `String`; read from the vendored
-//!   `postgres-types` 0.2.14 source (`~/.cargo/registry`, cargo is off-limits
-//!   in this pass so this is source inspection, not a live run):
-//!   `impl FromSql for String` delegates its `accepts()` to `&str`'s, which
-//!   matches only `VARCHAR | TEXT | BPCHAR | NAME | UNKNOWN` plus a few
-//!   ltree-family OIDs -- no range OID is in that list, so `Row::get::<_,
-//!   String>` would panic before `from_sql` ever runs. `postgres-types`
-//!   0.2.14 ships no `Range<T>` type with a `FromSql`/`ToSql` impl at all
-//!   (unlike `sqlx-postgres`), so there is no string this manifest can name
-//!   that both compiles and decodes correctly -- fixing this needs a reader
-//!   change in `tokio_postgres.rs` (a hand-rolled `FromSql`/`ToSql` wrapper)
-//!   that is out of scope for a manifest-only pass. The declaration is
-//!   removed rather than left wrong; see `RANGE_CAPABILITY_EXCEPTIONS`.
+//! - `rust-tokio-postgres` said `String`, then nothing at all (board #198's
+//!   predecessor pass removed the declaration outright: `postgres-types`
+//!   0.2.14 -- read from `~/.cargo/registry`, cargo is off-limits in this
+//!   pass so this is source inspection, not a live run -- ships no `Range<T>`
+//!   with a `FromSql`/`ToSql` impl, so no string could be named that both
+//!   compiled and decoded correctly). This pass re-derived the crate surface
+//!   from the same vendored source and found the gap closable without a new
+//!   dependency: `postgres-protocol` 0.6.12 (a hard, non-optional dependency
+//!   of `postgres-types` -- see its `Cargo.toml` and `postgres-types`'
+//!   `use postgres_protocol::types::{self, ArrayDimension}` -- the same
+//!   crate `postgres-types` itself uses to decode arrays) exports
+//!   `types::range_from_sql`/`range_to_sql`/`Range`/`RangeBound`, the exact
+//!   binary wire-format primitives a `FromSql`/`ToSql` impl needs. Fixed by
+//!   hand-rolling `PgRange<T>` in `tokio_postgres.rs` on top of those
+//!   primitives -- the same shape `generate_enum_def` already uses for
+//!   enums, a `FromSql`/`ToSql` pair written directly against
+//!   `tokio_postgres::types` (which re-exports `postgres_types::*`
+//!   wholesale, confirmed from `tokio-postgres`'s own `src/types.rs`).
+//!   Emitted once per output file, only when a generated fragment actually
+//!   names `PgRange<` (`TokioPostgresBackend::file_header_for_results`),
+//!   mirroring how `go_pgx.rs` gates its own conditional import.
+//!   `postgres-protocol` is not re-exported under any `tokio_postgres::`
+//!   path, so the generated crate needs it as a *direct* dependency to call
+//!   it by name -- exactly the situation `postgres-types = { features =
+//!   ["derive"] }` was already added to
+//!   `tools/integration-test-generator/templates/Cargo.toml.integration.jinja`
+//!   to solve, for the same reason. See that file for the matching
+//!   `postgres-protocol` addition this pass needs but does not itself make
+//!   (out of scope for a manifest/backend-only pass; tracked as a reported
+//!   follow-up, not a silent gap).
 //!
-//! What would settle the two typed-reader gaps above, for whoever picks them
-//! up: a `PgRangeRust` (or similar) wrapper in `tokio_postgres.rs` built on
-//! `postgres_protocol::types::range_from_sql`/`range_to_sql`, with matching
-//! `[imports.rules]`; nothing else in this file changes as a result, since
-//! the capability/spelling exceptions here are written to go stale (and
-//! therefore fail) the moment such a mapping is declared.
+//! Fixed to `PgRange<{T}>`. This necessarily diverges from `rust-sqlx`'s
+//! family-mate spelling (`sqlx::postgres::types::PgRange<{T}>`) because that
+//! is a real type in a crate `rust-tokio-postgres` does not depend on --
+//! see `RANGE_SPELLING_EXCEPTIONS`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::types::resolve_type;
+use scythe_codegen::GeneratedCode;
+use scythe_codegen::backends::get_backend;
 
 /// Engines with a range column type, and therefore the only engines whose
 /// manifests may declare the `range` container. See the module doc comment
@@ -154,11 +172,9 @@ const RANGE_CAPABLE_ENGINES: &[&str] = &["postgresql"];
 /// stopped matching must fail rather than sweep nothing and pass.
 const MANIFEST_FLOOR: usize = 102;
 
-/// Manifests expected to declare `range` -- the PostgreSQL targets, minus
-/// `rust-tokio-postgres` (see `RANGE_CAPABILITY_EXCEPTIONS`: its driver stack
-/// has no usable range representation, so it legitimately omits the key).
-/// Also a floor.
-const DECLARATION_FLOOR: usize = 18;
+/// Manifests expected to declare `range` -- the PostgreSQL targets. Also a
+/// floor.
+const DECLARATION_FLOOR: usize = 19;
 
 /// One entry in an exception list: the manifest file it exempts, and why.
 /// Same shape as `opt_command_regression.rs`'s `BackendNote`, and for the
@@ -172,27 +188,36 @@ struct ManifestNote {
 /// Manifests allowed to disagree with their engine's range capability --
 /// either declaring `range` for an engine that has none, or omitting it for
 /// an engine that has one.
-const RANGE_CAPABILITY_EXCEPTIONS: &[ManifestNote] = &[ManifestNote {
-    manifest: "rust-tokio-postgres.toml",
-    reason: "postgresql is range-capable, but postgres-types 0.2.14 (tokio-postgres's type crate, \
-             read from ~/.cargo/registry) ships no Range<T> with a FromSql/ToSql impl, and its \
-             FromSql for String explicitly excludes every range OID from accepts() -- so no string \
-             this manifest could name both compiles and decodes correctly. Fixing this for real \
-             needs a hand-rolled FromSql/ToSql wrapper in tokio_postgres.rs, out of scope for a \
-             manifest-only pass. Delete this entry once that reader lands and the manifest \
-             declares a real mapping.",
-}];
+///
+/// Empty, and kept rather than deleted with its last entry: an empty list is
+/// what makes the next mismatched declaration show up as a regression instead
+/// of as the status quo. `rust-tokio-postgres` no longer needs an entry here
+/// -- see the module doc comment's "now fixed" section -- it declares `range`
+/// like every other PostgreSQL manifest.
+const RANGE_CAPABILITY_EXCEPTIONS: &[ManifestNote] = &[];
 
 /// Manifests allowed to spell `range` differently from the rest of their
 /// language family.
-const RANGE_SPELLING_EXCEPTIONS: &[ManifestNote] = &[ManifestNote {
-    manifest: "python-psycopg3.toml",
-    reason: "asyncpg and psycopg3 each ship their own Range class -- asyncpg.Range and \
-             psycopg.types.range.Range -- confirmed live to be two distinct classes (asyncpg.Range \
-             is not psycopg.types.range.Range, and each driver decodes a range column into its own \
-             class, never the other's). Normalizing python-psycopg3 onto asyncpg.Range[{T}] would \
-             produce a type hint the psycopg driver never actually returns.",
-}];
+const RANGE_SPELLING_EXCEPTIONS: &[ManifestNote] = &[
+    ManifestNote {
+        manifest: "python-psycopg3.toml",
+        reason: "asyncpg and psycopg3 each ship their own Range class -- asyncpg.Range and \
+                 psycopg.types.range.Range -- confirmed live to be two distinct classes (asyncpg.Range \
+                 is not psycopg.types.range.Range, and each driver decodes a range column into its own \
+                 class, never the other's). Normalizing python-psycopg3 onto asyncpg.Range[{T}] would \
+                 produce a type hint the psycopg driver never actually returns.",
+    },
+    ManifestNote {
+        manifest: "rust-tokio-postgres.toml",
+        reason: "rust-sqlx spells range as sqlx::postgres::types::PgRange<{T}>, a real type sqlx-postgres \
+                 ships with Type/Encode/Decode impls. tokio-postgres's own type crate (postgres-types \
+                 0.2.14) has no equivalent, so rust-tokio-postgres.rs hand-rolls its own PgRange<T> -- a \
+                 FromSql/ToSql pair built on postgres_protocol::types::range_from_sql/range_to_sql, \
+                 emitted directly into the generated file rather than imported from a crate. Normalizing \
+                 onto sqlx's fully-qualified spelling would name a type this backend's dependency tree \
+                 does not have.",
+    },
+];
 
 /// A manifest's `range` declaration as it exists on disk.
 struct RangeDeclaration {
@@ -443,5 +468,85 @@ fn each_language_declares_one_range_spelling() {
         "{} language families need attention:\n{}",
         failures.len(),
         failures.join("\n")
+    );
+}
+
+/// Invariant three, `rust-tokio-postgres` only: a manifest string changing is
+/// not evidence the mapping decodes. This drives the real backend through
+/// `resolve_type` and `file_header_for_results` and checks the code it
+/// actually emits, the same standard `e850c2b0` demanded of the six mappings
+/// it fixed.
+#[test]
+fn rust_tokio_postgres_range_emits_a_working_pgrange_wrapper() {
+    let backend = get_backend("rust-tokio-postgres", "postgresql").expect("rust-tokio-postgres/postgresql");
+
+    let resolved = resolve_type("range<int32>", backend.manifest(), false).expect("range<int32> must resolve");
+    assert_eq!(
+        resolved.as_ref(),
+        "PgRange<i32>",
+        "the manifest's range mapping must substitute {{T}} the same way every other container does"
+    );
+
+    // A file with no range column must not carry the wrapper: nothing would
+    // reach it, and shipping it anyway is exactly the kind of unreachable
+    // "mapping" #198 exists to catch even when it happens to compile.
+    let no_range = [GeneratedCode::build(|c| {
+        c.row_struct = Some("pub struct GetUserRow {\n    pub id: i32,\n}\n".to_string());
+    })];
+    let header_without = backend.file_header_for_results(&no_range);
+    assert!(
+        !header_without.contains("PgRange"),
+        "a file with no range column must not carry the PgRange wrapper:\n{header_without}"
+    );
+
+    // A file that does name PgRange<...> -- exactly what row/model struct
+    // generation does for a `range<T>` column -- must carry a complete,
+    // correctly-shaped wrapper: an Empty/Range enum (not the empty-collapses-
+    // into-unbounded shape some other clients use), FromSql and ToSql impls
+    // keyed on tokio_postgres::types::Kind::Range for the element type, and
+    // decode/encode routed through postgres_protocol's binary range
+    // primitives rather than a text/string round-trip.
+    let with_range = [GeneratedCode::build(|c| {
+        c.row_struct = Some(format!("pub struct GetSpanRow {{\n    pub span: {resolved},\n}}\n"));
+    })];
+    let header_with = backend.file_header_for_results(&with_range);
+
+    for needle in [
+        "pub enum PgRange<T>",
+        "Empty,",
+        "Range {",
+        "std::ops::Bound<T>",
+        "impl<'a, T> tokio_postgres::types::FromSql<'a> for PgRange<T>",
+        "tokio_postgres::types::Kind::Range(element)",
+        "postgres_protocol::types::range_from_sql(raw)?",
+        "postgres_protocol::types::Range::Empty => Ok(PgRange::Empty)",
+        "impl<T> tokio_postgres::types::ToSql for PgRange<T>",
+        "postgres_protocol::types::empty_range_to_sql(out)",
+        "postgres_protocol::types::range_to_sql(",
+        "tokio_postgres::types::to_sql_checked!();",
+    ] {
+        assert!(
+            header_with.contains(needle),
+            "PgRange support text must contain {needle:?}, got:\n{header_with}"
+        );
+    }
+
+    // The wrapper is emitted exactly once even if several fragments in the
+    // same file name it -- `file_header_for_results` is a file-level hook,
+    // not a per-fragment one, so a second range column must not double the
+    // definition and hand `rustc` an E0428 duplicate-type error.
+    let two_range_fragments = [
+        GeneratedCode::build(|c| {
+            c.row_struct = Some(format!("pub struct GetSpanRow {{\n    pub span: {resolved},\n}}\n"));
+        }),
+        GeneratedCode::build(|c| {
+            c.model_struct = Some(format!("pub struct Booking {{\n    pub during: {resolved},\n}}\n"));
+        }),
+    ];
+    let header_twice = backend.file_header_for_results(&two_range_fragments);
+    assert_eq!(
+        header_twice.matches("pub enum PgRange<T>").count(),
+        1,
+        "PgRange must be defined exactly once per file regardless of how many fragments use it:\n{header_twice}"
     );
 }
