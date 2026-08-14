@@ -75,6 +75,7 @@ fun runMigration(conn: java.sql.Connection) {
         DROP TABLE IF EXISTS orders CASCADE;
         DROP TABLE IF EXISTS users CASCADE;
         DROP TYPE IF EXISTS user_status CASCADE;
+        DROP TYPE IF EXISTS user_address CASCADE;
     """.trimIndent()
 
     conn.createStatement().use { stmt ->

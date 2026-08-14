@@ -551,6 +551,12 @@ async function main(): Promise<void> {
 		await sql`DROP TABLE IF EXISTS orders CASCADE`.execute(db);
 		await sql`DROP TABLE IF EXISTS users CASCADE`.execute(db);
 		await sql`DROP TYPE IF EXISTS user_status CASCADE`.execute(db);
+		{#- This branch builds its own schema inline rather than reading sql/pg/schema.sql,
+		    so it never creates user_address -- but every postgres project in the CI job
+		    shares one database, and leaving the type behind makes the next project's
+		    CREATE TYPE fail with 42710. Teardown has to cover types this harness does not
+		    itself create. #}
+		await sql`DROP TYPE IF EXISTS user_address CASCADE`.execute(db);
 
 		await sql`CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned')`.execute(db);
 		await sql`CREATE TABLE users (
@@ -769,6 +775,9 @@ async function main(): Promise<void> {
 		await sql`DROP TABLE IF EXISTS orders CASCADE`;
 		await sql`DROP TABLE IF EXISTS users CASCADE`;
 		await sql`DROP TYPE IF EXISTS user_status CASCADE`;
+		{#- Same reason as the kysely branch above: this harness builds its schema inline and
+		    never creates user_address, but it shares the CI database with projects that do. #}
+		await sql`DROP TYPE IF EXISTS user_address CASCADE`;
 
 		await sql`CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned')`;
 		await sql`CREATE TABLE users (

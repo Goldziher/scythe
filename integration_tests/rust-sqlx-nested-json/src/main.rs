@@ -50,6 +50,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "DROP TABLE IF EXISTS orders CASCADE",
         "DROP TABLE IF EXISTS users CASCADE",
         "DROP TYPE IF EXISTS user_status CASCADE",
+        // ~keep This project reuses ../sql/pg/schema.sql, which defines user_address, and every
+        // postgres project in the CI job shares one database. Dropping only user_status left the
+        // composite behind and the next CREATE TYPE failed with 42710.
+        "DROP TYPE IF EXISTS user_address CASCADE",
     ] {
         sqlx::query(stmt).execute(&pool).await?;
     }

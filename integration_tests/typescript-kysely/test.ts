@@ -43,6 +43,7 @@ async function main(): Promise<void> {
 		await sql`DROP TABLE IF EXISTS orders CASCADE`.execute(db);
 		await sql`DROP TABLE IF EXISTS users CASCADE`.execute(db);
 		await sql`DROP TYPE IF EXISTS user_status CASCADE`.execute(db);
+		await sql`DROP TYPE IF EXISTS user_address CASCADE`.execute(db);
 
 		await sql`CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned')`.execute(db);
 		await sql`CREATE TABLE users (
