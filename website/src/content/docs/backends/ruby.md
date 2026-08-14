@@ -54,7 +54,7 @@ wrapper. Everything sits inside a single `module Queries ... end`
 (`integration_tests/ruby-pg/generated/queries.rb:1-21`):
 
 ```ruby
-# scythe:provenance v=0.14.0 backend=ruby-pg engine=postgresql schema=sch1:... queries=q1:...
+# scythe:provenance v=0.15.0 backend=ruby-pg engine=postgresql schema=sch1:... queries=q1:...
 
 module Queries
 
@@ -107,7 +107,7 @@ quoted, numeric values are interpolated bare
 
 ```ruby
 # frozen_string_literal: true
-# scythe:provenance v=0.14.0 backend=ruby-trilogy engine=mysql schema=sch1:... queries=q1:...
+# scythe:provenance v=0.15.0 backend=ruby-trilogy engine=mysql schema=sch1:... queries=q1:...
 
 module Queries
 

@@ -45,7 +45,7 @@ Every generated file starts with a provenance header, then the same
 (`integration_tests/rust-tokio-postgres/src/queries.rs:1-2`):
 
 ```rust
-// scythe:provenance v=0.14.0 backend=rust-tokio-postgres engine=postgresql schema=sch1:... queries=q1:...
+// scythe:provenance v=0.15.0 backend=rust-tokio-postgres engine=postgresql schema=sch1:... queries=q1:...
 #![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]
 ```
 
@@ -189,7 +189,7 @@ impl std::str::FromStr for UserStatus {
 | Row mapping | `#[derive(sqlx::FromRow)]` | Manual `from_row()` |
 | Query execution | `sqlx::query_as!()` macro | `client.query_one()` / `client.query()` |
 | Compile-time checks | Yes (with `DATABASE_URL`) | No |
-| Range types | `PgRange<T>` | `String` (serialized) |
+| Range types | `sqlx::postgres::types::PgRange<T>` | Hand-rolled `PgRange<T>` wrapper, built on `postgres_protocol::types::range_from_sql`/`range_to_sql` |
 | Enum types | `#[derive(sqlx::Type)]` | Manual `FromSql`/`ToSql` |
 | INET | `ipnetwork::IpNetwork` | `std::net::IpAddr` |
 
@@ -206,5 +206,5 @@ impl std::str::FromStr for UserStatus {
 | `JSON` / `JSONB` | `json` | `serde_json::Value` |
 | `INET` | `inet` | `std::net::IpAddr` |
 | `INTERVAL` | `interval` | `String` |
-| `INT4RANGE` | `range<int32>` | `String` |
+| `INT4RANGE` | `range<int32>` | `PgRange<i32>` |
 | nullable column | `nullable` | `Option<T>` |

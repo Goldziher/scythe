@@ -53,7 +53,7 @@ Every file `scythe generate` writes carries a first-line header recording the sc
 engine, backend, and scythe version it was generated from:
 
 ```text
-// scythe:provenance v=0.14.0 backend=rust-sqlx engine=postgresql schema=sch1:ebbab3de0c9715b8 queries=q1:4f39acbf854efd81
+// scythe:provenance v=0.15.0 backend=rust-sqlx engine=postgresql schema=sch1:ebbab3de0c9715b8 queries=q1:4f39acbf854efd81
 ```
 
 The comment marker matches the target language (`#` for Python, Ruby, and Elixir; `//` for
@@ -287,7 +287,7 @@ Exits with code 2 when any error-severity finding is present (unless `--exit-zer
 
 ### inspect
 
-Connect to a live database and run operational health checks — missing FK indexes, disabled RLS with policies, duplicate indexes. Emits findings in the same human/SARIF/JSON shape as `scythe audit`. See the [Inspect guide](/scythe/guide/inspect/) for the full check catalog and CI integration recipes.
+Connect to a live database and run operational health checks — missing FK indexes, disabled RLS with policies, duplicate indexes. Supports PostgreSQL (13 checks) and MySQL/MariaDB (4 checks). Emits findings in the same human/SARIF/JSON shape as `scythe audit`. See the [Inspect guide](/scythe/guide/inspect/) for the full check catalog and CI integration recipes.
 
 ```bash
 scythe inspect [OPTIONS] [DATABASE_URL]
@@ -303,7 +303,7 @@ scythe inspect [OPTIONS] [DATABASE_URL]
 | `-o, --output <PATH>` | (stdout) | Write reporter output to a file instead of stdout |
 | `--explain <CHECK_ID>` | -- | Print full rationale and remediation for a single check ID, then exit 0 |
 | `-c, --config <PATH>` | `scythe.toml` | Path to config file. Supplies `[inspect].database_url` when no URL is given elsewhere |
-| `--dialect <DIALECT>` | (from URL scheme) | Engine override: `postgres` (full), `mysql` (stub) |
+| `--dialect <DIALECT>` | (from URL scheme) | Engine override: `postgres`/`postgresql` (13 checks) or `mysql`/`mariadb` (4 checks) |
 
 Exits with code 2 when any error-severity finding is present (unless `--exit-zero` is set). Same convention as `scythe audit`.
 

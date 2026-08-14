@@ -3,7 +3,9 @@ title: PostgreSQL
 description: Scythe's primary and most complete SQL dialect -- supported features and type mapping table.
 ---
 
-Scythe's primary and most complete dialect. All features are supported.
+Scythe's primary and most complete dialect. Every feature below is parsed and compiled; the two
+caveats worth knowing before you rely on them are runtime composite decoding and nested aggregates,
+both noted where they apply.
 
 ## Supported features
 
@@ -51,8 +53,17 @@ Scythe's primary and most complete dialect. All features are supported.
 | `DATERANGE` | `range<date>` | |
 | `NUMRANGE` | `range<decimal>` | |
 | User-defined enum | `enum::name` | |
-| User-defined composite | `composite::name` | |
+| User-defined composite | `composite::name` | See note below -- most backends declare the type but do not decode it |
 | Domain type | resolves to base | NOT NULL propagated |
+
+A composite column is parsed and mapped to `composite::name` on every backend, and every backend
+emits a struct/record type for it. Decoding a **nullable composite column at runtime**, however, only
+works on four of the fifteen PostgreSQL backends: `rust-sqlx` and `rust-tokio-postgres` (via their
+drivers' derive macros) and `java-jdbc` and `kotlin-jdbc` (which parse the composite text form). On
+the other eleven -- `csharp-npgsql`, `python-psycopg3`, `python-asyncpg`, the `typescript-pg` family,
+`php-pdo`, `php-amphp`, `ruby-pg`, `elixir-postgrex`, `elixir-ecto` and `go-pgx` -- the generated row
+type declares the composite struct, but the driver's raw value is assigned straight through without
+parsing it, so the type annotation does not match what the driver returns at runtime.
 
 ## PostgreSQL-specific annotations
 

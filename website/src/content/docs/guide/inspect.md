@@ -33,8 +33,9 @@ The connection URL is resolved in order: positional argument →
 
 ## Check catalog
 
-Scythe ships 13 Postgres checks across three categories: `performance`, `security`, and
-`reliability`.
+Scythe ships 13 PostgreSQL checks across three categories (`performance`, `security`,
+`reliability`), plus 4 MySQL/MariaDB checks (`reliability`, `performance`) under the same
+`--dialect mysql` / `--dialect mariadb` engine.
 
 | ID | Name | Category | Severity | Detection |
 |---|---|---|---|---|
@@ -55,6 +56,22 @@ Scythe ships 13 Postgres checks across three categories: `performance`, `securit
 SC-INS01–03 are clean-room reimplementations of the equivalent supabase/splinter lints (0001, 0006,
 0009). See `ATTRIBUTIONS.md`.
 
+### MySQL / MariaDB checks
+
+MySQL and MariaDB share one driver and one check set — `SqlDialect::from_str` already normalizes
+both spellings to the same dialect, and both engines carry the same relevant `information_schema`
+columns. `--dialect mariadb` runs the identical `SC-INS-MY*` checks as `--dialect mysql`.
+
+| ID | Name | Category | Severity | Detection |
+|---|---|---|---|---|
+| SC-INS-MY01 | no-primary-key | reliability | warn | Ordinary `BASE TABLE` with no `PRIMARY KEY` — harms InnoDB row clustering and replication. |
+| SC-INS-MY02 | duplicate-index | performance | warn | Two or more indexes on the same table cover the same columns in the same order — wasted writes and storage. |
+| SC-INS-MY03 | auto-increment-overflow-risk | reliability | warn | An `AUTO_INCREMENT` column has consumed a large share of its type's range — approaching overflow. |
+| SC-INS-MY04 | memory-engine-in-prod | reliability | warn | A table is on the `MEMORY` storage engine — all data is discarded on restart. |
+
+MySQL/MariaDB has no equivalent of PostgreSQL's row-level security, extensions, or
+`SECURITY DEFINER` search-path pinning, so those PostgreSQL-only checks have no MySQL counterpart.
+
 ## Severity and exit codes
 
 `scythe inspect` follows the same exit-code convention as `scythe audit`:
@@ -72,19 +89,20 @@ emission. The default keeps everything.
 
 ## Engine support
 
-`scythe inspect` supports PostgreSQL (and PostgreSQL-compatible engines like
-CockroachDB; see the [`SqlDialect::from_str`](https://docs.rs/scythe-core/)
-mapping for the full list of accepted scheme aliases). MySQL is recognised
-but stubbed — every driver method returns "unsupported", and `scythe inspect
---dialect mysql --list-checks` prints:
+`scythe inspect` supports PostgreSQL (and PostgreSQL-compatible engines like CockroachDB; see the
+[`SqlDialect::from_str`](https://docs.rs/scythe-core/) mapping for the full list of accepted scheme
+aliases) and MySQL/MariaDB. `--dialect postgres`/`postgresql` runs the 13 `SC-INS*` checks; `--dialect
+mysql`/`mariadb` runs the 4 `SC-INS-MY*` checks — both engines share one driver and one check set,
+since `SqlDialect::from_str` normalizes both spellings onto the same dialect.
+
+Any other engine (SQLite, MSSQL, Snowflake, Oracle, Redshift) has no `scythe inspect` driver.
+`scythe inspect --dialect <engine> --list-checks` for one of these prints:
 
 ```text
-no checks available for engine `mysql` — try `scythe inspect --list-checks` with --dialect postgres
+no checks available for engine `<engine>` — try `scythe inspect --list-checks` with --dialect postgres
 ```
 
-A real MySQL driver has not shipped yet — see the roadmap below.
-
-Other engines (MSSQL, Snowflake, Oracle) are not yet wired.
+and a live run reports the engine as unsupported rather than connecting.
 
 ## Project configuration (`[inspect]` in `scythe.toml`)
 
@@ -192,7 +210,7 @@ set fail loudly with the same error as the CLI.
 
 ```yaml
 - repo: https://github.com/Goldziher/scythe
-  rev: v0.14.0
+  rev: v0.15.0
   hooks:
     - id: scythe-inspect
       # args: [--exit-zero]    # uncomment for advisory CI integration
@@ -231,10 +249,9 @@ inspect` does ("does my live database have an operational problem?").
 | **0** | v0.10.0 (shipped) | MVP — three Postgres checks | PG (MySQL stub) | SC-INS01..03 |
 | **1** | v0.11.0 (shipped) | Full PG check pack + TOML rule registry + `--explain` + `[inspect]` config | PG | SC-INS04..13 |
 | **2** | v0.14.0 (shipped, as `scythe check --database-url`) | Schema drift — declared catalog vs live | PG | SC-DRF01..07 |
-| **3** | not yet shipped | MySQL driver + initial MySQL check pack | PG + MySQL | SC-INS-MY01..06 |
+| **3** | shipped | MySQL/MariaDB driver + initial check pack | PG + MySQL/MariaDB | SC-INS-MY01..04 |
 | **4** | not yet shipped | Stats-based — unused indexes, slow queries via `pg_stat_*` | PG | SC-INS-STAT01..04 |
 
-Phases 0, 1, and 2 are implemented; phase 2 landed as `scythe check --database-url` rather than as an
-`inspect` check (see the note above). Phases 3 and 4 — including the MySQL driver — are not
-implemented; `crates/scythe-inspect/src/mysql/` remains a stub whose every method returns
-`InspectError::Unsupported`.
+Phases 0 through 3 are implemented; phase 2 landed as `scythe check --database-url` rather than as an
+`inspect` check (see the note above). Phase 3 shipped with 4 checks, not the 6 originally scoped.
+Phase 4 (stats-based checks) is not implemented.

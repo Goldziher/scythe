@@ -51,7 +51,7 @@ is worth making.
 | **58 built-in rules** | 23 lint rules (`UPDATE` without `WHERE`, `NULL` compared with `=`, leading-wildcard `LIKE`, `SELECT *`) and 35 audit rules, plus sqruff's style rules through `scythe fmt`. | [Lint rules](https://goldziher.github.io/scythe/reference/lint-rules/) · [Linting](https://goldziher.github.io/scythe/guide/linting/) |
 | **`scythe audit`** | Security and migration-safety scanning: dangerous functions, `GRANT` to `PUBLIC`, literal passwords, `SELECT *` over PII, plus 19 migration rules for locking `ALTER`s and destructive DDL. Human, SARIF or JSON. | [Audit](https://goldziher.github.io/scythe/guide/audit/) |
 | **`scythe check`** | Verifies committed code still matches the SQL it was generated from, via 8 provenance rules. Given `--database-url` it adds 7 schema-drift rules against a live PostgreSQL catalog. | [CLI reference](https://goldziher.github.io/scythe/guide/cli-reference/) |
-| **`scythe inspect`** | Live-database health checks: foreign keys without covering indexes, tables with policies but RLS disabled, duplicate indexes. PostgreSQL only. | [Inspect](https://goldziher.github.io/scythe/guide/inspect/) |
+| **`scythe inspect`** | Live-database health checks: foreign keys without covering indexes, tables with policies but RLS disabled, duplicate indexes. PostgreSQL (13 checks) and MySQL/MariaDB (4 checks). | [Inspect](https://goldziher.github.io/scythe/guide/inspect/) |
 | **Output you can shape** | Row types as Pydantic, msgspec, dataclasses, Zod schemas or plain interfaces, depending on backend; `structs_only` (TypeScript and `rust-sqlx`) for a types-only package; type overrides for `ltree`, `citext` or PostGIS. | [Configuration](https://goldziher.github.io/scythe/guide/configuration/) · [Custom types](https://goldziher.github.io/scythe/guide/custom-types/) |
 | **Annotations beyond `:one` / `:many`** | `@optional` compiles a parameter into a conditional filter, `:batch` for bulk operations, `@returns :grouped` with `@group_by` for nested results. | [Annotations](https://goldziher.github.io/scythe/guide/annotations/) |
 | **Coming from sqlc?** | `scythe migrate` converts an existing `sqlc.yaml` into a `scythe.toml`. | [Migration from sqlc](https://goldziher.github.io/scythe/getting-started/migration-from-sqlc/) |
@@ -81,7 +81,7 @@ platforms, proxy configuration and cache control.
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.14.0
+    rev: v0.15.0
     hooks:
       - id: scythe-fmt        # format SQL
       - id: scythe-lint       # lint with auto-fix

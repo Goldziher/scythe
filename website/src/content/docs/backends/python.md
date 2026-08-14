@@ -46,7 +46,7 @@ every row and function carries a one-line docstring. There is no `from __future_
 import (`integration_tests/python-psycopg3/generated/queries.py:1-9`):
 
 ```python
-# scythe:provenance v=0.14.0 backend=python-psycopg3 engine=postgresql schema=sch1:... queries=q1:...  # noqa: E501
+# scythe:provenance v=0.15.0 backend=python-psycopg3 engine=postgresql schema=sch1:... queries=q1:...  # noqa: E501
 import datetime  # noqa: F401
 import decimal  # noqa: F401
 from dataclasses import dataclass
