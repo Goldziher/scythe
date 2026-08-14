@@ -376,6 +376,7 @@ impl<'a> Analyzer<'a> {
                                     col.base_nullable,
                                     &source.alias,
                                     source.nullable_from_join,
+                                    &source.table_name,
                                 ),
                             ));
                         }
@@ -399,6 +400,7 @@ impl<'a> Analyzer<'a> {
                                         col.base_nullable,
                                         &source.alias,
                                         source.nullable_from_join,
+                                        &source.table_name,
                                     ),
                                 ));
                             }
@@ -641,6 +643,7 @@ impl<'a> Analyzer<'a> {
                                 sql_type: col.sql_type.clone(),
                                 neutral_type: col.neutral_type.clone(),
                                 nullable: col.base_nullable,
+                                source_relation: Some(source.table_name.clone()),
                                 ..Default::default()
                             });
                         }
@@ -661,6 +664,7 @@ impl<'a> Analyzer<'a> {
                                     sql_type: col.sql_type.clone(),
                                     neutral_type: col.neutral_type.clone(),
                                     nullable: col.base_nullable,
+                                    source_relation: Some(source.table_name.clone()),
                                     ..Default::default()
                                 });
                             }

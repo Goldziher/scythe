@@ -413,6 +413,39 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>,
     }
 }
 
+/// Reject a `column = "table.col"` override whose target names no column present in any of
+/// `analyzed_queries` -- almost always a typo'd table or column name.
+///
+/// Without this, such an entry is indistinguishable from a correct one that simply never
+/// happens to fire: [`scythe_codegen::resolve::resolve_columns`] silently falls back to the
+/// column's inferred type either way (#189). Covers every query's flat `columns` plus, for a
+/// `:grouped` query, both halves of `group_by`'s parent/child split -- the same column sets
+/// [`generate_with_backend_and_overrides`] and [`generate_rbs_if_supported`] resolve.
+fn check_type_overrides_resolve(
+    config_name: &str,
+    analyzed_queries: &[AnalyzedQuery],
+    overrides: &[TypeOverride],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let known = scythe_codegen::overrides::column_references(analyzed_queries.iter().flat_map(|query| {
+        let group_columns = query
+            .group_by
+            .iter()
+            .flat_map(|group| group.parent_columns.iter().chain(group.child_columns.iter()));
+        query.columns.iter().chain(group_columns)
+    }));
+    let unmatched = scythe_codegen::overrides::unmatched_column_overrides(overrides, &known);
+    if unmatched.is_empty() {
+        return Ok(());
+    }
+    let names: Vec<&str> = unmatched.iter().filter_map(|o| o.column.as_deref()).collect();
+    Err(format!(
+        "[{config_name}] type_overrides column reference(s) match no column in any resolved query -- check for \
+         a typo in the table or column name: {}",
+        names.join(", ")
+    )
+    .into())
+}
+
 pub fn run_generate(
     config_path: &str,
     allow_output_escape: bool,
@@ -547,6 +580,16 @@ fn run_generate_inner(
                 neutral_type: o.neutral_type.clone(),
             })
             .collect();
+
+        // A `column = "table.col"` override that names no relation/column pair present in
+        // any query this block resolves is a config mistake -- almost always a typo'd table
+        // or column name -- that would otherwise stay completely silent: it simply never
+        // gets a chance to fire (#189). Checked once per block, before any target is
+        // generated -- a hard error rather than a warning, the same severity this file
+        // already gives a config mistake that can never be correct (e.g. two targets
+        // colliding on one output path, an unannotated SQL block): a warning would compete
+        // with the other `eprintln!` progress lines and is easy to miss in CI.
+        check_type_overrides_resolve(&sql_config.name, &analyzed_queries, &overrides)?;
 
         let gen_targets = resolve_gen_targets(sql_config)?;
 
@@ -935,6 +978,85 @@ fn provenance_header_line(
     )
 }
 
+/// Reject two queries destined for one output file whose row/model struct or
+/// enum declaration resolves to the same generated identifier with a
+/// *different* rendered body.
+///
+/// `scythe-codegen`'s `resolve::check_type_name_collisions` only compares
+/// names *within one query's own* enum list, plus that query's own row/model
+/// type -- it has no view of any other query written into the same file.
+/// Two different queries can independently derive the same `struct_case`
+/// name here: `@name get_user` and `@name GetUser` both PascalCase to
+/// `GetUserRow`, and nothing caught that before `assemble_body` rendered
+/// both declarations into one file (board #200). The same gap exists across
+/// two different enums whose SQL names case-convert to the same identifier.
+///
+/// A name collision with an *identical* rendered body is not an error: it is
+/// the same "one declaration, reused" case `assemble_body` already dedupes
+/// for a shared table model or a composite reachable from two queries --
+/// keyed there on rendered text, and here on declared name plus body, so the
+/// two agree on what counts as the same declaration rather than a
+/// redeclaration.
+///
+/// Deliberately independent of `assemble_body`'s own text-exact dedup sets:
+/// this runs first, over the full `(name, body)` picture, so it reports the
+/// SQL-level source of a collision (`query 'X'`, `enum 'Y'`) rather than
+/// leaving two textually different declarations to reach the same generated
+/// file and fail whatever compiler reads it next.
+fn check_file_level_type_name_collisions(
+    analyzed_queries: &[AnalyzedQuery],
+    results: &[QueryResult],
+    backend: &dyn CodegenBackend,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let naming = &backend.manifest().naming;
+    let mut declared: AHashMap<String, (String, String)> = AHashMap::new();
+
+    for (analyzed, result) in analyzed_queries.iter().zip(results) {
+        if let Some(ref table_name) = analyzed.source_table {
+            if let Some(ref body) = result.code.model_struct {
+                let name = scythe_codegen::model_struct_name(table_name, naming);
+                record_type_declaration(&mut declared, name, format!("table '{table_name}'"), body)?;
+            }
+        } else if let Some(ref body) = result.code.row_struct {
+            let name = row_struct_name(&analyzed.name, naming);
+            record_type_declaration(&mut declared, name, format!("query '{}'", analyzed.name), body)?;
+        }
+
+        for info in &result.enums {
+            let nested = result.nested_enum_names.iter().any(|n| n == &info.sql_name);
+            let body = generate_single_enum_def_with_backend(info, backend, nested)
+                .map_err(|e| format!("rendering enum '{}' for collision check: {e}", info.sql_name))?;
+            let name = enum_type_name(&info.sql_name, naming);
+            record_type_declaration(&mut declared, name, format!("enum '{}'", info.sql_name), &body)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Record one generated declaration under `name`. A second declaration under
+/// the same `name` is accepted silently when its body is byte-identical to
+/// the first (the intended dedup), and rejected otherwise.
+fn record_type_declaration(
+    declared: &mut AHashMap<String, (String, String)>,
+    name: String,
+    source: String,
+    body: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some((prev_source, prev_body)) = declared.get(&name) {
+        if prev_body != body {
+            return Err(format!(
+                "{prev_source} and {source} both generate a declaration named '{name}' with different bodies -- \
+                 rename one of them (@name, or the qualifying schema/table) so the generated names differ"
+            )
+            .into());
+        }
+        return Ok(());
+    }
+    declared.insert(name, (source, body.to_string()));
+    Ok(())
+}
+
 /// Assemble a backend's complete generated file: preamble (text that must
 /// be the literal first bytes, e.g. PHP's `<?php`), the provenance header
 /// line, then the assembled body (file header, deduped enums, structs,
@@ -1256,6 +1378,8 @@ fn generate_for_backend(
         });
     }
 
+    check_file_level_type_name_collisions(analyzed_queries, &results, backend)?;
+
     let mut output_content = assemble_output(backend, &results, engine, schema, queries, options);
 
     let filename = output_filename(backend);
@@ -1464,13 +1588,11 @@ fn generate_rbs_if_supported(
                 degraded_parent.as_deref().unwrap_or(&group_by.parent_columns),
                 manifest,
                 overrides,
-                source_table,
             )?;
             let child_cols = scythe_codegen::resolve::resolve_columns(
                 degraded_child.as_deref().unwrap_or(&group_by.child_columns),
                 manifest,
                 overrides,
-                source_table,
             )?;
             let params = scythe_codegen::resolve::resolve_params(&analyzed.params, manifest, overrides, source_table)?;
 
@@ -1504,7 +1626,6 @@ fn generate_rbs_if_supported(
                 degraded_columns.as_deref().unwrap_or(&analyzed.columns),
                 manifest,
                 overrides,
-                source_table,
             )?;
             let params = scythe_codegen::resolve::resolve_params(&analyzed.params, manifest, overrides, source_table)?;
 
@@ -2694,6 +2815,108 @@ SELECT * FROM users WHERE id = $1;
         assert_eq!(blocks.len(), 0);
     }
 
+    /// Must fail before the fix: pre-#189 `generate` had no such check at all, so a
+    /// `column` override naming a table or column that exists nowhere in the schema
+    /// (a typo) silently generated code with the override never applied, exit 0.
+    #[test]
+    fn check_type_overrides_resolve_rejects_column_matching_nothing() {
+        use scythe_core::analyzer::AnalyzedColumn;
+
+        let query = AnalyzedQuery::build(|q| {
+            q.name = "GetUser".to_string();
+            q.columns = vec![AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                source_relation: Some("users".to_string()),
+                ..Default::default()
+            }];
+        });
+        let overrides = vec![TypeOverride {
+            column: Some("users.emial".to_string()), // deliberate typo
+            db_type: None,
+            neutral_type: Some("string".to_string()),
+        }];
+
+        let err = check_type_overrides_resolve("main", &[query], &overrides)
+            .expect_err("a column override naming no real column must be rejected");
+        let message = err.to_string();
+        assert!(message.contains("users.emial"), "{message}");
+        assert!(message.contains("main"), "{message}");
+    }
+
+    /// A column override that does name a real, resolved column must not be flagged --
+    /// the companion case to the rejection above, pinning that the check only fires on a
+    /// genuine miss.
+    #[test]
+    fn check_type_overrides_resolve_passes_when_column_matches() {
+        use scythe_core::analyzer::AnalyzedColumn;
+
+        let query = AnalyzedQuery::build(|q| {
+            q.name = "GetUser".to_string();
+            q.columns = vec![AnalyzedColumn {
+                name: "email".to_string(),
+                neutral_type: "string".to_string(),
+                source_relation: Some("users".to_string()),
+                ..Default::default()
+            }];
+        });
+        let overrides = vec![TypeOverride {
+            column: Some("users.email".to_string()),
+            db_type: None,
+            neutral_type: Some("json".to_string()),
+        }];
+
+        check_type_overrides_resolve("main", &[query], &overrides).expect("users.email is a real column");
+    }
+
+    /// A `:grouped` query's child columns are never in `AnalyzedQuery::columns` -- they
+    /// live in `group_by.child_columns` -- so a `column` override targeting one must be
+    /// checked against that split too, or every such override would be reported as a false
+    /// positive.
+    #[test]
+    fn check_type_overrides_resolve_matches_grouped_child_column() {
+        use scythe_core::analyzer::{AnalyzedColumn, GroupByConfig};
+
+        let query = AnalyzedQuery::build(|q| {
+            q.name = "GetUserWithOrders".to_string();
+            q.group_by = Some(GroupByConfig {
+                table: "users".to_string(),
+                key_column: "id".to_string(),
+                parent_columns: Vec::new(),
+                child_columns: vec![AnalyzedColumn {
+                    name: "total".to_string(),
+                    neutral_type: "int32".to_string(),
+                    source_relation: Some("orders".to_string()),
+                    ..Default::default()
+                }],
+            });
+        });
+        let overrides = vec![TypeOverride {
+            column: Some("orders.total".to_string()),
+            db_type: None,
+            neutral_type: Some("string".to_string()),
+        }];
+
+        check_type_overrides_resolve("main", &[query], &overrides).expect("orders.total is a real child column");
+    }
+
+    /// A `db_type`-only override has no single column to miss, so it must never be
+    /// reported by the `column`-targeted check even when it matches no schema column by
+    /// name (it isn't naming one).
+    #[test]
+    fn check_type_overrides_resolve_ignores_db_type_only_overrides() {
+        let query = AnalyzedQuery::build(|q| {
+            q.name = "GetUser".to_string();
+        });
+        let overrides = vec![TypeOverride {
+            column: None,
+            db_type: Some("ltree".to_string()),
+            neutral_type: Some("string".to_string()),
+        }];
+
+        check_type_overrides_resolve("main", &[query], &overrides).expect("db_type-only overrides are never flagged");
+    }
+
     /// Minimal `[[sql]]` preamble shared by the config-parsing tests below --
     /// only `sql` varies between them.
     fn sql_block(sql: &str) -> String {
@@ -3124,7 +3347,11 @@ backend = \"rust-sqlx\"
             ("python-psycopg3", "class Address:"),
             ("typescript-pg", "export interface Address {"),
             ("go-pgx", "type Address struct {"),
-            ("java-jdbc", "public record Address(String street) {}"),
+            // ~keep Opening brace only, like every other entry here. This used to match the
+            // whole `{}` because a java-jdbc composite record had an empty body; it now carries
+            // the `fromText` parser board #196 added, so a closed-body marker would pin the
+            // record to having no members.
+            ("java-jdbc", "public record Address(String street) {"),
             ("kotlin-exposed", "data class Address("),
             ("ruby-pg", "Address = Data.define("),
             ("php-pdo", "readonly class Address {"),
@@ -3166,6 +3393,149 @@ backend = \"rust-sqlx\"
                 "{backend_name}: the composite declaration must be emitted exactly once when two queries \
                  select it; before the board #166 fix this printed 2 (one per query). Output:\n{output}"
             );
+        }
+    }
+
+    /// board #200: two queries whose row struct names collapse onto the same
+    /// identifier under `struct_case`, but whose columns differ, must be
+    /// rejected before assembly. `resolve::check_type_name_collisions` only
+    /// ever compares a query's enums against that same query's own row/model
+    /// type -- it never sees a second query's row struct at all, so before
+    /// this check the file would have declared `GetUserRow` twice with
+    /// different fields (`E0428` and its equivalent in every other target).
+    #[test]
+    fn check_file_level_type_name_collisions_rejects_row_structs_with_different_bodies() {
+        use scythe_core::analyzer::AnalyzedColumn;
+
+        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+
+        let make_query = |name: &str, column: &str| {
+            AnalyzedQuery::build(|q| {
+                q.name = name.to_string();
+                q.command = QueryCommand::One;
+                q.columns = vec![AnalyzedColumn {
+                    name: column.to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                }];
+            })
+        };
+
+        // "get_user" and "GetUser" are both valid, distinct @name values that
+        // `row_struct_name` case-converts to the identical "GetUserRow".
+        let query_a = make_query("get_user", "id");
+        let query_b = make_query("GetUser", "name");
+
+        let code_a = scythe_codegen::generate_with_backend(&query_a, backend.as_ref()).expect("query_a generates");
+        let code_b = scythe_codegen::generate_with_backend(&query_b, backend.as_ref()).expect("query_b generates");
+
+        let analyzed = vec![query_a, query_b];
+        let results = vec![query_result_with_code(code_a), query_result_with_code(code_b)];
+
+        let err = check_file_level_type_name_collisions(&analyzed, &results, backend.as_ref())
+            .expect_err("get_user and GetUser both derive GetUserRow with different columns");
+        let message = err.to_string();
+        assert!(message.contains("GetUserRow"), "{message}");
+        assert!(message.contains("get_user"), "{message}");
+        assert!(message.contains("GetUser"), "{message}");
+    }
+
+    /// The identical-name counterpart of the test above: when both queries'
+    /// row structs render byte-identical text under the same name, that is
+    /// the intended dedup (the same shape `assemble_body` already grants a
+    /// shared table model or composite), not a collision, and must pass.
+    #[test]
+    fn check_file_level_type_name_collisions_allows_identical_row_structs() {
+        use scythe_core::analyzer::AnalyzedColumn;
+
+        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+
+        let make_query = |name: &str| {
+            AnalyzedQuery::build(|q| {
+                q.name = name.to_string();
+                q.command = QueryCommand::One;
+                q.columns = vec![AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                }];
+            })
+        };
+
+        let query_a = make_query("get_user");
+        let query_b = make_query("GetUser");
+
+        let code_a = scythe_codegen::generate_with_backend(&query_a, backend.as_ref()).expect("query_a generates");
+        let code_b = scythe_codegen::generate_with_backend(&query_b, backend.as_ref()).expect("query_b generates");
+        assert_eq!(
+            code_a.row_struct, code_b.row_struct,
+            "test premise: identical columns under the same generated name must render identical text"
+        );
+
+        let analyzed = vec![query_a, query_b];
+        let results = vec![query_result_with_code(code_a), query_result_with_code(code_b)];
+
+        check_file_level_type_name_collisions(&analyzed, &results, backend.as_ref())
+            .expect("identical row struct bodies under the same generated name must dedupe, not collide");
+    }
+
+    /// board #200's other shape: two *different* queries each declaring an
+    /// enum whose SQL name case-converts to the same identifier, with
+    /// different variants. `resolve::check_type_name_collisions` runs once
+    /// per query and never compares across queries, so this reached
+    /// `assemble_body`'s per-`sql_name` enum dedup unguarded -- which keys on
+    /// the raw SQL name, not the generated one, so `order_status` and
+    /// `order-status` were treated as two distinct enums and both emitted as
+    /// `pub enum OrderStatus`.
+    #[test]
+    fn check_file_level_type_name_collisions_rejects_enums_with_different_bodies() {
+        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+
+        let analyzed = vec![
+            AnalyzedQuery::build(|q| {
+                q.name = "GetOrder".to_string();
+                q.command = QueryCommand::One;
+            }),
+            AnalyzedQuery::build(|q| {
+                q.name = "GetOtherOrder".to_string();
+                q.command = QueryCommand::One;
+            }),
+        ];
+
+        let enum_a = EnumInfo {
+            sql_name: "order_status".to_string(),
+            values: vec!["pending".to_string(), "shipped".to_string()],
+        };
+        let enum_b = EnumInfo {
+            sql_name: "order-status".to_string(),
+            values: vec!["open".to_string(), "closed".to_string()],
+        };
+
+        let results = vec![
+            QueryResult {
+                code: scythe_codegen::GeneratedCode::default(),
+                enums: vec![enum_a],
+                nested_enum_names: Vec::new(),
+            },
+            QueryResult {
+                code: scythe_codegen::GeneratedCode::default(),
+                enums: vec![enum_b],
+                nested_enum_names: Vec::new(),
+            },
+        ];
+
+        let err = check_file_level_type_name_collisions(&analyzed, &results, backend.as_ref())
+            .expect_err("order_status and order-status both derive OrderStatus with different variants");
+        assert!(err.to_string().contains("OrderStatus"), "{err}");
+    }
+
+    fn query_result_with_code(code: scythe_codegen::GeneratedCode) -> QueryResult {
+        QueryResult {
+            code,
+            enums: Vec::new(),
+            nested_enum_names: Vec::new(),
         }
     }
 

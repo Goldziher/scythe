@@ -13,19 +13,23 @@ use crate::overrides::{TypeOverride, find_override};
 /// When `overrides` is non-empty, each column is checked against the override
 /// list before the normal type-resolution path. The first matching override
 /// replaces the column's neutral type.
+///
+/// `column_match` is built per column from [`AnalyzedColumn::source_relation`] -- the
+/// analyzer's real owning-table for that column -- rather than from a single query-level
+/// table name. A query-level name only ever exists for a single-table `SELECT *`
+/// (`detect_select_star_source`), so building `column_match` from it made a `column =
+/// "table.col"` override a no-op for every other projection (#189).
 pub fn resolve_columns(
     columns: &[AnalyzedColumn],
     manifest: &BackendManifest,
     overrides: &[TypeOverride],
-    source_table: &str,
 ) -> Result<Vec<ResolvedColumn>, ScytheError> {
     let resolved: Vec<ResolvedColumn> = columns
         .iter()
         .map(|col| {
-            let column_match = if source_table.is_empty() {
-                String::new()
-            } else {
-                format!("{}.{}", source_table, col.name)
+            let column_match = match col.source_relation {
+                Some(ref relation) => format!("{relation}.{}", col.name),
+                None => String::new(),
             };
             let effective_neutral_type =
                 find_override(overrides, &column_match, &col.neutral_type).unwrap_or(&col.neutral_type);
@@ -299,6 +303,19 @@ mod tests {
         }
     }
 
+    /// A column with a real owning relation, the way the analyzer populates it for both an
+    /// explicit select list and a `SELECT *` expansion alike (#189) -- unlike `test_column`
+    /// above, whose `source_relation` defaults to `None`, the shape a computed expression or
+    /// a literal gets.
+    fn test_column_with_relation(name: &str, relation: &str) -> AnalyzedColumn {
+        AnalyzedColumn {
+            name: name.to_string(),
+            neutral_type: "string".to_string(),
+            source_relation: Some(relation.to_string()),
+            ..Default::default()
+        }
+    }
+
     fn test_param(name: &str, position: i64) -> AnalyzedParam {
         AnalyzedParam {
             name: name.to_string(),
@@ -311,14 +328,14 @@ mod tests {
     #[test]
     fn test_resolve_columns_defaults_to_snake_case_field_names() {
         let manifest = test_manifest("snake_case");
-        let resolved = resolve_columns(&[test_column("UserId")], &manifest, &[], "").unwrap();
+        let resolved = resolve_columns(&[test_column("UserId")], &manifest, &[]).unwrap();
         assert_eq!(resolved[0].field_name, "user_id");
     }
 
     #[test]
     fn test_resolve_columns_honors_camel_case_field_case() {
         let manifest = test_manifest("camelCase");
-        let resolved = resolve_columns(&[test_column("user_id")], &manifest, &[], "").unwrap();
+        let resolved = resolve_columns(&[test_column("user_id")], &manifest, &[]).unwrap();
         assert_eq!(resolved[0].field_name, "userId");
     }
 
@@ -341,7 +358,7 @@ mod tests {
     #[test]
     fn test_resolve_columns_rejects_collision_under_snake_case() {
         let manifest = test_manifest("snake_case");
-        let err = resolve_columns(&[test_column("user_id"), test_column("USER_ID")], &manifest, &[], "")
+        let err = resolve_columns(&[test_column("user_id"), test_column("USER_ID")], &manifest, &[])
             .expect_err("user_id and USER_ID must collide under snake_case too");
         let message = err.to_string();
         assert!(message.contains("user_id"), "{message}");
@@ -355,7 +372,7 @@ mod tests {
     #[test]
     fn test_resolve_columns_rejects_collision_under_camel_case() {
         let manifest = test_manifest("camelCase");
-        let err = resolve_columns(&[test_column("user_id"), test_column("userId")], &manifest, &[], "")
+        let err = resolve_columns(&[test_column("user_id"), test_column("userId")], &manifest, &[])
             .expect_err("user_id and userId must collide under camelCase");
         let message = err.to_string();
         assert!(message.contains("user_id"), "{message}");
@@ -372,7 +389,7 @@ mod tests {
             ("USER_ID", "userId"),
             ("UserId", "userId"),
         ] {
-            resolve_columns(&[test_column(a), test_column(b)], &manifest, &[], "")
+            resolve_columns(&[test_column(a), test_column(b)], &manifest, &[])
                 .expect_err(&format!("{a} and {b} must collide under camelCase"));
         }
     }
@@ -380,14 +397,14 @@ mod tests {
     #[test]
     fn test_resolve_columns_rejects_double_underscore_collision() {
         let manifest = test_manifest("camelCase");
-        resolve_columns(&[test_column("a_b"), test_column("a__b")], &manifest, &[], "")
+        resolve_columns(&[test_column("a_b"), test_column("a__b")], &manifest, &[])
             .expect_err("a_b and a__b must both collapse to aB under camelCase");
     }
 
     #[test]
     fn test_resolve_columns_rejects_leading_underscore_collision() {
         let manifest = test_manifest("camelCase");
-        resolve_columns(&[test_column("id"), test_column("_id")], &manifest, &[], "")
+        resolve_columns(&[test_column("id"), test_column("_id")], &manifest, &[])
             .expect_err("id and _id must both collapse to id under camelCase");
     }
 
@@ -399,10 +416,76 @@ mod tests {
         assert!(err.to_string().contains("params"), "{err}");
     }
 
+    /// Must fail before the fix: `column_match` used to be built once, for the whole query,
+    /// from `analyzed.source_table` -- which `detect_select_star_source` only ever
+    /// populates for a single-table `SELECT *`. For `SELECT id FROM users` (an explicit
+    /// select list), that query-level name was empty, so `column_match` was `""` for every
+    /// column and `"users.id"` could never match it -- the override silently never fired
+    /// (#189). Rebuilding `column_match` per column from `AnalyzedColumn::source_relation`
+    /// fixes it because the analyzer populates that field the same way regardless of
+    /// whether the column came from a wildcard or an explicit list.
+    #[test]
+    fn test_resolve_columns_applies_qualified_override_on_explicit_select_list() {
+        let manifest = test_manifest("snake_case");
+        let overrides = vec![TypeOverride {
+            column: Some("users.id".to_string()),
+            db_type: None,
+            neutral_type: Some("int32".to_string()),
+        }];
+        let resolved = resolve_columns(&[test_column_with_relation("id", "users")], &manifest, &overrides).unwrap();
+        assert_eq!(resolved[0].neutral_type, "int32");
+        assert_eq!(resolved[0].lang_type, "i32");
+    }
+
+    /// The scenario #189 says already worked and must keep working: a `SELECT *` expansion
+    /// resolves every column to the same single table, and the analyzer stamps that same
+    /// `source_relation` on each one, so a qualified override still applies post-fix.
+    #[test]
+    fn test_resolve_columns_qualified_override_still_applies_for_select_star() {
+        let manifest = test_manifest("snake_case");
+        let overrides = vec![TypeOverride {
+            column: Some("users.id".to_string()),
+            db_type: None,
+            neutral_type: Some("int32".to_string()),
+        }];
+        let columns = [
+            test_column_with_relation("id", "users"),
+            test_column_with_relation("name", "users"),
+        ];
+        let resolved = resolve_columns(&columns, &manifest, &overrides).unwrap();
+        assert_eq!(
+            resolved[0].neutral_type, "int32",
+            "id: the qualified override must apply"
+        );
+        assert_eq!(
+            resolved[1].neutral_type, "string",
+            "name: untouched by an override naming a different column"
+        );
+    }
+
+    /// Must fail before the fix: `TypeOverride::matches` returned `false` as soon as
+    /// `column` was set and didn't match, without ever checking `db_type` on that same
+    /// entry -- a combined `column` + `db_type` override went completely silent for every
+    /// column but the one literally named in `column` (#189), instead of degrading to the
+    /// type-level rule.
+    #[test]
+    fn test_resolve_columns_combined_override_falls_through_to_db_type() {
+        let manifest = test_manifest("snake_case");
+        let overrides = vec![TypeOverride {
+            column: Some("users.name".to_string()),
+            db_type: Some("string".to_string()),
+            neutral_type: Some("int32".to_string()),
+        }];
+        // `orders.total` doesn't match `column`, but its neutral_type ("string") matches
+        // `db_type` -- the entry must still fire via that fallback.
+        let resolved = resolve_columns(&[test_column_with_relation("total", "orders")], &manifest, &overrides).unwrap();
+        assert_eq!(resolved[0].neutral_type, "int32");
+    }
+
     #[test]
     fn test_resolve_columns_no_collision_when_names_differ() {
         let manifest = test_manifest("camelCase");
-        let resolved = resolve_columns(&[test_column("user_id"), test_column("order_id")], &manifest, &[], "").unwrap();
+        let resolved = resolve_columns(&[test_column("user_id"), test_column("order_id")], &manifest, &[]).unwrap();
         assert_eq!(resolved[0].field_name, "userId");
         assert_eq!(resolved[1].field_name, "orderId");
     }

@@ -409,6 +409,7 @@ impl<'a> Analyzer<'a> {
                         col.base_nullable,
                         &source.alias,
                         source.nullable_from_join,
+                        &source.table_name,
                     );
                 }
             }
@@ -422,6 +423,7 @@ impl<'a> Analyzer<'a> {
                         col.base_nullable,
                         &source.alias,
                         source.nullable_from_join,
+                        &source.table_name,
                     );
                     if found.is_some() {
                         return TypeInfo::new(format!("{AMBIGUOUS_COLUMN_MARKER}{col_name}"), false);

@@ -601,15 +601,14 @@ async fn evaluate_fixture<E: Executor>(
         }
     })?;
     let manifest = backend.manifest();
-    let resolved =
-        scythe_codegen::resolve::resolve_columns(&analyzed.columns, manifest, &[], "").map_err(|source| {
-            let (fixture, engine) = err_ctx();
-            RunnerError::Resolve {
-                fixture,
-                engine,
-                source,
-            }
-        })?;
+    let resolved = scythe_codegen::resolve::resolve_columns(&analyzed.columns, manifest, &[]).map_err(|source| {
+        let (fixture, engine) = err_ctx();
+        RunnerError::Resolve {
+            fixture,
+            engine,
+            source,
+        }
+    })?;
 
     let schema_path = config
         .schemas_root

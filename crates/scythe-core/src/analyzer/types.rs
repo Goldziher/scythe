@@ -191,6 +191,21 @@ pub struct AnalyzedColumn {
     /// SQL type.
     #[cfg_attr(feature = "serde", serde(default))]
     pub sql_type: String,
+    /// The table (or CTE/derived-relation alias) this column resolves to directly, e.g.
+    /// `"users"` for `SELECT id FROM users` or `SELECT u.id FROM users u`. `None` for a
+    /// column with no single owning relation -- a computed expression, a literal, or a
+    /// function result -- which is exactly the case a qualified `column = "table.col"`
+    /// type override can never legitimately target.
+    ///
+    /// Populated for both `SELECT *` expansion and an explicit select list, so a type
+    /// override's `table.column` match no longer depends on the query being `SELECT *`
+    /// (see #189: it silently matched nothing for any other projection).
+    ///
+    /// `#[serde(default)]` so payloads serialized before this field existed keep
+    /// deserializing -- but adding this key changes any content hash computed over the
+    /// serialized `AnalyzedQuery`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub source_relation: Option<String>,
 }
 
 impl AnalyzedColumn {
@@ -211,6 +226,7 @@ impl AnalyzedColumn {
             join_group: type_info.join_group,
             nullable_before_join: type_info.nullable_before_join,
             sql_type,
+            source_relation: type_info.source_relation,
         }
     }
 }
@@ -311,6 +327,11 @@ pub(super) struct TypeInfo {
     /// expressions — which avoids allocating a duplicate `String` on every
     /// expression node during type inference.
     pub(super) sql_type: Option<String>,
+    /// The relation (table, CTE, or derived-alias) this value resolves to
+    /// directly. `None` for anything without a single owning relation —
+    /// a computed expression, a literal, a function result. See
+    /// [`AnalyzedColumn::source_relation`].
+    pub(super) source_relation: Option<String>,
 }
 
 impl TypeInfo {
@@ -322,21 +343,25 @@ impl TypeInfo {
             nullable,
             join_group: None,
             nullable_before_join: nullable,
+            source_relation: None,
         }
     }
 
     /// Build type info for a column resolved from a relation in scope.
     ///
-    /// Carries two things the neutral type alone cannot express: the raw SQL
+    /// Carries three things the neutral type alone cannot express: the raw SQL
     /// type, so backends can distinguish storage representations that collapse
-    /// to the same neutral type (Oracle CLOB vs. VARCHAR2), and where the
-    /// column's nullability came from, so outer-joined columns can be grouped.
+    /// to the same neutral type (Oracle CLOB vs. VARCHAR2); where the column's
+    /// nullability came from, so outer-joined columns can be grouped; and the
+    /// owning relation's real table name (not just its query alias), so a
+    /// qualified `table.column` type override can bind to it (#189).
     pub(super) fn from_scope_column(
         sql_type: impl Into<String>,
         neutral_type: impl Into<String>,
         base_nullable: bool,
         source_alias: &str,
         nullable_from_join: bool,
+        source_table: &str,
     ) -> Self {
         Self {
             sql_type: Some(sql_type.into()),
@@ -344,6 +369,7 @@ impl TypeInfo {
             nullable: base_nullable || nullable_from_join,
             join_group: nullable_from_join.then(|| source_alias.to_string()),
             nullable_before_join: base_nullable,
+            source_relation: Some(source_table.to_string()),
         }
     }
 

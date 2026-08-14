@@ -424,6 +424,108 @@ SELECT * FROM users;",
         assert_eq!(result.columns.len(), 8);
     }
 
+    /// #189: a `column = "table.col"` type override was a silent no-op for any
+    /// projection other than `SELECT *`, because only the wildcard-expansion path
+    /// carried a source table and the codegen matcher had nothing to bind an
+    /// explicit select list's columns to. Before `source_relation` was threaded
+    /// through the plain-identifier resolution path (`resolve_column_in_scope`),
+    /// every `AnalyzedColumn` produced by an explicit select list left this field
+    /// at its `Default` value (`None`) -- indistinguishable from a computed
+    /// expression with no owning relation. This pins that an explicit list now
+    /// carries the same per-column relation a `SELECT *` expansion always did.
+    #[test]
+    fn test_source_relation_populated_for_explicit_select_list() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUser
+-- @returns :one
+SELECT id, name, email FROM users WHERE id = $1;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(result.columns[0].source_relation.as_deref(), Some("users"));
+        assert_eq!(result.columns[1].source_relation.as_deref(), Some("users"));
+        assert_eq!(result.columns[2].source_relation.as_deref(), Some("users"));
+    }
+
+    /// A column with no single owning relation -- here, an aggregate function
+    /// result -- must report `source_relation: None` rather than guessing the
+    /// query's only table. A qualified override naming this column is a config
+    /// error the caller must diagnose, not something this field should paper
+    /// over by pretending the computed value "belongs" to a table.
+    #[test]
+    fn test_source_relation_none_for_computed_expression() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name UserCount
+-- @returns :one
+SELECT COUNT(*) as total FROM users;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(result.columns[0].source_relation, None);
+    }
+
+    /// A qualified override is documented as `"table.column"` using the real
+    /// schema table name (see `website/src/content/docs/guide/custom-types.md`),
+    /// not the query's local alias. `source_relation` must resolve to `users`/
+    /// `posts` here, not the join aliases `u`/`p` -- otherwise a correctly wired
+    /// matcher would still silently fail on any aliased join.
+    #[test]
+    fn test_source_relation_uses_real_table_name_not_join_alias() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name UsersWithPosts
+-- @returns :many
+SELECT u.id, p.title FROM users u LEFT JOIN posts p ON u.id = p.user_id;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(result.columns[0].source_relation.as_deref(), Some("users"));
+        assert_eq!(result.columns[1].source_relation.as_deref(), Some("posts"));
+    }
+
+    /// Regression guard for the one path that already worked: `SELECT *`
+    /// expansion must keep carrying a per-column source relation after the
+    /// explicit-list path gained the same field.
+    #[test]
+    fn test_source_relation_still_populated_for_select_star() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name ListUsers
+-- @returns :many
+SELECT * FROM users;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert!(
+            result
+                .columns
+                .iter()
+                .all(|c| c.source_relation.as_deref() == Some("users"))
+        );
+    }
+
+    /// `RETURNING` resolves its explicit column list through the same
+    /// `infer_expr_type` -> `resolve_column_in_scope` path as a `SELECT` list, so
+    /// it must carry the same per-column relation -- an override on an
+    /// `INSERT ... RETURNING` column is just as real a use case as one on a
+    /// `SELECT`.
+    #[test]
+    fn test_source_relation_populated_for_returning_explicit_column() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name CreateUser
+-- @returns :one
+INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id, name, email;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(result.columns[0].source_relation.as_deref(), Some("users"));
+        assert_eq!(result.columns[1].source_relation.as_deref(), Some("users"));
+        assert_eq!(result.columns[2].source_relation.as_deref(), Some("users"));
+    }
+
     #[test]
     fn test_left_join_nullability() {
         let catalog = make_catalog();

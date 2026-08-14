@@ -70,8 +70,8 @@ fn grouped_rbs_context(analyzed: &AnalyzedQuery, backend: &dyn CodegenBackend) -
     let manifest = backend.manifest();
     let group_by = analyzed.group_by.as_ref().expect("query must have @group_by");
 
-    let parent_cols = resolve_columns(&group_by.parent_columns, manifest, &[], "").expect("parent columns resolve");
-    let child_cols = resolve_columns(&group_by.child_columns, manifest, &[], "").expect("child columns resolve");
+    let parent_cols = resolve_columns(&group_by.parent_columns, manifest, &[]).expect("parent columns resolve");
+    let child_cols = resolve_columns(&group_by.child_columns, manifest, &[]).expect("child columns resolve");
     let params = resolve_params(&analyzed.params, manifest, &[], "").expect("params resolve");
 
     RbsGenerationContext {
@@ -91,7 +91,7 @@ fn grouped_rbs_context(analyzed: &AnalyzedQuery, backend: &dyn CodegenBackend) -
 /// the way `generate_rbs_if_supported`'s other branch does.
 fn flat_rbs_context(analyzed: &AnalyzedQuery, backend: &dyn CodegenBackend) -> RbsGenerationContext {
     let manifest = backend.manifest();
-    let columns = resolve_columns(&analyzed.columns, manifest, &[], "").expect("columns resolve");
+    let columns = resolve_columns(&analyzed.columns, manifest, &[]).expect("columns resolve");
     let params = resolve_params(&analyzed.params, manifest, &[], "").expect("params resolve");
 
     RbsGenerationContext {
@@ -177,7 +177,10 @@ fn grouped_query_child_column_types_are_not_lost_in_the_split() {
     // belongs to is what distinguishes a passing split from a regressed one.
     assert!(rbs.contains("attr_reader id: Integer"), "got:\n{rbs}");
     assert!(rbs.contains("attr_reader name: String"), "got:\n{rbs}");
-    // Child columns, including the `decimal` -> `BigDecimal` one that motivated #198.
+    // ~keep The child half of the parent/child split above: without this label the
+    // preceding comment's claim that the labels distinguish a passing split from a
+    // regressed one has no counterpart. The `decimal` -> `BigDecimal` assertion is
+    // the one that motivated #198.
     assert!(rbs.contains("attr_reader order_id: Integer"), "got:\n{rbs}");
     assert!(rbs.contains("attr_reader total: BigDecimal"), "got:\n{rbs}");
     assert!(rbs.contains("attr_reader order_date:"), "got:\n{rbs}");

@@ -14,7 +14,7 @@ pub use backends::get_backend;
 pub use overrides::TypeOverride;
 
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{NamingConfig, apply_case, row_struct_name, to_pascal_case};
+use scythe_backend::naming::{NamingConfig, apply_case, row_struct_name, sanitize_for_identifier, to_pascal_case};
 
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, EnumInfo, NestedStructInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -124,8 +124,19 @@ pub fn get_manifest_for_backend(backend_name: &str) -> Result<BackendManifest, S
 /// colliding with the query function that returns it; a table model is not
 /// a per-query type, and suffixing it would make `SELECT * FROM users`
 /// declare `UserRow` — the very name a query named `User` already claims.
+///
+/// `table_name` reaches here from `analyzed.source_table`, which is not
+/// guaranteed to already be an identifier: `SELECT * FROM app.widgets`
+/// carries the schema-qualifying `.` straight through
+/// `detect_select_star_source` (unlike a query's `@name`, which the parser
+/// already validates as letters/digits/underscore only), and `apply_case`
+/// alone does not remove it -- the same shape as `enum_type_name`'s #136,
+/// just for a model struct instead of an enum. Routed through the same
+/// [`sanitize_for_identifier`] before singularizing and casing, so the `.`
+/// becomes `_` before either runs.
 pub fn model_struct_name(table_name: &str, naming: &NamingConfig) -> String {
-    apply_case(&singularize(table_name), &naming.struct_case).into_owned()
+    let sanitized = sanitize_for_identifier(table_name);
+    apply_case(&singularize(&sanitized), &naming.struct_case).into_owned()
 }
 
 /// Determine the struct name for a query (model struct or row struct).
@@ -178,7 +189,6 @@ pub fn generate_with_backend_and_overrides(
         degraded_columns.as_deref().unwrap_or(&analyzed.columns),
         manifest,
         overrides,
-        source_table,
     )?;
     let params = resolve::resolve_params(&analyzed.params, manifest, overrides, source_table)?;
 
@@ -279,13 +289,11 @@ pub fn generate_with_backend_and_overrides(
             degraded_parent.as_deref().unwrap_or(&group_by.parent_columns),
             manifest,
             overrides,
-            source_table,
         )?;
         let child_cols = resolve::resolve_columns(
             degraded_child.as_deref().unwrap_or(&group_by.child_columns),
             manifest,
             overrides,
-            source_table,
         )?;
 
         // Every `generate_grouped_structs` implementation injects one more
@@ -753,6 +761,31 @@ mod tests {
             aq.group_by = None;
             aq.custom = Vec::new();
         })
+    }
+
+    fn test_naming() -> NamingConfig {
+        NamingConfig {
+            struct_case: "PascalCase".to_string(),
+            fn_case: "snake_case".to_string(),
+            enum_variant_case: "PascalCase".to_string(),
+            row_suffix: "Row".to_string(),
+            field_case: "snake_case".to_string(),
+            reserved: Vec::new(),
+            reserved_bindings: Vec::new(),
+            sanitize_field_names: false,
+        }
+    }
+
+    /// Regression for board #199: a schema-qualified table's `.` must not
+    /// reach the generated model struct name, exactly as #136 already fixed
+    /// for `enum_type_name`. Before the fix, `model_struct_name("app.widgets",
+    /// ..)` under `struct_case = "PascalCase"` returned `"App.widget"` --
+    /// `pub struct App.widget` does not parse in any target language, since
+    /// neither `singularize` nor `apply_case` ever removes a character an
+    /// identifier cannot hold.
+    #[test]
+    fn model_struct_name_sanitizes_a_schema_qualified_dot() {
+        assert_eq!(model_struct_name("app.widgets", &test_naming()), "AppWidget");
     }
 
     #[test]

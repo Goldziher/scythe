@@ -365,7 +365,13 @@ fn replace_non_identifier_chars(s: &str) -> String {
 ///
 /// Replaces hyphens, dots, and other non-alphanumeric/non-underscore characters
 /// with underscores, and prefixes with `V` if the result starts with a digit.
-fn sanitize_for_identifier(s: &str) -> String {
+///
+/// `pub` rather than crate-private: `scythe-codegen`'s `model_struct_name`
+/// routes a schema-qualified table name (`app.widgets`, carrying its `.`
+/// straight from `source_table`, unvalidated the way a query's `@name` is)
+/// through this same function, for the identical reason [`enum_type_name`]
+/// does -- see that function's doc comment for #136.
+pub fn sanitize_for_identifier(s: &str) -> String {
     let mut result = replace_non_identifier_chars(s);
     if result.starts_with(|c: char| c.is_ascii_digit()) {
         result.insert(0, 'V');

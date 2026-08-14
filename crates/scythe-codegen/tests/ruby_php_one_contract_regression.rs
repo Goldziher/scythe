@@ -234,7 +234,7 @@ fn php_one_and_opt_render_different_code() {
 /// so duplicated here rather than imported).
 fn flat_rbs_context(analyzed: &AnalyzedQuery, backend: &dyn CodegenBackend) -> RbsGenerationContext {
     let manifest = backend.manifest();
-    let columns = resolve_columns(&analyzed.columns, manifest, &[], "").expect("columns resolve");
+    let columns = resolve_columns(&analyzed.columns, manifest, &[]).expect("columns resolve");
     let params = resolve_params(&analyzed.params, manifest, &[], "").expect("params resolve");
 
     RbsGenerationContext {

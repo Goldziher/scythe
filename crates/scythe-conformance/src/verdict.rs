@@ -424,7 +424,7 @@ row_suffix = "Row"
     fn from_analyzed_and_generated_agrees_through_the_real_resolve_pipeline() {
         let manifest = test_manifest();
         let analyzed = vec![analyzed_column("total", true)];
-        let resolved = scythe_codegen::resolve::resolve_columns(&analyzed, &manifest, &[], "orders")
+        let resolved = scythe_codegen::resolve::resolve_columns(&analyzed, &manifest, &[])
             .expect("resolve_columns must succeed for a well-formed manifest");
 
         let facts = ColumnFacts::from_analyzed_and_generated(&analyzed[0], &resolved[0], &manifest, vec![true])
@@ -451,7 +451,7 @@ row_suffix = "Row"
             .containers
             .insert("nullable".to_string(), "{T}".to_string());
         let analyzed = vec![analyzed_column("total", true)];
-        let resolved = scythe_codegen::resolve::resolve_columns(&analyzed, &manifest, &[], "orders")
+        let resolved = scythe_codegen::resolve::resolve_columns(&analyzed, &manifest, &[])
             .expect("resolve_columns must still succeed -- the bug is semantic, not a parse failure");
 
         let facts = ColumnFacts::from_analyzed_and_generated(&analyzed[0], &resolved[0], &manifest, vec![true])
