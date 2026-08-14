@@ -126,7 +126,7 @@ Fixture IDs must be unique across all files and are used as test function names 
 Fixture-generated tests: tests are generated from JSON fixtures in `testing_data/` by the `test-generator` tool. CI runs this automatically. To regenerate locally:
 
 ```bash
-cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-cli/tests/generated
+cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-codegen/tests/generated
 cargo fmt --all
 ```
 

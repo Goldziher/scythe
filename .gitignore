@@ -31,8 +31,6 @@ __pycache__/
 generated/
 output/
 !integration_tests/**/generated/
-!crates/scythe-cli/tests/generated/
-!crates/scythe-cli/tests/generated/*.rs
 !crates/scythe-codegen/tests/generated/
 !crates/scythe-codegen/tests/generated/*.rs
 
