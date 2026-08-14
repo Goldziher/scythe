@@ -19,11 +19,19 @@ const db = new Kysely<any>({
 });
 
 let exitCode = 0;
+const failedTests = new Set<string>();
 
 function assert(condition: boolean, testName: string, detail: string): void {
 	if (!condition) {
 		console.error(`FAIL: ${testName}: ${detail}`);
 		exitCode = 1;
+		failedTests.add(testName);
+	}
+}
+
+function pass(testName: string, label: string = testName): void {
+	if (!failedTests.has(testName)) {
+		console.log(`PASS: ${label}`);
 	}
 }
 
@@ -59,14 +67,14 @@ async function main(): Promise<void> {
 			"CreateUser",
 			`expected email alice@example.com`,
 		);
-		console.log("PASS: CreateUser");
+		pass("CreateUser");
 
 		// Test: GetUserById
 		const fetched = await getUserById(db, userId);
 		assert(fetched !== null, "GetUserById", "user should not be null");
 		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
 		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
-		console.log("PASS: GetUserById");
+		pass("GetUserById");
 
 		// Test: ListActiveUsers
 		const activeUsers = await listActiveUsers(db, "active");
@@ -80,14 +88,14 @@ async function main(): Promise<void> {
 			"ListActiveUsers",
 			"first user should be Alice",
 		);
-		console.log("PASS: ListActiveUsers");
+		pass("ListActiveUsers");
 
 		// Test: CreateOrder
 		await createOrder(db, userId, 99.95, "first order");
 		const insertedOrderId = await sql<{ id: number }>`SELECT last_insert_rowid() as id`.execute(db);
 		const orderId = insertedOrderId.rows[0]!.id;
 		assert(orderId !== null, "CreateOrder", "order id should not be null");
-		console.log("PASS: CreateOrder");
+		pass("CreateOrder");
 
 		// Test: GetOrdersByUser
 		const orders = await getOrdersByUser(db, userId);
@@ -101,7 +109,7 @@ async function main(): Promise<void> {
 			"GetOrdersByUser",
 			`expected total 99.95`,
 		);
-		console.log("PASS: GetOrdersByUser");
+		pass("GetOrdersByUser");
 
 		// Test: DeleteUser
 		const deletedOrders = await deleteOrdersByUser(db, userId);
@@ -123,7 +131,7 @@ async function main(): Promise<void> {
 			goneThrew = true;
 		}
 		assert(goneThrew, "DeleteUser", "user should not be found after deletion");
-		console.log("PASS: DeleteUser");
+		pass("DeleteUser");
 
 		if (exitCode === 0) {
 			console.log("ALL TESTS PASSED");

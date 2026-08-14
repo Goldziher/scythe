@@ -27,11 +27,19 @@ const db = new Kysely<any>({
 });
 
 let exitCode = 0;
+const failedTests = new Set<string>();
 
 function assert(condition: boolean, testName: string, detail: string): void {
 	if (!condition) {
 		console.error(`FAIL: ${testName}: ${detail}`);
 		exitCode = 1;
+		failedTests.add(testName);
+	}
+}
+
+function pass(testName: string, label: string = testName): void {
+	if (!failedTests.has(testName)) {
+		console.log(`PASS: ${label}`);
 	}
 }
 
@@ -95,14 +103,14 @@ async function main(): Promise<void> {
 			`expected email alice@example.com`,
 		);
 		const userId = user!.id;
-		console.log("PASS: CreateUser");
+		pass("CreateUser");
 
 		// Test: GetUserById
 		const fetched = await getUserById(db, userId);
 		assert(fetched !== null, "GetUserById", "user should not be null");
 		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
 		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
-		console.log("PASS: GetUserById");
+		pass("GetUserById");
 
 		// Test: ListActiveUsers
 		const activeUsers = await listActiveUsers(db, UserStatusValues.Active);
@@ -116,7 +124,7 @@ async function main(): Promise<void> {
 			"ListActiveUsers",
 			"first user should be Alice",
 		);
-		console.log("PASS: ListActiveUsers");
+		pass("ListActiveUsers");
 
 		// Test: CreateOrder
 		const order = await createOrder(db, userId, "99.95", "first order");
@@ -136,7 +144,7 @@ async function main(): Promise<void> {
 			"CreateOrder",
 			`expected notes 'first order'`,
 		);
-		console.log("PASS: CreateOrder");
+		pass("CreateOrder");
 
 		// Test: GetOrdersByUser
 		const orders = await getOrdersByUser(db, userId);
@@ -150,7 +158,7 @@ async function main(): Promise<void> {
 			"GetOrdersByUser",
 			`expected total 99.95`,
 		);
-		console.log("PASS: GetOrdersByUser");
+		pass("GetOrdersByUser");
 
 		// Test: GetOrderTotal
 		const orderTotal = await getOrderTotal(db, userId);
@@ -160,7 +168,7 @@ async function main(): Promise<void> {
 			"GetOrderTotal",
 			`expected total_sum 99.95, got ${orderTotal!.total_sum}`,
 		);
-		console.log("PASS: GetOrderTotal");
+		pass("GetOrderTotal");
 
 		// Test: UpdateUserEmail
 		await updateUserEmail(db, "alice2@example.com", userId);
@@ -170,7 +178,7 @@ async function main(): Promise<void> {
 			"UpdateUserEmail",
 			`expected updated email, got ${updated!.email}`,
 		);
-		console.log("PASS: UpdateUserEmail");
+		pass("UpdateUserEmail");
 
 		// Test: GetUserOrders (LEFT JOIN)
 		const bob = await createUser(db, "Bob", "bob@example.com", UserStatusValues.Active);
@@ -190,7 +198,7 @@ async function main(): Promise<void> {
 			"GetUserOrders",
 			"Bob has no orders, total and notes must both be null",
 		);
-		console.log("PASS: GetUserOrders");
+		pass("GetUserOrders");
 
 		// Test: CountUsersByStatus
 		const statusCount = await countUsersByStatus(db, UserStatusValues.Active);
@@ -200,7 +208,7 @@ async function main(): Promise<void> {
 			"CountUsersByStatus",
 			`expected at least 2 active users, got ${statusCount!.user_count}`,
 		);
-		console.log("PASS: CountUsersByStatus");
+		pass("CountUsersByStatus");
 
 		// Test: GetUserWithTags
 		const tag = await sql<{ id: number }>`INSERT INTO tags (name) VALUES ('vip') RETURNING id`.execute(db);
@@ -217,7 +225,7 @@ async function main(): Promise<void> {
 			"GetUserWithTags",
 			`expected tag_name vip, got ${userTags[0]!.tag_name}`,
 		);
-		console.log("PASS: GetUserWithTags");
+		pass("GetUserWithTags");
 
 		// Test: SearchUsers
 		const searchResults = await searchUsers(db, "Ali%");
@@ -226,7 +234,7 @@ async function main(): Promise<void> {
 			"SearchUsers",
 			"expected Alice among search results",
 		);
-		console.log("PASS: SearchUsers");
+		pass("SearchUsers");
 
 		// Test: GetUserProfile (board #197/#204) -- a nullable enum and a
 		// nullable composite column, each observed both present and as SQL
@@ -298,7 +306,7 @@ async function main(): Promise<void> {
 			"GetUserProfile",
 			`expected address.zip '10115', got ${quotedProfile.address!.zip}`,
 		);
-		console.log("PASS: GetUserProfile (nullable enum + composite)");
+		pass("GetUserProfile", "GetUserProfile (nullable enum + composite)");
 
 		await deleteUser(db, presentId);
 		await deleteUser(db, absentId);
@@ -327,7 +335,7 @@ async function main(): Promise<void> {
 			goneThrew = true;
 		}
 		assert(goneThrew, "DeleteUser", "user should not be found after deletion");
-		console.log("PASS: DeleteUser");
+		pass("DeleteUser");
 
 		if (exitCode === 0) {
 			console.log("ALL TESTS PASSED");

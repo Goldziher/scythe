@@ -211,11 +211,19 @@ const db = new Kysely<any>({
 {%- endif %}
 
 let exitCode = 0;
+const failedTests = new Set<string>();
 
 function assert(condition: boolean, testName: string, detail: string): void {
 	if (!condition) {
 		console.error(`FAIL: ${testName}: ${detail}`);
 		exitCode = 1;
+		failedTests.add(testName);
+	}
+}
+
+function pass(testName: string, label: string = testName): void {
+	if (!failedTests.has(testName)) {
+		console.log(`PASS: ${label}`);
 	}
 }
 {% if driver == "snowflake" %}
@@ -315,7 +323,7 @@ async function main(): Promise<void> {
 			"ZodSchemas",
 			"GetOrdersByUserRowSchema should be a ZodType",
 		);
-		console.log("PASS: Zod schemas are ZodType instances");
+		pass("ZodSchemas", "Zod schemas are ZodType instances");
 {% endif %}
 		// Test: CreateUser
 		const user = await createUser(
@@ -355,7 +363,7 @@ async function main(): Promise<void> {
 		);
 {%- endif %}
 		const userId = user!.id;
-		console.log("PASS: CreateUser");
+		pass("CreateUser");
 
 		// Test: GetUserById
 		const fetched = await getUserById(client, userId);
@@ -372,7 +380,7 @@ async function main(): Promise<void> {
 		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
 		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
 {%- endif %}
-		console.log("PASS: GetUserById");
+		pass("GetUserById");
 
 		// Test: ListActiveUsers
 		const activeUsers = await listActiveUsers(client{% if engine == "postgresql" and engine != "redshift" %}, {% if driver == "pg" and options.row_type != "zod" %}UserStatusValues{% else %}UserStatus{% endif %}.Active{% elif engine == "redshift" %}, "active"{% endif %});
@@ -395,7 +403,7 @@ async function main(): Promise<void> {
 			"first user should be Alice",
 		);
 {%- endif %}
-		console.log("PASS: ListActiveUsers");
+		pass("ListActiveUsers");
 
 		// Test: CreateOrder
 		const order = await createOrder(client, userId, "99.95", "first order");
@@ -434,7 +442,7 @@ async function main(): Promise<void> {
 			`expected notes 'first order'`,
 		);
 {%- endif %}
-		console.log("PASS: CreateOrder");
+		pass("CreateOrder");
 
 		// Test: GetOrdersByUser
 		const orders = await getOrdersByUser(client, userId);
@@ -457,7 +465,7 @@ async function main(): Promise<void> {
 			`expected total 99.95`,
 		);
 {%- endif %}
-		console.log("PASS: GetOrdersByUser");
+		pass("GetOrdersByUser");
 {%- if engine == "postgresql" and engine != "redshift" %}
 
 		// Test: GetUserProfile (board #197/#204) -- a nullable enum and a
@@ -535,7 +543,7 @@ async function main(): Promise<void> {
 			"GetUserProfile",
 			`expected address.zip '10115', got ${quotedProfile.address!.zip}`,
 		);
-		console.log("PASS: GetUserProfile (nullable enum + composite)");
+		pass("GetUserProfile", "GetUserProfile (nullable enum + composite)");
 
 		await deleteUser(client, presentId);
 		await deleteUser(client, absentId);
@@ -588,7 +596,7 @@ async function main(): Promise<void> {
 			"unmatched variant: Bob has no orders, total and notes must both be null together",
 		);
 {%- endif %}
-		console.log("PASS: GetUserOrders (discriminated union)");
+		pass("GetUserOrders", "GetUserOrders (discriminated union)");
 		await deleteUser(client, bobId);
 {%- endif %}
 
@@ -612,7 +620,7 @@ async function main(): Promise<void> {
 			goneThrew = true;
 		}
 		assert(goneThrew, "DeleteUser", "user should not be found after deletion");
-		console.log("PASS: DeleteUser");
+		pass("DeleteUser");
 
 		if (exitCode === 0) {
 			console.log("ALL TESTS PASSED");
@@ -685,14 +693,14 @@ async function main(): Promise<void> {
 			`expected email alice@example.com`,
 		);
 		const userId = user!.id;
-		console.log("PASS: CreateUser");
+		pass("CreateUser");
 
 		// Test: GetUserById
 		const fetched = await getUserById(db, userId);
 		assert(fetched !== null, "GetUserById", "user should not be null");
 		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
 		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
-		console.log("PASS: GetUserById");
+		pass("GetUserById");
 
 		// Test: ListActiveUsers
 		const activeUsers = await listActiveUsers(db, UserStatusValues.Active);
@@ -706,7 +714,7 @@ async function main(): Promise<void> {
 			"ListActiveUsers",
 			"first user should be Alice",
 		);
-		console.log("PASS: ListActiveUsers");
+		pass("ListActiveUsers");
 
 		// Test: CreateOrder
 		const order = await createOrder(db, userId, "99.95", "first order");
@@ -726,7 +734,7 @@ async function main(): Promise<void> {
 			"CreateOrder",
 			`expected notes 'first order'`,
 		);
-		console.log("PASS: CreateOrder");
+		pass("CreateOrder");
 
 		// Test: GetOrdersByUser
 		const orders = await getOrdersByUser(db, userId);
@@ -740,7 +748,7 @@ async function main(): Promise<void> {
 			"GetOrdersByUser",
 			`expected total 99.95`,
 		);
-		console.log("PASS: GetOrdersByUser");
+		pass("GetOrdersByUser");
 
 		// Test: GetOrderTotal
 		const orderTotal = await getOrderTotal(db, userId);
@@ -750,7 +758,7 @@ async function main(): Promise<void> {
 			"GetOrderTotal",
 			`expected total_sum 99.95, got ${orderTotal!.total_sum}`,
 		);
-		console.log("PASS: GetOrderTotal");
+		pass("GetOrderTotal");
 
 		// Test: UpdateUserEmail
 		await updateUserEmail(db, "alice2@example.com", userId);
@@ -760,7 +768,7 @@ async function main(): Promise<void> {
 			"UpdateUserEmail",
 			`expected updated email, got ${updated!.email}`,
 		);
-		console.log("PASS: UpdateUserEmail");
+		pass("UpdateUserEmail");
 
 		// Test: GetUserOrders (LEFT JOIN)
 		const bob = await createUser(db, "Bob", "bob@example.com", UserStatusValues.Active);
@@ -780,7 +788,7 @@ async function main(): Promise<void> {
 			"GetUserOrders",
 			"Bob has no orders, total and notes must both be null",
 		);
-		console.log("PASS: GetUserOrders");
+		pass("GetUserOrders");
 
 		// Test: CountUsersByStatus
 		const statusCount = await countUsersByStatus(db, UserStatusValues.Active);
@@ -790,7 +798,7 @@ async function main(): Promise<void> {
 			"CountUsersByStatus",
 			`expected at least 2 active users, got ${statusCount!.user_count}`,
 		);
-		console.log("PASS: CountUsersByStatus");
+		pass("CountUsersByStatus");
 
 		// Test: GetUserWithTags
 		const tag = await sql<{ id: number }>`INSERT INTO tags (name) VALUES ('vip') RETURNING id`.execute(db);
@@ -807,7 +815,7 @@ async function main(): Promise<void> {
 			"GetUserWithTags",
 			`expected tag_name vip, got ${userTags[0]!.tag_name}`,
 		);
-		console.log("PASS: GetUserWithTags");
+		pass("GetUserWithTags");
 
 		// Test: SearchUsers
 		const searchResults = await searchUsers(db, "Ali%");
@@ -816,7 +824,7 @@ async function main(): Promise<void> {
 			"SearchUsers",
 			"expected Alice among search results",
 		);
-		console.log("PASS: SearchUsers");
+		pass("SearchUsers");
 
 		// Test: GetUserProfile (board #197/#204) -- a nullable enum and a
 		// nullable composite column, each observed both present and as SQL
@@ -888,7 +896,7 @@ async function main(): Promise<void> {
 			"GetUserProfile",
 			`expected address.zip '10115', got ${quotedProfile.address!.zip}`,
 		);
-		console.log("PASS: GetUserProfile (nullable enum + composite)");
+		pass("GetUserProfile", "GetUserProfile (nullable enum + composite)");
 
 		await deleteUser(db, presentId);
 		await deleteUser(db, absentId);
@@ -917,7 +925,7 @@ async function main(): Promise<void> {
 			goneThrew = true;
 		}
 		assert(goneThrew, "DeleteUser", "user should not be found after deletion");
-		console.log("PASS: DeleteUser");
+		pass("DeleteUser");
 
 		if (exitCode === 0) {
 			console.log("ALL TESTS PASSED");
@@ -992,14 +1000,14 @@ async function main(): Promise<void> {
 			`expected email alice@example.com`,
 		);
 		const userId = user!.id;
-		console.log("PASS: CreateUser");
+		pass("CreateUser");
 
 		// Test: GetUserById
 		const fetched = await getUserById(sql, userId);
 		assert(fetched !== null, "GetUserById", "user should not be null");
 		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
 		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
-		console.log("PASS: GetUserById");
+		pass("GetUserById");
 
 		// Test: ListActiveUsers
 		const activeUsers = await listActiveUsers(sql{% if engine == "postgresql" and engine != "redshift" %}, UserStatus.Active{% elif engine == "redshift" %}, "active"{% endif %});
@@ -1013,7 +1021,7 @@ async function main(): Promise<void> {
 			"ListActiveUsers",
 			"first user should be Alice",
 		);
-		console.log("PASS: ListActiveUsers");
+		pass("ListActiveUsers");
 
 		// Test: CreateOrder
 		const order = await createOrder(sql, userId, "99.95", "first order");
@@ -1033,7 +1041,7 @@ async function main(): Promise<void> {
 			"CreateOrder",
 			`expected notes 'first order'`,
 		);
-		console.log("PASS: CreateOrder");
+		pass("CreateOrder");
 
 		// Test: GetOrdersByUser
 		const orders = await getOrdersByUser(sql, userId);
@@ -1047,7 +1055,7 @@ async function main(): Promise<void> {
 			"GetOrdersByUser",
 			`expected total 99.95`,
 		);
-		console.log("PASS: GetOrdersByUser");
+		pass("GetOrdersByUser");
 {%- if engine == "postgresql" and engine != "redshift" %}
 
 		// Test: GetUserProfile (board #197/#204) -- a nullable enum and a
@@ -1120,7 +1128,7 @@ async function main(): Promise<void> {
 			"GetUserProfile",
 			`expected address.zip '10115', got ${quotedProfile.address!.zip}`,
 		);
-		console.log("PASS: GetUserProfile (nullable enum + composite)");
+		pass("GetUserProfile", "GetUserProfile (nullable enum + composite)");
 
 		await deleteUser(sql, presentId);
 		await deleteUser(sql, absentId);
@@ -1147,7 +1155,7 @@ async function main(): Promise<void> {
 			goneThrew = true;
 		}
 		assert(goneThrew, "DeleteUser", "user should not be found after deletion");
-		console.log("PASS: DeleteUser");
+		pass("DeleteUser");
 
 		if (exitCode === 0) {
 			console.log("ALL TESTS PASSED");
@@ -1193,14 +1201,14 @@ async function main(): Promise<void> {
 			`expected email alice@example.com`,
 		);
 		const userId = user!.id;
-		console.log("PASS: CreateUser");
+		pass("CreateUser");
 
 		// Test: GetUserById
 		const fetched = await getUserById(pool, userId);
 		assert(fetched !== null, "GetUserById", "user should not be null");
 		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
 		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
-		console.log("PASS: GetUserById");
+		pass("GetUserById");
 
 		// Test: ListActiveUsers
 		const activeUsers = await listActiveUsers(pool, UsersStatus.Active);
@@ -1214,7 +1222,7 @@ async function main(): Promise<void> {
 			"ListActiveUsers",
 			"first user should be Alice",
 		);
-		console.log("PASS: ListActiveUsers");
+		pass("ListActiveUsers");
 
 		// Test: CreateOrder
 {%- if engine == "mysql" %}
@@ -1239,7 +1247,7 @@ async function main(): Promise<void> {
 			"CreateOrder",
 			`expected notes 'first order'`,
 		);
-		console.log("PASS: CreateOrder");
+		pass("CreateOrder");
 
 		// Test: GetOrdersByUser
 		const orders = await getOrdersByUser(pool, userId);
@@ -1253,7 +1261,7 @@ async function main(): Promise<void> {
 			"GetOrdersByUser",
 			`expected total 99.95`,
 		);
-		console.log("PASS: GetOrdersByUser");
+		pass("GetOrdersByUser");
 
 		// Test: DeleteUser
 		const deletedOrders = await deleteOrdersByUser(pool, userId);
@@ -1275,7 +1283,7 @@ async function main(): Promise<void> {
 			goneThrew = true;
 		}
 		assert(goneThrew, "DeleteUser", "user should not be found after deletion");
-		console.log("PASS: DeleteUser");
+		pass("DeleteUser");
 
 		if (exitCode === 0) {
 			console.log("ALL TESTS PASSED");
@@ -1320,14 +1328,14 @@ async function main(): Promise<void> {
 			`expected email alice@example.com`,
 		);
 		const userId = user!.id;
-		console.log("PASS: CreateUser");
+		pass("CreateUser");
 
 		// Test: GetUserById
 		const fetched = await getUserById(db, userId);
 		assert(fetched !== null, "GetUserById", "user should not be null");
 		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
 		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
-		console.log("PASS: GetUserById");
+		pass("GetUserById");
 
 		// Test: ListActiveUsers
 		const activeUsers = await listActiveUsers(db, UsersStatusValues.Active);
@@ -1341,7 +1349,7 @@ async function main(): Promise<void> {
 			"ListActiveUsers",
 			"first user should be Alice",
 		);
-		console.log("PASS: ListActiveUsers");
+		pass("ListActiveUsers");
 
 		// Test: CreateOrder
 {%- if engine == "mysql" %}
@@ -1366,7 +1374,7 @@ async function main(): Promise<void> {
 			"CreateOrder",
 			`expected notes 'first order'`,
 		);
-		console.log("PASS: CreateOrder");
+		pass("CreateOrder");
 
 		// Test: GetOrdersByUser
 		const orders = await getOrdersByUser(db, userId);
@@ -1380,7 +1388,7 @@ async function main(): Promise<void> {
 			"GetOrdersByUser",
 			`expected total 99.95`,
 		);
-		console.log("PASS: GetOrdersByUser");
+		pass("GetOrdersByUser");
 
 		// Test: DeleteUser
 		const deletedOrders = await deleteOrdersByUser(db, userId);
@@ -1402,7 +1410,7 @@ async function main(): Promise<void> {
 			goneThrew = true;
 		}
 		assert(goneThrew, "DeleteUser", "user should not be found after deletion");
-		console.log("PASS: DeleteUser");
+		pass("DeleteUser");
 
 		if (exitCode === 0) {
 			console.log("ALL TESTS PASSED");
@@ -1441,14 +1449,14 @@ async function main(): Promise<void> {
 			"CreateUser",
 			`expected email alice@example.com`,
 		);
-		console.log("PASS: CreateUser");
+		pass("CreateUser");
 
 		// Test: GetUserById
 		const fetched = await getUserById(db, userId);
 		assert(fetched !== null, "GetUserById", "user should not be null");
 		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
 		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
-		console.log("PASS: GetUserById");
+		pass("GetUserById");
 
 		// Test: ListActiveUsers
 		const activeUsers = await listActiveUsers(db, "active");
@@ -1462,14 +1470,14 @@ async function main(): Promise<void> {
 			"ListActiveUsers",
 			"first user should be Alice",
 		);
-		console.log("PASS: ListActiveUsers");
+		pass("ListActiveUsers");
 
 		// Test: CreateOrder
 		await createOrder(db, userId, 99.95, "first order");
 		const insertedOrderId = await sql<{ id: number }>`SELECT last_insert_rowid() as id`.execute(db);
 		const orderId = insertedOrderId.rows[0]!.id;
 		assert(orderId !== null, "CreateOrder", "order id should not be null");
-		console.log("PASS: CreateOrder");
+		pass("CreateOrder");
 
 		// Test: GetOrdersByUser
 		const orders = await getOrdersByUser(db, userId);
@@ -1483,7 +1491,7 @@ async function main(): Promise<void> {
 			"GetOrdersByUser",
 			`expected total 99.95`,
 		);
-		console.log("PASS: GetOrdersByUser");
+		pass("GetOrdersByUser");
 
 		// Test: DeleteUser
 		const deletedOrders = await deleteOrdersByUser(db, userId);
@@ -1505,7 +1513,7 @@ async function main(): Promise<void> {
 			goneThrew = true;
 		}
 		assert(goneThrew, "DeleteUser", "user should not be found after deletion");
-		console.log("PASS: DeleteUser");
+		pass("DeleteUser");
 
 		if (exitCode === 0) {
 			console.log("ALL TESTS PASSED");
@@ -1542,14 +1550,14 @@ async function main(): Promise<void> {
 			"CreateUser",
 			`expected email alice@example.com`,
 		);
-		console.log("PASS: CreateUser");
+		pass("CreateUser");
 
 		// Test: GetUserById
 		const fetched = getUserById(db, userId);
 		assert(fetched !== null, "GetUserById", "user should not be null");
 		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
 		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
-		console.log("PASS: GetUserById");
+		pass("GetUserById");
 
 		// Test: ListActiveUsers
 		const activeUsers = listActiveUsers(db, "active");
@@ -1563,14 +1571,14 @@ async function main(): Promise<void> {
 			"ListActiveUsers",
 			"first user should be Alice",
 		);
-		console.log("PASS: ListActiveUsers");
+		pass("ListActiveUsers");
 
 		// Test: CreateOrder
 		createOrder(db, userId, 99.95, "first order");
 		const insertedOrderId = db.prepare("SELECT last_insert_rowid() as id").get() as { id: number };
 		const orderId = insertedOrderId.id;
 		assert(orderId !== null, "CreateOrder", "order id should not be null");
-		console.log("PASS: CreateOrder");
+		pass("CreateOrder");
 
 		// Test: GetOrdersByUser
 		const orders = getOrdersByUser(db, userId);
@@ -1584,7 +1592,7 @@ async function main(): Promise<void> {
 			"GetOrdersByUser",
 			`expected total 99.95`,
 		);
-		console.log("PASS: GetOrdersByUser");
+		pass("GetOrdersByUser");
 
 		// Test: DeleteUser
 		const deletedOrders = deleteOrdersByUser(db, userId);
@@ -1606,7 +1614,7 @@ async function main(): Promise<void> {
 			goneThrew = true;
 		}
 		assert(goneThrew, "DeleteUser", "user should not be found after deletion");
-		console.log("PASS: DeleteUser");
+		pass("DeleteUser");
 
 		if (exitCode === 0) {
 			console.log("ALL TESTS PASSED");
@@ -1643,14 +1651,14 @@ async function main(): Promise<void> {
 			"CreateUser",
 			`expected email alice@example.com`,
 		);
-		console.log("PASS: CreateUser");
+		pass("CreateUser");
 
 		// Test: GetUserById
 		const fetched = getUserById(db, userId);
 		assert(fetched !== null, "GetUserById", "user should not be null");
 		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
 		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
-		console.log("PASS: GetUserById");
+		pass("GetUserById");
 
 		// Test: ListActiveUsers
 		const activeUsers = listActiveUsers(db, "active");
@@ -1664,14 +1672,14 @@ async function main(): Promise<void> {
 			"ListActiveUsers",
 			"first user should be Alice",
 		);
-		console.log("PASS: ListActiveUsers");
+		pass("ListActiveUsers");
 
 		// Test: CreateOrder
 		createOrder(db, userId, 99.95, "first order");
 		const insertedOrder = db.selectObject("SELECT last_insert_rowid() as id") as unknown as { id: number };
 		const orderId = insertedOrder.id;
 		assert(orderId !== null, "CreateOrder", "order id should not be null");
-		console.log("PASS: CreateOrder");
+		pass("CreateOrder");
 
 		// Test: GetOrdersByUser
 		const orders = getOrdersByUser(db, userId);
@@ -1685,7 +1693,7 @@ async function main(): Promise<void> {
 			"GetOrdersByUser",
 			`expected total 99.95`,
 		);
-		console.log("PASS: GetOrdersByUser");
+		pass("GetOrdersByUser");
 
 		// Test: DeleteUser
 		const deletedOrders = deleteOrdersByUser(db, userId);
@@ -1707,7 +1715,7 @@ async function main(): Promise<void> {
 			goneThrew = true;
 		}
 		assert(goneThrew, "DeleteUser", "user should not be found after deletion");
-		console.log("PASS: DeleteUser");
+		pass("DeleteUser");
 
 		if (exitCode === 0) {
 			console.log("ALL TESTS PASSED");
@@ -1755,14 +1763,14 @@ async function main(): Promise<void> {
 			`expected email alice@example.com`,
 		);
 		const userId = user!.id;
-		console.log("PASS: CreateUser");
+		pass("CreateUser");
 
 		// Test: GetUserById
 		const fetched = await getUserById(conn, userId);
 		assert(fetched !== null, "GetUserById", "user should not be null");
 		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
 		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
-		console.log("PASS: GetUserById");
+		pass("GetUserById");
 
 		// Test: ListActiveUsers
 		const activeUsers = await listActiveUsers(conn);
@@ -1776,7 +1784,7 @@ async function main(): Promise<void> {
 			"ListActiveUsers",
 			"first user should be Alice",
 		);
-		console.log("PASS: ListActiveUsers");
+		pass("ListActiveUsers");
 
 		// Test: CreateOrder
 		const order = await createOrder(conn, userId, 9999, "first order");
@@ -1791,7 +1799,7 @@ async function main(): Promise<void> {
 			"CreateOrder",
 			`expected notes 'first order'`,
 		);
-		console.log("PASS: CreateOrder");
+		pass("CreateOrder");
 
 		// Test: GetOrdersByUser
 		const orders = await getOrdersByUser(conn, userId);
@@ -1800,7 +1808,7 @@ async function main(): Promise<void> {
 			"GetOrdersByUser",
 			`expected 1 order, got ${orders.length}`,
 		);
-		console.log("PASS: GetOrdersByUser");
+		pass("GetOrdersByUser");
 
 		// Test: DeleteUser
 		const deletedOrders = await deleteOrdersByUser(conn, userId);
@@ -1822,7 +1830,7 @@ async function main(): Promise<void> {
 			goneThrew = true;
 		}
 		assert(goneThrew, "DeleteUser", "user should not be found after deletion");
-		console.log("PASS: DeleteUser");
+		pass("DeleteUser");
 
 		if (exitCode === 0) {
 			console.log("ALL TESTS PASSED");
@@ -1868,14 +1876,14 @@ async function main(): Promise<void> {
 			`expected email alice@example.com`,
 		);
 		const userId = user!.id;
-		console.log("PASS: CreateUser");
+		pass("CreateUser");
 
 		// Test: GetUserById
 		const fetched = await getUserById(pool, userId);
 		assert(fetched !== null, "GetUserById", "user should not be null");
 		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
 		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
-		console.log("PASS: GetUserById");
+		pass("GetUserById");
 
 		// Test: ListActiveUsers
 		const activeUsers = await listActiveUsers(pool);
@@ -1889,7 +1897,7 @@ async function main(): Promise<void> {
 			"ListActiveUsers",
 			"first user should be Alice",
 		);
-		console.log("PASS: ListActiveUsers");
+		pass("ListActiveUsers");
 
 		// Test: CreateOrder
 		const order = await createOrder(pool, 1, userId, "99.95", "first order");
@@ -1909,7 +1917,7 @@ async function main(): Promise<void> {
 			"CreateOrder",
 			`expected notes 'first order'`,
 		);
-		console.log("PASS: CreateOrder");
+		pass("CreateOrder");
 
 		// Test: GetOrdersByUser
 		const orders = await getOrdersByUser(pool, userId);
@@ -1923,7 +1931,7 @@ async function main(): Promise<void> {
 			"GetOrdersByUser",
 			`expected total 99.95`,
 		);
-		console.log("PASS: GetOrdersByUser");
+		pass("GetOrdersByUser");
 
 		// Test: DeleteUser
 		const deletedOrders = await deleteOrdersByUser(pool, userId);
@@ -1945,7 +1953,7 @@ async function main(): Promise<void> {
 			goneThrew = true;
 		}
 		assert(goneThrew, "DeleteUser", "user should not be found after deletion");
-		console.log("PASS: DeleteUser");
+		pass("DeleteUser");
 
 		if (exitCode === 0) {
 			console.log("ALL TESTS PASSED");
@@ -1981,14 +1989,14 @@ async function main(): Promise<void> {
 			`expected email alice@example.com`,
 		);
 		const userId = user!.id;
-		console.log("PASS: CreateUser");
+		pass("CreateUser");
 
 		// Test: GetUserById
 		const fetched = await getUserById(db, userId);
 		assert(fetched !== null, "GetUserById", "user should not be null");
 		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
 		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
-		console.log("PASS: GetUserById");
+		pass("GetUserById");
 
 		// Test: ListActiveUsers
 		const activeUsers = await listActiveUsers(db);
@@ -2002,7 +2010,7 @@ async function main(): Promise<void> {
 			"ListActiveUsers",
 			"first user should be Alice",
 		);
-		console.log("PASS: ListActiveUsers");
+		pass("ListActiveUsers");
 
 		// Test: CreateOrder
 		const order = await createOrder(db, 1, userId, "99.95", "first order");
@@ -2022,7 +2030,7 @@ async function main(): Promise<void> {
 			"CreateOrder",
 			`expected notes 'first order'`,
 		);
-		console.log("PASS: CreateOrder");
+		pass("CreateOrder");
 
 		// Test: GetOrdersByUser
 		const orders = await getOrdersByUser(db, userId);
@@ -2036,7 +2044,7 @@ async function main(): Promise<void> {
 			"GetOrdersByUser",
 			`expected total 99.95`,
 		);
-		console.log("PASS: GetOrdersByUser");
+		pass("GetOrdersByUser");
 
 		// Test: DeleteUser
 		const deletedOrders = await deleteOrdersByUser(db, userId);
@@ -2058,7 +2066,7 @@ async function main(): Promise<void> {
 			goneThrew = true;
 		}
 		assert(goneThrew, "DeleteUser", "user should not be found after deletion");
-		console.log("PASS: DeleteUser");
+		pass("DeleteUser");
 
 		if (exitCode === 0) {
 			console.log("ALL TESTS PASSED");
@@ -2116,14 +2124,14 @@ async function main(): Promise<void> {
 			`expected email alice@example.com`,
 		);
 		const userId = user!.id;
-		console.log("PASS: CreateUser");
+		pass("CreateUser");
 
 		// Test: GetUserById
 		const fetched = await getUserById(conn, userId);
 		assert(fetched !== null, "GetUserById", "user should not be null");
 		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
 		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
-		console.log("PASS: GetUserById");
+		pass("GetUserById");
 
 		// Test: ListActiveUsers
 		const activeUsers = await listActiveUsers(conn);
@@ -2137,7 +2145,7 @@ async function main(): Promise<void> {
 			"ListActiveUsers",
 			"first user should be Alice",
 		);
-		console.log("PASS: ListActiveUsers");
+		pass("ListActiveUsers");
 
 		// Test: CreateOrder
 		await createOrder(conn, userId, 99.95, "first order");
@@ -2154,7 +2162,7 @@ async function main(): Promise<void> {
 			"CreateOrder",
 			`expected notes 'first order'`,
 		);
-		console.log("PASS: CreateOrder");
+		pass("CreateOrder");
 
 		// Test: GetOrdersByUser
 		const allOrders = await getOrdersByUser(conn, userId);
@@ -2168,7 +2176,7 @@ async function main(): Promise<void> {
 			"GetOrdersByUser",
 			`expected total 99.95`,
 		);
-		console.log("PASS: GetOrdersByUser");
+		pass("GetOrdersByUser");
 
 		// Test: DeleteUser
 		const deletedOrders = await deleteOrdersByUser(conn, userId);
@@ -2190,7 +2198,7 @@ async function main(): Promise<void> {
 			goneThrew = true;
 		}
 		assert(goneThrew, "DeleteUser", "user should not be found after deletion");
-		console.log("PASS: DeleteUser");
+		pass("DeleteUser");
 
 		if (exitCode === 0) {
 			console.log("ALL TESTS PASSED");
