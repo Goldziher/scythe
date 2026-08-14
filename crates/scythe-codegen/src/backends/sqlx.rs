@@ -2,7 +2,7 @@ use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_pascal_case, to_snake_case};
 use std::fmt::Write;
 
-use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, CompositeInfo, EnumInfo};
+use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
@@ -195,7 +195,7 @@ impl CodegenBackend for SqlxBackend {
         &self,
         analyzed: &AnalyzedQuery,
         struct_name: &str,
-        _columns: &[ResolvedColumn],
+        columns: &[ResolvedColumn],
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         if self.structs_only {
@@ -217,7 +217,7 @@ impl CodegenBackend for SqlxBackend {
 
         let sql_raw = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         let sql =
-            crate::sql_literal::escape_rust_string(&rewrite_sql_for_enums(&sql_raw, &analyzed.columns, &self.manifest));
+            crate::sql_literal::escape_rust_string(&rewrite_sql_for_row_columns(&sql_raw, columns, &self.manifest));
 
         let bind_params: String = analyzed
             .params
@@ -500,10 +500,9 @@ impl CodegenBackend for SqlxBackend {
         }
 
         let sql_raw = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
-        let sql = crate::sql_literal::escape_rust_string(&rewrite_sql_for_grouped_row(
+        let sql = crate::sql_literal::escape_rust_string(&rewrite_sql_for_row_columns(
             &sql_raw,
-            parent_columns,
-            child_columns,
+            parent_columns.iter().chain(child_columns.iter()),
             &self.manifest,
         ));
 
@@ -752,41 +751,43 @@ fn write_sqlx_rename_attr(out: &mut String, col: &ResolvedColumn) {
     }
 }
 
-/// Alias every grouped-query column that needs one, folding an identifier
-/// rename and an enum type override into a single `AS "..."` clause when a
-/// column needs both.
+/// Alias every row column that needs one, folding an identifier rename and
+/// an enum type override into a single `AS "..."` clause when a column
+/// needs both.
 ///
-/// `generate_grouped_query_fn` reads the flat rows through the untyped
-/// `sqlx::query!` macro (no `query_as!`, no `#[derive(sqlx::FromRow)]`), so
-/// the anonymous row struct's field names come from whatever the *driver*
-/// reports as each column's name, not from this backend's `field_name`
-/// convention. Two independent things can make that raw name unusable:
+/// Shared by `generate_query_fn` and `generate_grouped_query_fn`: both read
+/// their row(s) through the untyped `sqlx::query!`/`query_as!` macros, and
+/// `output::quote_query_as` (sqlx-macros-core 0.9.0, `query/output.rs:202`)
+/// builds the record with `#out_ty { #ident: #var_name }`, where `#ident`
+/// comes straight from `output::parse_ident` on the driver-reported column
+/// name -- it never consults `#[sqlx(rename = "...")]` or `FromRow` at all,
+/// so that attribute is inert on this path regardless of which of the two
+/// functions is generating the query. Two independent things can make the
+/// raw name unusable:
 ///
-/// - **Identifier shape.** A column that needed `sanitize_field_names` to
-///   become a valid Rust field (`"my col"` -> `my_col`) reports its
-///   original, unsanitized name to the driver. sqlx-macros-core's
-///   `output::parse_ident` requires that name to already be a valid Rust
-///   identifier and hard-errors at compile time otherwise ("... is not a
-///   valid Rust identifier") -- it does not sanitize on its own, so
-///   `row.my_col` below would either not compile at all or, for a
-///   valid-but-differently-cased name, compile against a field that isn't
-///   there.
-/// - **Enum decoding**, same reason as [`rewrite_sql_for_enums`]: sqlx
-///   cannot infer a custom enum's Rust type without an explicit `: Type`
-///   override in the alias.
+/// - **Identifier shape.** A column whose driver-reported name is not
+///   itself a valid Rust identifier (`"my col"`) makes `parse_ident`
+///   hard-error at compile time ("... is not a valid Rust identifier")
+///   before anything else is checked. A column whose name *is* a valid
+///   identifier but differs from this backend's own `field_name` (a case
+///   difference, or `sanitize_field_names` reshaping `"widgetId"` into
+///   `widget_id`) compiles, but against a struct-literal field that isn't
+///   there -- `parse_ident` does not know about `field_name`'s convention,
+///   it only validates shape.
+/// - **Enum decoding.** sqlx cannot infer a custom enum's Rust type without
+///   an explicit `: Type` override in the alias.
 ///
 /// sqlx accepts only one alias clause per column, so a column needing both
 /// gets `AS "field_name: Type"` rather than two rewrite passes fighting
 /// over the same text.
-fn rewrite_sql_for_grouped_row(
+fn rewrite_sql_for_row_columns<'a>(
     sql: &str,
-    parent_columns: &[ResolvedColumn],
-    child_columns: &[ResolvedColumn],
+    columns: impl IntoIterator<Item = &'a ResolvedColumn>,
     manifest: &BackendManifest,
 ) -> String {
     let mut result = sql.to_string();
 
-    for col in parent_columns.iter().chain(child_columns.iter()) {
+    for col in columns {
         let type_override = col.neutral_type.strip_prefix("enum::").map(|enum_name| {
             let rust_type = enum_type_name(enum_name, &manifest.naming);
             if col.nullable {
@@ -828,42 +829,6 @@ fn rewrite_sql_for_grouped_row(
     result
 }
 
-/// Rewrite SQL to add enum type annotations for sqlx.
-fn rewrite_sql_for_enums(sql: &str, columns: &[AnalyzedColumn], manifest: &BackendManifest) -> String {
-    let enum_cols: Vec<(&str, String)> = columns
-        .iter()
-        .filter_map(|col| {
-            if let Some(enum_name) = col.neutral_type.strip_prefix("enum::") {
-                let rust_type = enum_type_name(enum_name, &manifest.naming);
-                let annotation = if col.nullable {
-                    format!("Option<{}>", rust_type)
-                } else {
-                    rust_type
-                };
-                Some((col.name.as_str(), annotation))
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    if enum_cols.is_empty() {
-        return sql.to_string();
-    }
-
-    let mut result = sql.to_string();
-    for (col_name, annotation) in &enum_cols {
-        let alias = format!("{} AS \\\"{}: {}\\\"", col_name, col_name, annotation);
-        if let Some(from_pos) = result.to_uppercase().find(" FROM ") {
-            let select_part = &result[..from_pos];
-            let rest = &result[from_pos..];
-            let new_select = replace_column_in_select(select_part, col_name, &alias);
-            result = format!("{}{}", new_select, rest);
-        }
-    }
-    result
-}
-
 fn replace_column_in_select(select: &str, col_name: &str, replacement: &str) -> String {
     let mut result = select.to_string();
     let patterns = [format!(", {}", col_name), format!(" {}", col_name)];
@@ -884,6 +849,8 @@ fn replace_column_in_select(select: &str, col_name: &str, replacement: &str) -> 
 
 #[cfg(test)]
 mod option_tests {
+    use scythe_core::analyzer::AnalyzedColumn;
+
     use super::*;
 
     #[test]

@@ -127,6 +127,19 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   attribute added earlier for `FromRow`: both `query!` and `query_as!` build their row type directly
   and never consult `FromRow`, so that attribute has no effect on either macro path. (unfiled)
 
+- **The same `rust-sqlx` defect was live on the plain `:one`/`:many`/`:opt` path, and its enum
+  aliasing emitted a stray backslash into the SQL.** `generate_query_fn` selected a non-identifier
+  column unaliased, so `parse_ident` failed macro expansion there too; and a column whose name is a
+  valid identifier but differs in shape from this backend's `field_name` (case, or
+  `sanitize_field_names` reshaping) failed against a struct-literal field spelled differently, since
+  `quote_query_as` builds `#out_ty { #ident: #var_name }` from the driver-reported name. Separately,
+  `rewrite_sql_for_enums` hand-wrote its alias as `\"…\"` in Rust source — a literal backslash and
+  quote — and then passed it through `escape_rust_string`, which escaped both again, so the SQL sqlx
+  saw at compile time contained a backslash nobody asked for. Both paths now share one
+  `rewrite_sql_for_row_columns`, which aliases whenever `field_name` differs from the column name or
+  an enum override applies, writes the alias as a single plain `"…"`, and is escaped exactly once.
+  (unfiled)
+
 - **`check` printed "All queries valid." for a query file it had not checked at all.** A file whose
   annotations were never recognised — a mistyped `--name:`, or every statement commented out — yields
   zero query blocks, and `has_unannotated_sql` deliberately ignores it, so the run reported success
