@@ -280,10 +280,15 @@ fun testDeleteUser(conn: java.sql.Connection) {
     val name = "DeleteUser"
     try {
         conn.deleteUser(createdUserId)
-        val user = conn.getUserById(createdUserId)
-        if (user != null) {
-            fail(name, "expected null after deletion, but user still exists")
+        // GetUserById is `:one`, so a missing row throws NoSuchElementException
+        // rather than returning null. This harness still expected null long after
+        // that changed; nothing caught it because the project had no CI step.
+        try {
+            conn.getUserById(createdUserId)
+            fail(name, "expected getUserById to throw after deletion, but it returned a row")
             return
+        } catch (expected: NoSuchElementException) {
+            // expected: the user was deleted
         }
         pass(name)
     } catch (e: Exception) {
