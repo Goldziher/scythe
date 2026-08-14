@@ -91,13 +91,27 @@ BUILD_COMMANDS: dict[str, list[str] | None] = {
     "csharp-npgsql": ["dotnet", "build", "--nologo", "-v", "quiet"],
     "go-pgx": ["go", "build", "-mod=mod", "./generated"],
     "java-jdbc": ["mvn", "-q", "compile"],
-    # kotlin-jdbc's generated code only ever references java.sql/java.math/
-    # java.time (JDK-only, see check-generated-syntax.sh's kotlinc_check) --
-    # unlike java-jdbc's javax.annotation, there is no third-party classpath
-    # entry a real Gradle build would add that bare kotlinc would miss, so
-    # kotlinc alone is already the real check for this backend and a much
-    # cheaper one than starting a Gradle daemon.
-    "kotlin-jdbc": None,
+    "java-r2dbc": ["mvn", "-q", "compile"],
+    # kotlin-jdbc used to be None here, checked by bare kotlinc, on the grounds
+    # that its generated code "only ever references java.sql/java.math/
+    # java.time (JDK-only) ... there is no third-party classpath entry a real
+    # Gradle build would add that bare kotlinc would miss".
+    #
+    # kotlin-r2dbc falsified that premise for the kotlin family: it emits
+    # reactor.core.publisher.Mono, io.r2dbc.spi.Row and kotlinx.coroutines.
+    # reactive. Worse, bare kotlinc does not merely miss those -- with no
+    # io.r2dbc.spi.Row on the classpath, `row.get("id", Int::class.
+    # javaObjectType)` resolves against Kotlin stdlib's MatchGroupCollection.get
+    # and reports "actual type is 'MatchGroup?'" on code a real Gradle build
+    # compiles cleanly. That is a failure no change to the generated code can
+    # clear, the same vacuous shape as `ruby -c` over queries.rbs.
+    #
+    # Both kotlin backends therefore run a real Gradle build, matching
+    # check-generated-syntax.sh, which made the identical change. Keeping the
+    # two in step is deliberate: the SYNTAX_BY_EXTENSION comment below already
+    # records why this fact must not have two derivations that can disagree.
+    "kotlin-jdbc": ["gradle", "compileKotlin", "--quiet"],
+    "kotlin-r2dbc": ["gradle", "compileKotlin", "--quiet"],
     "elixir-ecto": ["sh", "-c", "mix deps.get --force && mix compile --force"],
     "elixir-postgrex": ["sh", "-c", "mix deps.get --force && mix compile --force"],
     "python-asyncpg": None,
@@ -116,7 +130,6 @@ SYNTAX_ONLY: dict[str, list[str]] = {
     "php-amphp": ["php", "-l"],
     "php-pdo": ["php", "-l"],
     "ruby-pg": ["ruby", "-c"],
-    "kotlin-jdbc": ["kotlinc_check"],  # dispatched specially, see run_syntax_check
 }
 
 # The checker is decided by the file's language, not by the backend that wrote
@@ -150,7 +163,6 @@ PRIMARY_EXTENSION: dict[str, str] = {
     "php-amphp": ".php",
     "php-pdo": ".php",
     "ruby-pg": ".rb",
-    "kotlin-jdbc": ".kt",
 }
 
 # The hand-written test harness in each project calls generated functions by
@@ -186,6 +198,14 @@ HARNESS_STUBS: dict[str, tuple[str, str]] = {
     "typescript-kysely": ("test.ts", "export {};\n"),
     "typescript-pg": ("test.ts", "export {};\n"),
     "typescript-postgres": ("test.ts", "export {};\n"),
+    "java-r2dbc": (
+        "src/main/java/IntegrationTest.java",
+        "public class IntegrationTest {\n    public static void main(String[] args) {}\n}\n",
+    ),
+    # ~keep Both kotlin backends build for real now (see BUILD_COMMANDS), so both need their
+    # harness stubbed -- kotlin-jdbc did not while bare kotlinc only ever saw queries.kt.
+    "kotlin-jdbc": ("src/main/kotlin/IntegrationTest.kt", "fun main() {}\n"),
+    "kotlin-r2dbc": ("src/main/kotlin/IntegrationTest.kt", "fun main() {}\n"),
 }
 
 
@@ -266,10 +286,7 @@ def run(cmd: list[str], cwd: str, timeout: int = 300) -> tuple[bool, str]:
 
 
 def run_syntax_check(backend: str, file_path: str, cwd: str) -> tuple[bool, str]:
-    """Dispatch SYNTAX_BY_EXTENSION first, then SYNTAX_ONLY[backend], with kotlinc's
-    `-d <scratch jar>` special-cased the same way check-generated-syntax.sh's
-    kotlinc_check is (no third-party classpath needed -- see the BUILD_COMMANDS
-    comment on "kotlin-jdbc").
+    """Dispatch SYNTAX_BY_EXTENSION first, then SYNTAX_ONLY[backend].
 
     The extension map wins because a file's language is a property of the file,
     not of the backend that emitted it."""
@@ -286,9 +303,6 @@ def run_syntax_check(backend: str, file_path: str, cwd: str) -> tuple[bool, str]
             "SYNTAX_BY_EXTENSION, or update PRIMARY_EXTENSION if the backend legitimately "
             "changed what it emits."
         )
-    if backend == "kotlin-jdbc":
-        with tempfile.TemporaryDirectory() as tmp:
-            return run(["kotlinc", "-d", os.path.join(tmp, "out.jar"), file_path], cwd=cwd, timeout=120)
     syntax_cmd = SYNTAX_ONLY.get(backend)
     if syntax_cmd is None:
         return False, "no syntax command registered"
