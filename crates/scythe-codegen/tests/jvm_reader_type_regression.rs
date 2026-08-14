@@ -54,6 +54,23 @@
 //! text claims add up to a file the compiler accepts, and they are the only
 //! thing that would have caught the `java-r2dbc` missing-class-wrapper defect,
 //! which no substring check would have looked for.
+//!
+//! board #196 (inverted below, not a new number in the list above -- it narrows defect 1's fix,
+//! it does not add a fifth): the class-taking accessor is *not* actually the general answer for
+//! a composite. `getObject(col, T.class)`/`row.get(col, T.class)` compiles fine for `T` a
+//! generated composite record/data class, but neither pgjdbc nor r2dbc-postgresql has a type map
+//! registered for a user-defined composite, so the call throws at runtime:
+//! `PSQLException: conversion to class T ... not supported` (confirmed against the driver, not
+//! assumed). The tests below used to assert exactly that call as the *correct* shape for a
+//! composite column (`rs.getObject("home_address", WidgetAddress.class)`,
+//! `row.get("home_address", WidgetAddress.class)`) -- i.e. they pinned the defect. They are
+//! inverted here to assert the opposite: a composite column reads through a `fromText` static
+//! factory/companion method (emitted onto the record/data class by `generate_composite_def`)
+//! that parses the driver's text form by hand. `uuid` is unaffected and keeps its class-literal
+//! assertions unchanged -- pgjdbc/r2dbc-postgresql both do have a built-in `UUID` codec, so
+//! `rs.getObject(col, UUID.class)` genuinely is correct there. See
+//! `tests/jvm_composite_read_regression.rs` for the fuller composite coverage (nested composites,
+//! NULL handling, the text-form escaping rules, scalar field conversion).
 
 use scythe_codegen::provenance;
 use scythe_codegen::validation::{ToolValidation, strict_mode_enabled, validate_with_tools};
@@ -252,14 +269,29 @@ fn assert_absent(backend: &str, code: &str, needle: &str, why: &str) {
 
 // -- #213 / #214: the reader's static type must match the declared type -----
 
+/// Inverted with board #196: this test used to assert `rs.getObject("home_address",
+/// WidgetAddress.class)` as the *correct* shape for the composite column -- that call compiles
+/// (`getObject(String, Class<T>)` is a real overload), but pgjdbc has no type map for a
+/// user-defined composite and throws `PSQLException: conversion to class WidgetAddress ... not
+/// supported` the first time this query actually runs. The composite assertions below now check
+/// the opposite: `WidgetAddress.fromText(rs.getString(...))`, a hand-written parse of the
+/// driver's text form. `uuid`'s assertions are untouched -- pgjdbc does have a built-in `UUID`
+/// codec, so `getObject(col, UUID.class)` was, and still is, correct there. See
+/// `tests/jvm_composite_read_regression.rs` for the fuller composite coverage.
 #[test]
-fn java_jdbc_reads_composite_and_uuid_columns_through_a_class_literal() {
+fn java_jdbc_reads_uuid_columns_through_a_class_literal_and_composites_through_text_form() {
     let code = generated_text("java-jdbc");
     assert_contains(
         "java-jdbc",
         &code,
+        "WidgetAddress.fromText(rs.getString(\"home_address\"))",
+        "pgjdbc has no type map for a user-defined composite; the text form must be parsed by hand",
+    );
+    assert_absent(
+        "java-jdbc",
+        &code,
         "rs.getObject(\"home_address\", WidgetAddress.class)",
-        "a composite column declared `WidgetAddress` cannot be read with the Object-typed getObject",
+        "this compiles but throws PSQLException at runtime against real pgjdbc -- board #196",
     );
     assert_contains(
         "java-jdbc",
@@ -281,14 +313,21 @@ fn java_jdbc_reads_composite_and_uuid_columns_through_a_class_literal() {
     );
 }
 
+/// Inverted with board #196 -- see the java-jdbc twin above for the full reasoning.
 #[test]
-fn kotlin_jdbc_reads_composite_and_uuid_columns_through_a_class_literal() {
+fn kotlin_jdbc_reads_uuid_columns_through_a_class_literal_and_composites_through_text_form() {
     let code = generated_text("kotlin-jdbc");
     assert_contains(
         "kotlin-jdbc",
         &code,
+        "WidgetAddress.fromText(rs.getString(\"home_address\"))",
+        "pgjdbc has no type map for a user-defined composite; the text form must be parsed by hand",
+    );
+    assert_absent(
+        "kotlin-jdbc",
+        &code,
         "rs.getObject(\"home_address\", WidgetAddress::class.java)",
-        "a composite column declared `WidgetAddress?` cannot be read with the Any!-typed getObject",
+        "this compiles but throws PSQLException at runtime against real pgjdbc -- board #196",
     );
     assert_contains(
         "kotlin-jdbc",
@@ -310,14 +349,22 @@ fn kotlin_jdbc_reads_composite_and_uuid_columns_through_a_class_literal() {
     );
 }
 
+/// Inverted with board #196 -- see the java-jdbc twin above for the full reasoning. The uuid and
+/// `scheduled_at` assertions are untouched: `getObject(col, T.class)` remains correct for both.
 #[test]
-fn kotlin_exposed_reads_composite_and_uuid_columns_through_a_class_literal() {
+fn kotlin_exposed_reads_uuid_columns_through_a_class_literal_and_composites_through_text_form() {
     let code = generated_text("kotlin-exposed");
     assert_contains(
         "kotlin-exposed",
         &code,
+        "WidgetAddress.fromText(rs.getString(\"home_address\"))",
+        "Exposed's exec block hands out a plain java.sql.ResultSet, so the same fix applies",
+    );
+    assert_absent(
+        "kotlin-exposed",
+        &code,
         "rs.getObject(\"home_address\", WidgetAddress::class.java)",
-        "Exposed's exec block hands out a plain java.sql.ResultSet, so the same rule applies",
+        "this compiles but throws PSQLException at runtime against real pgjdbc -- board #196",
     );
     assert_contains(
         "kotlin-exposed",
@@ -350,11 +397,23 @@ fn kotlin_exposed_reads_composite_and_uuid_columns_through_a_class_literal() {
 #[test]
 fn java_r2dbc_row_get_uses_the_declared_class_never_object() {
     let code = generated_text("java-r2dbc");
+    // ~keep Inverted with board #196: this used to assert `row.get("home_address",
+    // WidgetAddress.class)` as correct -- that compiles (`Row.get` is generic in its class
+    // argument), but r2dbc-postgresql has no codec for a user-defined composite without explicit
+    // registration and throws at runtime, the same problem the enum case just below already
+    // guards against. The wire value is now read as `String` and parsed by `WidgetAddress.fromText`.
+    // See `tests/jvm_composite_read_regression.rs` for the fuller composite coverage.
     assert_contains(
         "java-r2dbc",
         &code,
+        "WidgetAddress.fromText(row.get(\"home_address\", String.class))",
+        "r2dbc-postgresql has no codec for a user-defined composite; the text form must be parsed by hand",
+    );
+    assert_absent(
+        "java-r2dbc",
+        &code,
         "row.get(\"home_address\", WidgetAddress.class)",
-        "Row.get is generic in its class argument; only the declared class yields an assignable value",
+        "this compiles but is driver-codec-dependent and throws at runtime -- board #196",
     );
     // ~keep #213: an R2DBC driver has no reason to know about a generated
     // enum type, and `row.get(col, WidgetStatus.class)` is
@@ -391,11 +450,21 @@ fn java_r2dbc_row_get_uses_the_declared_class_never_object() {
 #[test]
 fn kotlin_r2dbc_row_get_uses_the_declared_class_never_any() {
     let code = generated_text("kotlin-r2dbc");
+    // ~keep Inverted with board #196 -- see `java_r2dbc_row_get_uses_the_declared_class_never_object`
+    // for the full reasoning: r2dbc-postgresql has no codec for a user-defined composite, so the
+    // wire value is read as `String` and parsed by `WidgetAddress.fromText`, not read through the
+    // composite's own class.
     assert_contains(
         "kotlin-r2dbc",
         &code,
+        "WidgetAddress.fromText(row.get(\"home_address\", String::class.java))",
+        "r2dbc-postgresql has no codec for a user-defined composite; the text form must be parsed by hand",
+    );
+    assert_absent(
+        "kotlin-r2dbc",
+        &code,
         "row.get(\"home_address\", WidgetAddress::class.java)",
-        "only the declared class yields a value assignable to the declared field",
+        "this compiles but is driver-codec-dependent and throws at runtime -- board #196",
     );
     // ~keep #213: same reasoning as `java-r2dbc` -- an R2DBC driver has no
     // codec for a generated enum type without explicit registration, so the

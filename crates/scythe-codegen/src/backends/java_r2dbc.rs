@@ -132,6 +132,158 @@ fn java_field_type(col: &ResolvedColumn, manifest: &BackendManifest) -> String {
     }
 }
 
+/// Splits a PostgreSQL composite's text form (`"(a,b,c)"`) into its raw field tokens. See
+/// `java_jdbc.rs`'s twin constant for the full reasoning -- duplicated rather than shared
+/// because the two backends have no other coupling.
+const JAVA_PARSE_COMPOSITE_FIELDS_METHOD: &str = r#"    /**
+     * ~keep Splits a PostgreSQL composite's text form ("(a,b,c)") into its raw field tokens,
+     * honoring its escaping rules: an empty unquoted field is SQL NULL (returned as `null`); a
+     * field needing quoting (containing a comma, paren, quote, backslash, or leading/trailing
+     * space, or the empty string) is wrapped in double quotes with `"` and `\` backslash-escaped
+     * inside; every other field is unquoted and taken literally. A nested composite's own
+     * "(x,y)" text form always contains parens, so it always comes back quoted here, ready for
+     * that type's own `fromText` to parse recursively.
+     */
+    private static java.util.List<String> parseCompositeFields(String text) {
+        java.util.List<String> fields = new java.util.ArrayList<>();
+        String inner = text.substring(1, text.length() - 1);
+        int i = 0;
+        int n = inner.length();
+        while (true) {
+            StringBuilder field = new StringBuilder();
+            boolean isNull = false;
+            if (i < n && inner.charAt(i) == '"') {
+                i++;
+                while (i < n) {
+                    char c = inner.charAt(i);
+                    if (c == '\\' && i + 1 < n) {
+                        field.append(inner.charAt(i + 1));
+                        i += 2;
+                    } else if (c == '"') {
+                        i++;
+                        break;
+                    } else {
+                        field.append(c);
+                        i++;
+                    }
+                }
+            } else {
+                int start = i;
+                while (i < n && inner.charAt(i) != ',') {
+                    i++;
+                }
+                field.append(inner, start, i);
+                isNull = field.length() == 0;
+            }
+            fields.add(isNull ? null : field.toString());
+            if (i < n && inner.charAt(i) == ',') {
+                i++;
+                continue;
+            }
+            break;
+        }
+        return fields;
+    }
+"#;
+
+/// PostgreSQL's default `bytea` text output is hex (`"\x48656c6c6f"`); decode the digits after
+/// the `\x` prefix back into bytes. Emitted only when a composite has a `bytes` field.
+const JAVA_PARSE_COMPOSITE_BYTES_METHOD: &str = r#"    /**
+     * ~keep PostgreSQL's default `bytea` text output is hex: "\x48656c6c6f". Decode the hex
+     * digits after the "\x" prefix back into bytes.
+     */
+    private static byte[] parseCompositeBytes(String hex) {
+        String digits = hex.substring(2);
+        byte[] result = new byte[digits.length() / 2];
+        for (int i = 0; i < result.length; i++) {
+            result[i] = (byte) Integer.parseInt(digits.substring(i * 2, i * 2 + 2), 16);
+        }
+        return result;
+    }
+"#;
+
+/// PostgreSQL's default `timestamptz` text output uses a space instead of `T` and omits the
+/// offset's minutes when they are zero; normalize both before handing the text to `java.time`.
+/// Emitted only when a composite has a `datetime_tz` field.
+const JAVA_PARSE_COMPOSITE_OFFSET_DATETIME_METHOD: &str = r#"    /**
+     * ~keep PostgreSQL's default `timestamptz` text output uses a space instead of `T`
+     * ("2024-01-15 10:30:00+00") and, unlike `OffsetDateTime.parse`, omits the offset's minutes
+     * when they are zero ("+00" rather than "+00:00"). Normalize both before parsing.
+     */
+    private static java.time.OffsetDateTime parseCompositeOffsetDateTime(String raw) {
+        String s = raw.replace(' ', 'T');
+        char sign = s.charAt(s.length() - 3);
+        if (sign == '+' || sign == '-') {
+            s = s + ":00";
+        }
+        return java.time.OffsetDateTime.parse(s);
+    }
+"#;
+
+/// PostgreSQL's default `timetz` text output omits the offset's minutes when they are zero;
+/// `OffsetTime.parse` rejects that. Emitted only when a composite has a `time_tz` field.
+const JAVA_PARSE_COMPOSITE_OFFSET_TIME_METHOD: &str = r#"    /**
+     * ~keep PostgreSQL's default `timetz` text output omits the offset's minutes when they are
+     * zero ("13:22:43-05" rather than "13:22:43-05:00"), which `OffsetTime.parse` rejects.
+     */
+    private static java.time.OffsetTime parseCompositeOffsetTime(String raw) {
+        String s = raw;
+        char sign = s.charAt(s.length() - 3);
+        if (sign == '+' || sign == '-') {
+            s = s + ":00";
+        }
+        return java.time.OffsetTime.parse(s);
+    }
+"#;
+
+fn composite_needs_bytes_helper(composite: &CompositeInfo) -> bool {
+    composite.fields.iter().any(|f| f.neutral_type == "bytes")
+}
+
+fn composite_needs_offset_datetime_helper(composite: &CompositeInfo) -> bool {
+    composite.fields.iter().any(|f| f.neutral_type == "datetime_tz")
+}
+
+fn composite_needs_offset_time_helper(composite: &CompositeInfo) -> bool {
+    composite.fields.iter().any(|f| f.neutral_type == "time_tz")
+}
+
+/// The Java expression converting one composite field's raw text token (`raw`, a possibly-null
+/// `String` already unescaped by `parseCompositeFields`) into the field's declared Java type --
+/// the inverse of what PostgreSQL's composite output function wrote for that field. See
+/// `java_jdbc.rs`'s twin function for the full reasoning, including why a genuinely NULL
+/// sub-field converted through a primitive arm is a pre-existing, out-of-scope gap.
+fn composite_field_from_text(neutral_type: &str, field_type: &str, raw: &str) -> String {
+    if let Some(sql_name) = neutral_type.strip_prefix("composite::") {
+        return format!("{}.fromText({})", to_pascal_case(sql_name), raw);
+    }
+    if neutral_type.starts_with("enum::") {
+        return format!("{}.fromValue({})", field_type, raw);
+    }
+    match neutral_type {
+        "bool" => format!("\"t\".equals({})", raw),
+        "int16" => format!("Short.parseShort({})", raw),
+        "int32" => format!("Integer.parseInt({})", raw),
+        "int64" => format!("Long.parseLong({})", raw),
+        "float32" => format!("Float.parseFloat({})", raw),
+        "float64" => format!("Double.parseDouble({})", raw),
+        "decimal" => format!("new java.math.BigDecimal({})", raw),
+        "uuid" => format!("java.util.UUID.fromString({})", raw),
+        "date" => format!("java.time.LocalDate.parse({})", raw),
+        "time" => format!("java.time.LocalTime.parse({})", raw),
+        "datetime" => format!("java.time.LocalDateTime.parse({}.replace(' ', 'T'))", raw),
+        "datetime_tz" => format!("parseCompositeOffsetDateTime({})", raw),
+        "time_tz" => format!("parseCompositeOffsetTime({})", raw),
+        "bytes" => format!("parseCompositeBytes({})", raw),
+        // "string"/"json"/"inet"/"interval" all resolve to Java `String`, so the already-parsed
+        // text needs no further conversion. Any neutral type not named above (e.g. an
+        // array-typed composite field, which this fix does not handle -- see board #196's
+        // report) falls through here too; passing the raw text through is the least-wrong
+        // fallback available at generate time rather than a hard error.
+        _ => raw.to_string(),
+    }
+}
+
 /// Build the `Row.get` expression for a column, handling arrays and enums
 /// specially -- everywhere else defers to [`r2dbc_row_class`].
 ///
@@ -147,7 +299,15 @@ fn java_field_type(col: &ResolvedColumn, manifest: &BackendManifest) -> String {
 /// runtime. Reading the wire value as `String` and decoding through
 /// `fromValue` (the same conversion the JDBC family already does) has no such
 /// dependency and matches the wire value the bind side sends.
+///
+/// board #196: a composite column is read the same way -- an unregistered composite has no
+/// r2dbc-postgresql codec either, so `row.get(col, T.class)` is just as driver-codec-dependent
+/// as an enum's. The wire value is read as `String` and parsed by `T.fromText` (emitted by
+/// `generate_composite_def`), which is already null-safe.
 fn r2dbc_col_read_expr(col: &ResolvedColumn, manifest: &BackendManifest) -> String {
+    if col.neutral_type.starts_with("composite::") {
+        return format!("{}.fromText(row.get(\"{}\", String.class))", col.lang_type, col.name);
+    }
     if let Some(element) = jvm_common::array_element_neutral_type(&col.neutral_type) {
         let boxed_element = java_array_element_type(element, manifest);
         let get_expr = format!("row.get(\"{}\", {}[].class)", col.name, boxed_element);
@@ -582,22 +742,75 @@ impl CodegenBackend for JavaR2dbcBackend {
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
         let name = to_pascal_case(&composite.sql_name);
         let mut out = String::new();
+        // ~keep board #196: a composite with zero fields cannot exist in PostgreSQL (`CREATE
+        // TYPE ... AS ()` is rejected), so there is no reachable runtime value that would need
+        // `fromText` here. Left as the bare record it always was.
         if composite.fields.is_empty() {
             let _ = writeln!(out, "public record {}() {{}}", name);
-        } else {
-            let fields = composite
-                .fields
-                .iter()
-                .map(|f| {
-                    let field_type = resolve_type(&f.neutral_type, &self.manifest, false)
-                        .map(|t| t.into_owned())
-                        .unwrap_or_else(|_| "Object".to_string());
-                    format!("{} {}", field_type, to_camel_case(&f.name))
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            let _ = writeln!(out, "public record {}({}) {{}}", name, fields);
+            return Ok(out);
         }
+        let field_types: Vec<String> = composite
+            .fields
+            .iter()
+            .map(|f| {
+                resolve_type(&f.neutral_type, &self.manifest, false)
+                    .map(|t| t.into_owned())
+                    .unwrap_or_else(|_| "Object".to_string())
+            })
+            .collect();
+        let params = composite
+            .fields
+            .iter()
+            .zip(&field_types)
+            .map(|(f, field_type)| format!("{} {}", field_type, to_camel_case(&f.name)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(out, "public record {}({}) {{", name, params);
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    /**");
+        let _ = writeln!(
+            out,
+            "     * ~keep board #196: r2dbc-postgresql has no codec for this composite -- an unregistered"
+        );
+        let _ = writeln!(
+            out,
+            "     * `row.get(col, {}.class)` is driver-codec-dependent and throws at runtime, the",
+            name
+        );
+        let _ = writeln!(
+            out,
+            "     * same problem an enum column has. Parse the driver's text form instead."
+        );
+        let _ = writeln!(out, "     */");
+        let _ = writeln!(out, "    public static {} fromText(String text) {{", name);
+        let _ = writeln!(out, "        if (text == null) {{");
+        let _ = writeln!(out, "            return null;");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out, "        java.util.List<String> f = parseCompositeFields(text);");
+        let _ = writeln!(out, "        return new {}(", name);
+        for (i, (field, field_type)) in composite.fields.iter().zip(&field_types).enumerate() {
+            let raw = format!("f.get({})", i);
+            let value_expr = composite_field_from_text(&field.neutral_type, field_type, &raw);
+            let sep = if i + 1 < composite.fields.len() { "," } else { "" };
+            let _ = writeln!(out, "            {}{}", value_expr, sep);
+        }
+        let _ = writeln!(out, "        );");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+        out.push_str(JAVA_PARSE_COMPOSITE_FIELDS_METHOD);
+        if composite_needs_bytes_helper(composite) {
+            let _ = writeln!(out);
+            out.push_str(JAVA_PARSE_COMPOSITE_BYTES_METHOD);
+        }
+        if composite_needs_offset_datetime_helper(composite) {
+            let _ = writeln!(out);
+            out.push_str(JAVA_PARSE_COMPOSITE_OFFSET_DATETIME_METHOD);
+        }
+        if composite_needs_offset_time_helper(composite) {
+            let _ = writeln!(out);
+            out.push_str(JAVA_PARSE_COMPOSITE_OFFSET_TIME_METHOD);
+        }
+        let _ = write!(out, "}}");
         Ok(out)
     }
 

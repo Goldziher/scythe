@@ -192,9 +192,178 @@ fn element_kotlin_type(element_neutral: &str, manifest: &BackendManifest) -> Str
         .unwrap_or_else(|_| "Any".to_string())
 }
 
+/// Splits a PostgreSQL composite's text form (`"(a,b,c)"`) into its raw field tokens, honoring
+/// its escaping rules -- an empty unquoted field is SQL NULL, and a field containing a comma,
+/// paren, quote, backslash, or leading/trailing space (or the empty string) is double-quoted
+/// with `"`/`\` backslash-escaped inside. See `java_jdbc.rs`'s twin constant for the full
+/// reasoning -- duplicated rather than shared because the two backends have no other coupling.
+const KT_PARSE_COMPOSITE_FIELDS_METHOD: &str = r#"        /**
+         * ~keep Splits a PostgreSQL composite's text form ("(a,b,c)") into its raw field tokens,
+         * honoring its escaping rules: an empty unquoted field is SQL NULL (returned as `null`);
+         * a field needing quoting (containing a comma, paren, quote, backslash, or
+         * leading/trailing space, or the empty string) is wrapped in double quotes with `"` and
+         * `\` backslash-escaped inside; every other field is unquoted and taken literally. A
+         * nested composite's own "(x,y)" text form always contains parens, so it always comes
+         * back quoted here, ready for that type's own `fromText` to parse recursively.
+         */
+        private fun parseCompositeFields(text: String): List<String?> {
+            val fields = mutableListOf<String?>()
+            val inner = text.substring(1, text.length - 1)
+            var i = 0
+            val n = inner.length
+            while (true) {
+                val field = StringBuilder()
+                var isNull = false
+                if (i < n && inner[i] == '"') {
+                    i++
+                    while (i < n) {
+                        val c = inner[i]
+                        if (c == '\\' && i + 1 < n) {
+                            field.append(inner[i + 1])
+                            i += 2
+                        } else if (c == '"') {
+                            i++
+                            break
+                        } else {
+                            field.append(c)
+                            i++
+                        }
+                    }
+                } else {
+                    val start = i
+                    while (i < n && inner[i] != ',') {
+                        i++
+                    }
+                    field.append(inner, start, i)
+                    isNull = field.isEmpty()
+                }
+                fields.add(if (isNull) null else field.toString())
+                if (i < n && inner[i] == ',') {
+                    i++
+                    continue
+                }
+                break
+            }
+            return fields
+        }
+"#;
+
+/// PostgreSQL's default `bytea` text output is hex (`"\x48656c6c6f"`); decode the digits after
+/// the `\x` prefix back into bytes. Emitted only when a composite has a `bytes` field.
+const KT_PARSE_COMPOSITE_BYTES_METHOD: &str = r#"        /**
+         * ~keep PostgreSQL's default `bytea` text output is hex: "\x48656c6c6f". Decode the hex
+         * digits after the "\x" prefix back into bytes.
+         */
+        private fun parseCompositeBytes(hex: String): ByteArray {
+            val digits = hex.substring(2)
+            val result = ByteArray(digits.length / 2)
+            for (i in result.indices) {
+                result[i] = digits.substring(i * 2, i * 2 + 2).toInt(16).toByte()
+            }
+            return result
+        }
+"#;
+
+/// PostgreSQL's default `timestamptz` text output uses a space instead of `T` and omits the
+/// offset's minutes when they are zero; normalize both before handing the text to `java.time`.
+/// Emitted only when a composite has a `datetime_tz` field.
+const KT_PARSE_COMPOSITE_OFFSET_DATETIME_METHOD: &str = r#"        /**
+         * ~keep PostgreSQL's default `timestamptz` text output uses a space instead of `T`
+         * ("2024-01-15 10:30:00+00") and omits the offset's minutes when they are zero ("+00"
+         * rather than "+00:00"). Normalize both before parsing.
+         */
+        private fun parseCompositeOffsetDateTime(raw: String): java.time.OffsetDateTime {
+            var s = raw.replace(' ', 'T')
+            val sign = s[s.length - 3]
+            if (sign == '+' || sign == '-') {
+                s += ":00"
+            }
+            return java.time.OffsetDateTime.parse(s)
+        }
+"#;
+
+/// PostgreSQL's default `timetz` text output omits the offset's minutes when they are zero;
+/// `OffsetTime.parse` rejects that. Emitted only when a composite has a `time_tz` field.
+const KT_PARSE_COMPOSITE_OFFSET_TIME_METHOD: &str = r#"        /**
+         * ~keep PostgreSQL's default `timetz` text output omits the offset's minutes when they
+         * are zero ("13:22:43-05" rather than "13:22:43-05:00"), which `OffsetTime.parse` rejects.
+         */
+        private fun parseCompositeOffsetTime(raw: String): java.time.OffsetTime {
+            var s = raw
+            val sign = s[s.length - 3]
+            if (sign == '+' || sign == '-') {
+                s += ":00"
+            }
+            return java.time.OffsetTime.parse(s)
+        }
+"#;
+
+fn composite_needs_bytes_helper(composite: &CompositeInfo) -> bool {
+    composite.fields.iter().any(|f| f.neutral_type == "bytes")
+}
+
+fn composite_needs_offset_datetime_helper(composite: &CompositeInfo) -> bool {
+    composite.fields.iter().any(|f| f.neutral_type == "datetime_tz")
+}
+
+fn composite_needs_offset_time_helper(composite: &CompositeInfo) -> bool {
+    composite.fields.iter().any(|f| f.neutral_type == "time_tz")
+}
+
+/// The Kotlin expression converting one composite field's raw text token (`raw`, a `String?`
+/// already unescaped by `parseCompositeFields`) into the field's declared Kotlin type -- the
+/// inverse of what PostgreSQL's composite output function wrote for that field. See
+/// `java_jdbc.rs`'s twin function for the reasoning behind the `!!` non-null assertions: a
+/// composite field's declared type is always non-nullable (no per-field nullability is
+/// tracked), a pre-existing gap this fix does not close.
+fn composite_field_from_text_kotlin(neutral_type: &str, field_type: &str, raw: &str) -> String {
+    if let Some(sql_name) = neutral_type.strip_prefix("composite::") {
+        return format!("{}.fromText({})!!", to_pascal_case(sql_name), raw);
+    }
+    if neutral_type.starts_with("enum::") {
+        return format!("{}.fromValue({}!!)", field_type, raw);
+    }
+    match neutral_type {
+        "bool" => format!("{}!! == \"t\"", raw),
+        "int16" => format!("{}!!.toShort()", raw),
+        "int32" => format!("{}!!.toInt()", raw),
+        "int64" => format!("{}!!.toLong()", raw),
+        "float32" => format!("{}!!.toFloat()", raw),
+        "float64" => format!("{}!!.toDouble()", raw),
+        "decimal" => format!("java.math.BigDecimal({}!!)", raw),
+        "uuid" => format!("java.util.UUID.fromString({}!!)", raw),
+        "date" => format!("java.time.LocalDate.parse({}!!)", raw),
+        "time" => format!("java.time.LocalTime.parse({}!!)", raw),
+        "datetime" => format!("java.time.LocalDateTime.parse({}!!.replace(' ', 'T'))", raw),
+        "datetime_tz" => format!("parseCompositeOffsetDateTime({}!!)", raw),
+        "time_tz" => format!("parseCompositeOffsetTime({}!!)", raw),
+        "bytes" => format!("parseCompositeBytes({}!!)", raw),
+        // "string"/"json"/"inet"/"interval" all resolve to Kotlin `String`, so the already-parsed
+        // text needs no further conversion beyond the non-null assertion. Any neutral type not
+        // named above (e.g. an array-typed composite field, which this fix does not handle -- see
+        // board #196's report) falls through here too.
+        _ => format!("{}!!", raw),
+    }
+}
+
 /// Build the inline ResultSet read expression for a Kotlin JDBC column (by name).
 /// For nullable columns, the preamble has already extracted the value with wasNull().
 fn kt_rs_expr(col: &ResolvedColumn, engine: &str, manifest: &BackendManifest) -> String {
+    // ~keep board #196: pgjdbc registers no type map for a user-defined composite, so
+    // `rs.getObject(col, T::class.java)` throws `PSQLException: conversion to class T ... not
+    // supported` at runtime. `T.fromText` (emitted by `generate_composite_def`) parses the
+    // driver's text form instead and is already null-safe, so this must run before the blanket
+    // `col.nullable` preamble check below -- unlike every other nullable type in this file,
+    // composite needs no preamble local (see the matching skip in `write_kt_nullable_preamble`).
+    if col.neutral_type.starts_with("composite::") {
+        // ~keep `fromText` returns `T?` because a NULL column has to be expressible. A NOT NULL
+        // column's field is declared `T`, so the result needs unwrapping or Kotlin rejects the
+        // argument outright -- caught by `kotlin_jdbc_composite_text_form_file_compiles`, which
+        // ran a real `kotlinc` over the emitted file. Java has no equivalent check, so the same
+        // shape is silently accepted there and only the Kotlin backends need this.
+        let unwrap = if col.nullable { "" } else { "!!" };
+        return format!("{}.fromText(rs.getString(\"{}\")){}", col.lang_type, col.name, unwrap);
+    }
     if col.nullable {
         return col.field_name.clone();
     }
@@ -226,6 +395,13 @@ fn write_kt_nullable_preamble(
 ) {
     for col in cols {
         if !col.nullable {
+            continue;
+        }
+        // ~keep board #196: `kt_rs_expr` returns the composite's `fromText` call inline for
+        // every composite column, nullable or not (see its own comment) -- so no preamble local
+        // is ever read for one, and emitting `rs.getObject(col, T::class.java)` here would both
+        // be dead code and reintroduce the type-map-less accessor this fix removes.
+        if col.neutral_type.starts_with("composite::") {
             continue;
         }
         if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
@@ -861,15 +1037,74 @@ impl CodegenBackend for KotlinJdbcBackend {
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
         let name = to_pascal_case(&composite.sql_name);
         let mut out = String::new();
+        let field_types: Vec<String> = composite
+            .fields
+            .iter()
+            .map(|f| {
+                resolve_type(&f.neutral_type, &self.manifest, false)
+                    .map(|t| t.into_owned())
+                    .unwrap_or_else(|_| "Any".to_string())
+            })
+            .collect();
         let _ = writeln!(out, "data class {}(", name);
-        for field in composite.fields.iter() {
+        for (field, field_type) in composite.fields.iter().zip(&field_types) {
             let field_name = to_camel_case(&field.name);
-            let field_type = resolve_type(&field.neutral_type, &self.manifest, false)
-                .map(|t| t.into_owned())
-                .unwrap_or_else(|_| "Any".to_string());
             let _ = writeln!(out, "    val {}: {},", field_name, field_type);
         }
-        let _ = writeln!(out, ")");
+        // ~keep board #196: a zero-field composite cannot exist in PostgreSQL (`CREATE TYPE ...
+        // AS ()` is rejected), so -- like `java_jdbc.rs`'s twin case -- there is no reachable
+        // runtime value that would need a `fromText` here.
+        if composite.fields.is_empty() {
+            let _ = writeln!(out, ")");
+            return Ok(out);
+        }
+        let _ = writeln!(out, ") {{");
+        let _ = writeln!(out, "    companion object {{");
+        let _ = writeln!(out, "        /**");
+        let _ = writeln!(
+            out,
+            "         * ~keep board #196: pgjdbc registers no `getObject(col, {}::class.java)`",
+            name
+        );
+        let _ = writeln!(
+            out,
+            "         * type map for this composite -- it throws `PSQLException: conversion to"
+        );
+        let _ = writeln!(
+            out,
+            "         * class {}` at runtime. Parse the driver's composite text form instead.",
+            name
+        );
+        let _ = writeln!(out, "         */");
+        let _ = writeln!(out, "        fun fromText(text: String?): {}? {{", name);
+        let _ = writeln!(out, "            if (text == null) {{");
+        let _ = writeln!(out, "                return null");
+        let _ = writeln!(out, "            }}");
+        let _ = writeln!(out, "            val f = parseCompositeFields(text)");
+        let _ = writeln!(out, "            return {}(", name);
+        for (i, (field, field_type)) in composite.fields.iter().zip(&field_types).enumerate() {
+            let raw = format!("f[{}]", i);
+            let expr = composite_field_from_text_kotlin(&field.neutral_type, field_type, &raw);
+            let _ = writeln!(out, "                {},", expr);
+        }
+        let _ = writeln!(out, "            )");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out);
+        out.push_str(KT_PARSE_COMPOSITE_FIELDS_METHOD);
+        if composite_needs_bytes_helper(composite) {
+            let _ = writeln!(out);
+            out.push_str(KT_PARSE_COMPOSITE_BYTES_METHOD);
+        }
+        if composite_needs_offset_datetime_helper(composite) {
+            let _ = writeln!(out);
+            out.push_str(KT_PARSE_COMPOSITE_OFFSET_DATETIME_METHOD);
+        }
+        if composite_needs_offset_time_helper(composite) {
+            let _ = writeln!(out);
+            out.push_str(KT_PARSE_COMPOSITE_OFFSET_TIME_METHOD);
+        }
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out, "}}");
         Ok(out)
     }
 
