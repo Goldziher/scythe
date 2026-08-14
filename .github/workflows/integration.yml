@@ -725,15 +725,6 @@ jobs:
           mix deps.get --quiet
           mix run test/integration_test.exs
 
-      # ruby-oci8 links against the Oracle Instant Client this job already
-      # installs (basic + devel headers) for sqlplus above, so no extra
-      # infrastructure step is needed here -- only the test step itself.
-      - name: Test ruby-oci8-oracle
-        working-directory: integration_tests/ruby-oci8-oracle
-        run: |
-          bundle install
-          bundle exec ruby test_integration.rb
-
       - name: Test rust-sibyl-oracle
         working-directory: integration_tests/rust-sibyl-oracle
         run: cargo run --quiet

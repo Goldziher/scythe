@@ -82,6 +82,16 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   contract `check`/`lint`/`fmt --check` follow, where exit 1 stays reserved for operational failure.
   (unfiled)
 
+### Known issues
+
+- **`ruby-oci8` hands back an `OCI8::CLOB` where the generated row type declares a `String`.**
+  OCI8 returns a lazy LOB handle for a CLOB column, which has to be `#read` to get its contents;
+  the generated code assigns it straight through, so a CLOB-backed field holds the handle rather
+  than the text. Found by `ruby-oci8-oracle`'s first CI run that got far enough to execute queries.
+  Its CI step is out again while this stands, because `rust-sibyl-oracle` runs after it and never
+  executes while it fails — the step returns with the fix. Tracked as board #225. `BLOB` almost
+  certainly has the same shape and should be checked alongside it.
+
 ### Fixed
 
 - **`elixir-jamdb` generated code could not run at all.** Four independent defects, each hidden
