@@ -297,14 +297,14 @@ readonly class GetUserProfileRow {
 final class Queries {
 
     /**
-     * @param \Amp\Sql\SqlConnectionPool $pool
+     * @param \Amp\Sql\SqlExecutor $pool
      * @param int $user_id
      * @param string $total
      * @param ?string $notes
      * @return CreateOrderRow
      * @throws RecordNotFoundException
      */
-    public static function createOrder(\Amp\Sql\SqlConnectionPool $pool, int $user_id, string $total, ?string $notes): CreateOrderRow {
+    public static function createOrder(\Amp\Sql\SqlExecutor $pool, int $user_id, string $total, ?string $notes): CreateOrderRow {
         $result = $pool->prepare('INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at')->execute([$user_id, $total, $notes]);
         foreach ($result as $row) {
             return CreateOrderRow::fromRow($row);
@@ -313,11 +313,11 @@ final class Queries {
     }
 
     /**
-     * @param \Amp\Sql\SqlConnectionPool $pool
+     * @param \Amp\Sql\SqlExecutor $pool
      * @param int $user_id
      * @return \Generator<int, GetOrdersByUserRow, mixed, void>
      */
-    public static function getOrdersByUser(\Amp\Sql\SqlConnectionPool $pool, int $user_id): \Generator {
+    public static function getOrdersByUser(\Amp\Sql\SqlExecutor $pool, int $user_id): \Generator {
         $result = $pool->prepare('SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC')->execute([$user_id]);
         foreach ($result as $row) {
             yield GetOrdersByUserRow::fromRow($row);
@@ -325,12 +325,12 @@ final class Queries {
     }
 
     /**
-     * @param \Amp\Sql\SqlConnectionPool $pool
+     * @param \Amp\Sql\SqlExecutor $pool
      * @param int $user_id
      * @return GetOrderTotalRow
      * @throws RecordNotFoundException
      */
-    public static function getOrderTotal(\Amp\Sql\SqlConnectionPool $pool, int $user_id): GetOrderTotalRow {
+    public static function getOrderTotal(\Amp\Sql\SqlExecutor $pool, int $user_id): GetOrderTotalRow {
         $result = $pool->prepare('SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?')->execute([$user_id]);
         foreach ($result as $row) {
             return GetOrderTotalRow::fromRow($row);
@@ -339,12 +339,12 @@ final class Queries {
     }
 
     /**
-     * @param \Amp\Sql\SqlConnectionPool $pool
+     * @param \Amp\Sql\SqlExecutor $pool
      * @param int $user_id
      * @return GetOrderWeightTotalRow
      * @throws RecordNotFoundException
      */
-    public static function getOrderWeightTotal(\Amp\Sql\SqlConnectionPool $pool, int $user_id): GetOrderWeightTotalRow {
+    public static function getOrderWeightTotal(\Amp\Sql\SqlExecutor $pool, int $user_id): GetOrderWeightTotalRow {
         $result = $pool->prepare('SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = ?')->execute([$user_id]);
         foreach ($result as $row) {
             return GetOrderWeightTotalRow::fromRow($row);
@@ -353,22 +353,22 @@ final class Queries {
     }
 
     /**
-     * @param \Amp\Sql\SqlConnectionPool $pool
+     * @param \Amp\Sql\SqlExecutor $pool
      * @param int $user_id
      * @return int
      */
-    public static function deleteOrdersByUser(\Amp\Sql\SqlConnectionPool $pool, int $user_id): int {
+    public static function deleteOrdersByUser(\Amp\Sql\SqlExecutor $pool, int $user_id): int {
         $result = $pool->prepare('DELETE FROM orders WHERE user_id = ?')->execute([$user_id]);
         return $result->getRowCount();
     }
 
     /**
-     * @param \Amp\Sql\SqlConnectionPool $pool
+     * @param \Amp\Sql\SqlExecutor $pool
      * @param int $id
      * @return GetUserByIdRow
      * @throws RecordNotFoundException
      */
-    public static function getUserById(\Amp\Sql\SqlConnectionPool $pool, int $id): GetUserByIdRow {
+    public static function getUserById(\Amp\Sql\SqlExecutor $pool, int $id): GetUserByIdRow {
         $result = $pool->prepare('SELECT id, name, email, status, created_at FROM users WHERE id = ?')->execute([$id]);
         foreach ($result as $row) {
             return GetUserByIdRow::fromRow($row);
@@ -377,11 +377,11 @@ final class Queries {
     }
 
     /**
-     * @param \Amp\Sql\SqlConnectionPool $pool
+     * @param \Amp\Sql\SqlExecutor $pool
      * @param UserStatus $status
      * @return \Generator<int, ListActiveUsersRow, mixed, void>
      */
-    public static function listActiveUsers(\Amp\Sql\SqlConnectionPool $pool, UserStatus $status): \Generator {
+    public static function listActiveUsers(\Amp\Sql\SqlExecutor $pool, UserStatus $status): \Generator {
         $result = $pool->prepare('SELECT id, name, email FROM users WHERE status = ?')->execute([$status->value]);
         foreach ($result as $row) {
             yield ListActiveUsersRow::fromRow($row);
@@ -389,14 +389,14 @@ final class Queries {
     }
 
     /**
-     * @param \Amp\Sql\SqlConnectionPool $pool
+     * @param \Amp\Sql\SqlExecutor $pool
      * @param string $name
      * @param ?string $email
      * @param UserStatus $status
      * @return CreateUserRow
      * @throws RecordNotFoundException
      */
-    public static function createUser(\Amp\Sql\SqlConnectionPool $pool, string $name, ?string $email, UserStatus $status): CreateUserRow {
+    public static function createUser(\Amp\Sql\SqlExecutor $pool, string $name, ?string $email, UserStatus $status): CreateUserRow {
         $result = $pool->prepare('INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING id, name, email, status, created_at')->execute([$name, $email, $status->value]);
         foreach ($result as $row) {
             return CreateUserRow::fromRow($row);
@@ -405,30 +405,30 @@ final class Queries {
     }
 
     /**
-     * @param \Amp\Sql\SqlConnectionPool $pool
+     * @param \Amp\Sql\SqlExecutor $pool
      * @param string $email
      * @param int $id
      * @return void
      */
-    public static function updateUserEmail(\Amp\Sql\SqlConnectionPool $pool, string $email, int $id): void {
+    public static function updateUserEmail(\Amp\Sql\SqlExecutor $pool, string $email, int $id): void {
         $result = $pool->prepare('UPDATE users SET email = ? WHERE id = ?')->execute([$email, $id]);
     }
 
     /**
-     * @param \Amp\Sql\SqlConnectionPool $pool
+     * @param \Amp\Sql\SqlExecutor $pool
      * @param int $id
      * @return void
      */
-    public static function deleteUser(\Amp\Sql\SqlConnectionPool $pool, int $id): void {
+    public static function deleteUser(\Amp\Sql\SqlExecutor $pool, int $id): void {
         $result = $pool->prepare('DELETE FROM users WHERE id = ?')->execute([$id]);
     }
 
     /**
-     * @param \Amp\Sql\SqlConnectionPool $pool
+     * @param \Amp\Sql\SqlExecutor $pool
      * @param UserStatus $status
      * @return \Generator<int, GetUserOrdersRow, mixed, void>
      */
-    public static function getUserOrders(\Amp\Sql\SqlConnectionPool $pool, UserStatus $status): \Generator {
+    public static function getUserOrders(\Amp\Sql\SqlExecutor $pool, UserStatus $status): \Generator {
         $result = $pool->prepare('SELECT u.id, u.name, o.total, o.notes FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE u.status = ?')->execute([$status->value]);
         foreach ($result as $row) {
             yield GetUserOrdersRow::fromRow($row);
@@ -436,12 +436,12 @@ final class Queries {
     }
 
     /**
-     * @param \Amp\Sql\SqlConnectionPool $pool
+     * @param \Amp\Sql\SqlExecutor $pool
      * @param UserStatus $status
      * @return CountUsersByStatusRow
      * @throws RecordNotFoundException
      */
-    public static function countUsersByStatus(\Amp\Sql\SqlConnectionPool $pool, UserStatus $status): CountUsersByStatusRow {
+    public static function countUsersByStatus(\Amp\Sql\SqlExecutor $pool, UserStatus $status): CountUsersByStatusRow {
         $result = $pool->prepare('SELECT status, COUNT(*) AS user_count FROM users GROUP BY status HAVING status = ?')->execute([$status->value]);
         foreach ($result as $row) {
             return CountUsersByStatusRow::fromRow($row);
@@ -450,11 +450,11 @@ final class Queries {
     }
 
     /**
-     * @param \Amp\Sql\SqlConnectionPool $pool
+     * @param \Amp\Sql\SqlExecutor $pool
      * @param int $id
      * @return \Generator<int, GetUserWithTagsRow, mixed, void>
      */
-    public static function getUserWithTags(\Amp\Sql\SqlConnectionPool $pool, int $id): \Generator {
+    public static function getUserWithTags(\Amp\Sql\SqlExecutor $pool, int $id): \Generator {
         $result = $pool->prepare('SELECT u.id, u.name, t.name AS tag_name FROM users u INNER JOIN user_tags ut ON u.id = ut.user_id INNER JOIN tags t ON ut.tag_id = t.id WHERE u.id = ?')->execute([$id]);
         foreach ($result as $row) {
             yield GetUserWithTagsRow::fromRow($row);
@@ -462,11 +462,11 @@ final class Queries {
     }
 
     /**
-     * @param \Amp\Sql\SqlConnectionPool $pool
+     * @param \Amp\Sql\SqlExecutor $pool
      * @param string $name
      * @return \Generator<int, SearchUsersRow, mixed, void>
      */
-    public static function searchUsers(\Amp\Sql\SqlConnectionPool $pool, string $name): \Generator {
+    public static function searchUsers(\Amp\Sql\SqlExecutor $pool, string $name): \Generator {
         $result = $pool->prepare('SELECT id, name, email FROM users WHERE name LIKE ?')->execute([$name]);
         foreach ($result as $row) {
             yield SearchUsersRow::fromRow($row);
@@ -474,12 +474,12 @@ final class Queries {
     }
 
     /**
-     * @param \Amp\Sql\SqlConnectionPool $pool
+     * @param \Amp\Sql\SqlExecutor $pool
      * @param int $id
      * @return GetUserProfileRow
      * @throws RecordNotFoundException
      */
-    public static function getUserProfile(\Amp\Sql\SqlConnectionPool $pool, int $id): GetUserProfileRow {
+    public static function getUserProfile(\Amp\Sql\SqlExecutor $pool, int $id): GetUserProfileRow {
         $result = $pool->prepare('SELECT id, secondary_status, address FROM users WHERE id = ?')->execute([$id]);
         foreach ($result as $row) {
             return GetUserProfileRow::fromRow($row);

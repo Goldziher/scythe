@@ -93,6 +93,16 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Fixed
 
+- **`php-amphp` typed its handle as `SqlConnectionPool`, which made MySQL's generated
+  `LAST_INSERT_ID()` lookups unreliable.** Every generated function took
+  `\Amp\Sql\SqlConnectionPool`, so a single `MysqlConnection` was rejected outright — but a pool is
+  the wrong thing to pass on MySQL: `GetLastInsertUser` resolves `LAST_INSERT_ID()`, which is scoped
+  to the connection that ran the `INSERT`, so the pool routes the follow-up `SELECT` to a different
+  connection and it finds no row. The parameter is now `\Amp\Sql\SqlExecutor`, the narrowest
+  interface carrying the `prepare()` the generated code actually calls; both the pool and the bare
+  connection implement it on PostgreSQL and MySQL alike. This is a widening — callers already
+  passing a pool are unaffected. Found by running the new `php-amphp-mysql` integration project.
+
 - **`go-database-sql` on DuckDB failed at runtime on every nullable parameter.** The manifest maps a
   nullable parameter to `*{T}`, and `go-duckdb` cannot bind a typed pointer at all: measured against
   v2.3.3, both a nil and a *non-nil* `*string` fail with `could not bind parameter / unsupported data

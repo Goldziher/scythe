@@ -19,6 +19,16 @@ use crate::backends::php_common::{
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/php-amphp.toml");
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/php-amphp.mysql.toml");
 
+/// ~keep The handle every generated function takes. This was `\Amp\Sql\SqlConnectionPool`,
+/// which a single connection does not satisfy -- and on MySQL a pool is the wrong thing to
+/// pass: `GetLastInsertUser` resolves `LAST_INSERT_ID()`, which is scoped to the connection
+/// that ran the INSERT, so a pool routes the follow-up SELECT to a different connection and
+/// it finds no row. `SqlExecutor` is the narrowest interface carrying the `prepare()` the
+/// generated code actually calls, and both `MysqlConnectionPool` and `SocketMysqlConnection`
+/// implement it (as do the PostgreSQL pair), so callers may pass either. Widening only --
+/// existing callers passing a pool are unaffected.
+const AMPHP_HANDLE_TYPE: &str = "\\Amp\\Sql\\SqlExecutor";
+
 pub struct PhpAmphpBackend {
     manifest: BackendManifest,
     namespace: String,
@@ -371,13 +381,13 @@ impl CodegenBackend for PhpAmphpBackend {
         if matches!(analyzed.command, QueryCommand::Batch) {
             let batch_fn_name = format!("{}Batch", func_name);
             let _ = writeln!(out, "    /**");
-            let _ = writeln!(out, "     * @param \\Amp\\Sql\\SqlConnectionPool $pool");
+            let _ = writeln!(out, "     * @param {AMPHP_HANDLE_TYPE} $pool");
             let _ = writeln!(out, "     * @param array<int, array<int, mixed>> $items");
             let _ = writeln!(out, "     * @return void");
             let _ = writeln!(out, "     */");
             let _ = writeln!(
                 out,
-                "    public static function {}(\\Amp\\Sql\\SqlConnectionPool $pool, array $items): void {{",
+                "    public static function {}({AMPHP_HANDLE_TYPE} $pool, array $items): void {{",
                 batch_fn_name
             );
             let _ = writeln!(out, "        $transaction = $pool->beginTransaction();");
@@ -415,7 +425,7 @@ impl CodegenBackend for PhpAmphpBackend {
         };
 
         let _ = writeln!(out, "    /**");
-        let _ = writeln!(out, "     * @param \\Amp\\Sql\\SqlConnectionPool $pool");
+        let _ = writeln!(out, "     * @param {AMPHP_HANDLE_TYPE} $pool");
         for p in params {
             let _ = writeln!(
                 out,
@@ -450,7 +460,7 @@ impl CodegenBackend for PhpAmphpBackend {
 
         let _ = writeln!(
             out,
-            "    public static function {}(\\Amp\\Sql\\SqlConnectionPool $pool{}{}): {} {{",
+            "    public static function {}({AMPHP_HANDLE_TYPE} $pool{}{}): {} {{",
             func_name, sep, param_list, return_type
         );
 
@@ -578,7 +588,7 @@ impl CodegenBackend for PhpAmphpBackend {
         let sep = if param_list.is_empty() { "" } else { ", " };
 
         let _ = writeln!(out, "    /**");
-        let _ = writeln!(out, "     * @param \\Amp\\Sql\\SqlConnectionPool $pool");
+        let _ = writeln!(out, "     * @param {AMPHP_HANDLE_TYPE} $pool");
         for p in params {
             let _ = writeln!(
                 out,
@@ -592,7 +602,7 @@ impl CodegenBackend for PhpAmphpBackend {
 
         let _ = writeln!(
             out,
-            "    public static function {}(\\Amp\\Sql\\SqlConnectionPool $pool{}{}): array {{",
+            "    public static function {}({AMPHP_HANDLE_TYPE} $pool{}{}): array {{",
             func_name, sep, param_list
         );
 
@@ -794,7 +804,7 @@ mod tests {
             "missing function name; got:\n{query_fn}"
         );
         assert!(
-            query_fn.contains("\\Amp\\Sql\\SqlConnectionPool $pool"),
+            query_fn.contains("\\Amp\\Sql\\SqlExecutor $pool"),
             "missing Amp pool parameter; got:\n{query_fn}"
         );
         assert!(
