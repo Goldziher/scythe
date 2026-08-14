@@ -1,5 +1,5 @@
 # frozen_string_literal: true
-# scythe:provenance v=0.14.0 backend=ruby-pg engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046 options=opt1:cbf29ce484222325
+# scythe:provenance v=0.15.0 backend=ruby-pg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
 
 require "bigdecimal/util"
 
@@ -143,6 +143,19 @@ WHERE u.id = $1", [id])
     result.map do |row|
       SearchUsersRow.new(id: row["id"].to_i, name: row["name"], email: row["email"]&.then { |v| v })
     end
+  end
+
+  UserAddress = Data.define(:street, :city, :zip)
+
+
+  GetUserProfileRow = Data.define(:id, :secondary_status, :address)
+
+
+  def self.get_user_profile(conn, id)
+    result = conn.exec_params("SELECT id, secondary_status, address FROM users WHERE id = $1", [id])
+    raise RecordNotFound, "get_user_profile: no row found" if result.ntuples.zero?
+    row = result[0]
+    GetUserProfileRow.new(id: row["id"].to_i, secondary_status: row["secondary_status"]&.then { |v| v }, address: row["address"]&.then { |v| v })
   end
 
 end

@@ -1,4 +1,4 @@
-// scythe:provenance v=0.14.0 backend=java-jdbc engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.15.0 backend=java-jdbc engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
 package generated;
 
 import java.math.BigDecimal;
@@ -351,6 +351,104 @@ public static List<SearchUsersRow> searchUsers(Connection conn, @Nonnull String 
                 result.add(SearchUsersRow.fromResultSet(rs));
             }
             return result;
+        }
+    }
+}
+
+public record UserAddress(String street, String city, String zip) {
+
+    /**
+     * ~keep board #196: pgjdbc registers no `getObject(col, UserAddress.class)` type map for
+     * this composite -- it throws `PSQLException: conversion to class UserAddress` at runtime.
+     * Parse the driver's composite text form instead.
+     */
+    public static UserAddress fromText(String text) {
+        if (text == null) {
+            return null;
+        }
+        java.util.List<String> f = parseCompositeFields(text);
+        return new UserAddress(
+            f.get(0),
+            f.get(1),
+            f.get(2)
+        );
+    }
+
+    /**
+     * ~keep Splits a PostgreSQL composite's text form ("(a,b,c)") into its raw field tokens,
+     * honoring its escaping rules: an empty unquoted field is SQL NULL (returned as `null`); a
+     * field needing quoting (containing a comma, paren, quote, backslash, or leading/trailing
+     * space, or the empty string) is wrapped in double quotes with `"` and `\` backslash-escaped
+     * inside; every other field is unquoted and taken literally. A nested composite's own
+     * "(x,y)" text form always contains parens, so it always comes back quoted here, ready for
+     * that type's own `fromText` to parse recursively.
+     */
+    private static java.util.List<String> parseCompositeFields(String text) {
+        java.util.List<String> fields = new java.util.ArrayList<>();
+        String inner = text.substring(1, text.length() - 1);
+        int i = 0;
+        int n = inner.length();
+        while (true) {
+            StringBuilder field = new StringBuilder();
+            boolean isNull = false;
+            if (i < n && inner.charAt(i) == '"') {
+                i++;
+                while (i < n) {
+                    char c = inner.charAt(i);
+                    if (c == '\\' && i + 1 < n) {
+                        field.append(inner.charAt(i + 1));
+                        i += 2;
+                    } else if (c == '"') {
+                        i++;
+                        break;
+                    } else {
+                        field.append(c);
+                        i++;
+                    }
+                }
+            } else {
+                int start = i;
+                while (i < n && inner.charAt(i) != ',') {
+                    i++;
+                }
+                field.append(inner, start, i);
+                isNull = field.length() == 0;
+            }
+            fields.add(isNull ? null : field.toString());
+            if (i < n && inner.charAt(i) == ',') {
+                i++;
+                continue;
+            }
+            break;
+        }
+        return fields;
+    }
+}
+
+public record GetUserProfileRow(
+    int id,
+    @Nullable UserStatus secondary_status,
+    @Nullable UserAddress address
+) {
+    public static GetUserProfileRow fromResultSet(ResultSet rs) throws SQLException {
+        var secondary_statusRaw = rs.getString("secondary_status");
+        UserStatus secondary_status = secondary_statusRaw == null ? null : UserStatus.fromValue(secondary_statusRaw);
+        return new GetUserProfileRow(
+            rs.getInt("id"),
+            secondary_status,
+            UserAddress.fromText(rs.getString("address"))
+        );
+    }
+}
+
+public static GetUserProfileRow getUserProfile(Connection conn, int id) throws SQLException {
+    try (var ps = conn.prepareStatement("SELECT id, secondary_status, address FROM users WHERE id = ?")) {
+        ps.setInt(1, id);
+        try (ResultSet rs = ps.executeQuery()) {
+            if (rs.next()) {
+                return GetUserProfileRow.fromResultSet(rs);
+            }
+            throw new java.util.NoSuchElementException("getUserProfile: no rows returned");
         }
     }
 }

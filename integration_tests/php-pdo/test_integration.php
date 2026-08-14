@@ -65,6 +65,7 @@ function setup_schema(PDO $pdo): void
     $pdo->exec("DROP TABLE IF EXISTS orders CASCADE");
     $pdo->exec("DROP TABLE IF EXISTS users CASCADE");
     $pdo->exec("DROP TYPE IF EXISTS user_status CASCADE");
+    $pdo->exec("DROP TYPE IF EXISTS user_address CASCADE");
     $schema_path = __DIR__ . '/../sql/pg/schema.sql';
     $schema_sql = file_get_contents($schema_path);
     if ($schema_sql === false) {
@@ -94,6 +95,13 @@ function assert_true(bool $value, string $message): void
 {
     if (!$value) {
         throw new RuntimeException("Assertion failed: {$message}");
+    }
+}
+
+function assert_null(mixed $value, string $message): void
+{
+    if ($value !== null) {
+        throw new RuntimeException("Assertion failed: {$message} (expected null, got " . var_export($value, true) . ")");
     }
 }
 

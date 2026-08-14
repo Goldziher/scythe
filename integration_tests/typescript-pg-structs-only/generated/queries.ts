@@ -1,4 +1,4 @@
-// scythe:provenance v=0.14.0 backend=typescript-pg engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046 options=opt1:57af1d7acc85e6c7
+// scythe:provenance v=0.15.0 backend=typescript-pg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:57af1d7acc85e6c7
 export const UserStatusValues = {
 	Active: "active",
 	Inactive: "inactive",
@@ -111,6 +111,22 @@ export interface SearchUsersRow {
 	id: number;
 	name: string;
 	email: string | null;
+}
+
+
+
+/** Composite type user_address. */
+export interface UserAddress {
+	street: string;
+	city: string;
+	zip: string;
+}
+
+/** Row type for GetUserProfile queries. */
+export interface GetUserProfileRow {
+	id: number;
+	secondary_status: UserStatus | null;
+	address: UserAddress | null;
 }
 
 

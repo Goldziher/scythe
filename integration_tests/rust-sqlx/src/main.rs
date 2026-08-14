@@ -5,9 +5,11 @@ use queries::{
     CreateOrderRow, CreateUserRow,
     GetOrdersByUserRow, GetUserByIdRow, ListActiveUsersRow,
     UserStatus,
+    GetUserProfileRow,
 };
 use rust_decimal::Decimal;
 use sqlx::postgres::PgPoolOptions;
+use sqlx::Row;
 use std::str::FromStr;
 
 macro_rules! assert_test {
@@ -49,6 +51,9 @@ let pool = PgPoolOptions::new()
         .execute(&pool)
         .await?;
     sqlx::query("DROP TYPE IF EXISTS user_status CASCADE")
+        .execute(&pool)
+        .await?;
+    sqlx::query("DROP TYPE IF EXISTS user_address CASCADE")
         .execute(&pool)
         .await?;
 
@@ -127,6 +132,53 @@ let orders: Vec<GetOrdersByUserRow> = sqlx::query_as(
     assert_test!(orders.len() == 1, "GetOrdersByUser");
     assert_test!(orders[0].total == total, "GetOrdersByUser");
     pass!("GetOrdersByUser");
+    // Test: GetUserProfile (board #197) -- a nullable enum and a nullable
+    // composite column, each observed both present and as SQL NULL. Seeded
+    // via raw SQL because a composite VALUES literal is outside this
+    // generator's parameter-binding surface; the point is the *read* path,
+    // which runs through the generated `GetUserProfileRow`.
+    let present_row = sqlx::query(
+        "INSERT INTO users (name, email, status, secondary_status, address) \
+         VALUES ($1, $2, 'active', 'inactive', ROW('1 Main St', 'Springfield', '12345')) RETURNING id",
+    )
+    .bind("Carol")
+    .bind("carol@example.com")
+    .fetch_one(&pool)
+    .await?;
+    let present_id: i32 = present_row.get(0);
+    let absent_row = sqlx::query(
+        "INSERT INTO users (name, email, status, secondary_status, address) \
+         VALUES ($1, $2, 'active', NULL, NULL) RETURNING id",
+    )
+    .bind("Dave")
+    .bind("dave@example.com")
+    .fetch_one(&pool)
+    .await?;
+    let absent_id: i32 = absent_row.get(0);
+
+    let profile: GetUserProfileRow =
+        sqlx::query_as("SELECT id, secondary_status, address FROM users WHERE id = $1")
+            .bind(present_id)
+            .fetch_one(&pool)
+            .await?;
+    // Fails if a nullable enum reader zero-decodes instead of returning the value.
+    assert_test!(profile.secondary_status == Some(UserStatus::Inactive), "GetUserProfile secondary_status present");
+    // Fails if a nullable composite reader errors or returns zero fields on a present value.
+    let address = profile.address.expect("GetUserProfile address should be present");
+    assert_test!(address.street == "1 Main St", "GetUserProfile address.street");
+    assert_test!(address.city == "Springfield", "GetUserProfile address.city");
+    assert_test!(address.zip == "12345", "GetUserProfile address.zip");
+
+    let null_profile: GetUserProfileRow =
+        sqlx::query_as("SELECT id, secondary_status, address FROM users WHERE id = $1")
+            .bind(absent_id)
+            .fetch_one(&pool)
+            .await?;
+    // Fails if a nullable enum reader decodes SQL NULL as a zero/empty variant instead of None.
+    assert_test!(null_profile.secondary_status.is_none(), "GetUserProfile secondary_status null");
+    // Fails if a nullable composite reader decodes SQL NULL as a Some(all-default) value.
+    assert_test!(null_profile.address.is_none(), "GetUserProfile address null");
+    pass!("GetUserProfile (nullable enum + composite)");
 
     // Test: DeleteUser (delete orders first due to FK)
 sqlx::query("DELETE FROM orders WHERE user_id = $1")

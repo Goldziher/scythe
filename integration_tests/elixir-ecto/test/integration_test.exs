@@ -28,6 +28,7 @@ Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS tags CASCADE", [])
 Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS orders CASCADE", [])
 Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS users CASCADE", [])
 Ecto.Adapters.SQL.query!(conn, "DROP TYPE IF EXISTS user_status CASCADE", [])
+Ecto.Adapters.SQL.query!(conn, "DROP TYPE IF EXISTS user_address CASCADE", [])
 
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "pg/schema.sql"]))
 schema_sql

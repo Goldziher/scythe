@@ -55,6 +55,7 @@ public class IntegrationTest {
             testGetUserOrders(conn);
             testCountUsersByStatus(conn);
             testSearchUsers(conn);
+            testGetUserProfileNullable(conn);
             testDeleteOrdersByUser(conn);
             testDeleteUser(conn);
         }
@@ -79,6 +80,7 @@ public class IntegrationTest {
             DROP TABLE IF EXISTS orders CASCADE;
             DROP TABLE IF EXISTS users CASCADE;
             DROP TYPE IF EXISTS user_status CASCADE;
+            DROP TYPE IF EXISTS user_address CASCADE;
             """;
 
         try (var stmt = conn.createStatement()) {
@@ -266,6 +268,74 @@ public class IntegrationTest {
             fail(name, e);
         }
     }
+
+    // board #197: a nullable enum and a nullable composite column, each
+    // observed both present and as SQL NULL. Seeded via raw SQL because a
+    // composite VALUES literal is outside this generator's parameter-binding
+    // surface -- the point is the *read* path, which runs through generated
+    // code (Queries.getUserProfile).
+    private static void testGetUserProfileNullable(Connection conn) {
+        String name = "GetUserProfile";
+        try {
+            int presentId;
+            int absentId;
+            try (var stmt = conn.createStatement();
+                 var rs = stmt.executeQuery(
+                     "INSERT INTO users (name, email, status, secondary_status, address) "
+                     + "VALUES ('Carol', 'carol@example.com', 'active', 'inactive', "
+                     + "ROW('1 Main St', 'Springfield', '12345')) RETURNING id")) {
+                rs.next();
+                presentId = rs.getInt(1);
+            }
+            try (var stmt = conn.createStatement();
+                 var rs = stmt.executeQuery(
+                     "INSERT INTO users (name, email, status, secondary_status, address) "
+                     + "VALUES ('Dave', 'dave@example.com', 'active', NULL, NULL) RETURNING id")) {
+                rs.next();
+                absentId = rs.getInt(1);
+            }
+
+            var profile = Queries.getUserProfile(conn, presentId);
+            // Fails if a nullable enum reader zero-decodes instead of returning the value.
+            if (profile.secondary_status() != UserStatus.INACTIVE) {
+                fail(name, "expected secondary_status INACTIVE, got " + profile.secondary_status());
+                return;
+            }
+            // Fails if a nullable composite reader throws or returns null/zero fields on a present value.
+            if (profile.address() == null) {
+                fail(name, "expected address to be present");
+                return;
+            }
+            if (!"1 Main St".equals(profile.address().street())) {
+                fail(name, "expected address.street '1 Main St', got " + profile.address().street());
+                return;
+            }
+            if (!"Springfield".equals(profile.address().city())) {
+                fail(name, "expected address.city 'Springfield', got " + profile.address().city());
+                return;
+            }
+            if (!"12345".equals(profile.address().zip())) {
+                fail(name, "expected address.zip '12345', got " + profile.address().zip());
+                return;
+            }
+
+            var nullProfile = Queries.getUserProfile(conn, absentId);
+            // Fails if a nullable enum reader decodes SQL NULL as a zero/empty variant instead of null.
+            if (nullProfile.secondary_status() != null) {
+                fail(name, "expected secondary_status null, got " + nullProfile.secondary_status());
+                return;
+            }
+            // Fails if a nullable composite reader decodes SQL NULL as a non-null all-default record.
+            if (nullProfile.address() != null) {
+                fail(name, "expected address null, got " + nullProfile.address());
+                return;
+            }
+            pass(name);
+        } catch (Exception e) {
+            fail(name, e);
+        }
+    }
+
 
     private static void testDeleteOrdersByUser(Connection conn) {
         String name = "DeleteOrdersByUser";

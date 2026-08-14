@@ -1,4 +1,4 @@
-// scythe:provenance v=0.14.0 backend=rust-sqlx engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:7c64c2452155cf88 options=opt1:57af1d7acc85e6c7
+// scythe:provenance v=0.15.0 backend=rust-sqlx engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:2bf05f8805c8aa22 options=opt1:57af1d7acc85e6c7
 #![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type, serde::Serialize, serde::Deserialize)]
@@ -38,6 +38,8 @@ pub struct GetUserAsJsonRowPayload {
     pub name: String,
     pub email: Option<String>,
     pub status: UserStatus,
+    pub secondary_status: Option<UserStatus>,
+    pub address: Option<UserAddress>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -52,6 +54,14 @@ pub struct GetUsersWithOrdersRow {
 pub struct GetUsersWithOrdersOuterRow {
     pub id: i32,
     pub orders: Option<sqlx::types::Json<Vec<Option<GetUsersWithOrdersOuterRowOrders>>>>,
+}
+
+#[derive(Debug, Clone, sqlx::Type, serde::Serialize, serde::Deserialize)]
+#[sqlx(type_name = "user_address")]
+pub struct UserAddress {
+    pub street: String,
+    pub city: String,
+    pub zip: String,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]

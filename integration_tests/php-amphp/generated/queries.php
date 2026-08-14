@@ -1,5 +1,5 @@
 <?php
-// scythe:provenance v=0.14.0 backend=php-amphp engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.15.0 backend=php-amphp engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
 
 declare(strict_types=1);
 
@@ -196,6 +196,30 @@ readonly class SearchUsersRow {
     }
 }
 
+readonly class UserAddress {
+    public function __construct(
+        public mixed $street,
+        public mixed $city,
+        public mixed $zip,
+    ) {}
+}
+
+readonly class GetUserProfileRow {
+    public function __construct(
+        public int $id,
+        public ?UserStatus $secondary_status,
+        public ?UserAddress $address,
+    ) {}
+
+    public static function fromRow(array $row): self {
+        return new self(
+            id: (int) $row['id'],
+            secondary_status: $row['secondary_status'] !== null ? UserStatus::from($row['secondary_status']) : null,
+            address: $row['address'] !== null ? $row['address'] : null,
+        );
+    }
+}
+
 final class Queries {
 
     /**
@@ -373,6 +397,20 @@ final class Queries {
         foreach ($result as $row) {
             yield SearchUsersRow::fromRow($row);
         }
+    }
+
+    /**
+     * @param \Amp\Sql\SqlConnectionPool $pool
+     * @param int $id
+     * @return GetUserProfileRow
+     * @throws RecordNotFoundException
+     */
+    public static function getUserProfile(\Amp\Sql\SqlConnectionPool $pool, int $id): GetUserProfileRow {
+        $result = $pool->prepare('SELECT id, secondary_status, address FROM users WHERE id = ?')->execute([$id]);
+        foreach ($result as $row) {
+            return GetUserProfileRow::fromRow($row);
+        }
+        throw new RecordNotFoundException('getUserProfile: no row found');
     }
 
 }

@@ -1,4 +1,4 @@
-# scythe:provenance v=0.14.0 backend=elixir-postgrex engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046 options=opt1:cbf29ce484222325
+# scythe:provenance v=0.15.0 backend=elixir-postgrex engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
 defmodule UserStatus do
   @moduledoc "Enum type for user_status."
 
@@ -136,6 +136,29 @@ defmodule SearchUsersRow do
     email: String.t() | nil
   }
   defstruct [:id, :name, :email]
+end
+
+defmodule UserAddress do
+  @moduledoc "Composite type for user_address."
+
+  @type t :: %__MODULE__{
+    street: term(),
+    city: term(),
+    zip: term()
+  }
+
+  defstruct [:street, :city, :zip]
+end
+
+defmodule GetUserProfileRow do
+  @moduledoc "Row type for GetUserProfile queries."
+
+  @type t :: %__MODULE__{
+    id: integer(),
+    secondary_status: UserStatus | nil.t(),
+    address: UserAddress | nil
+  }
+  defstruct [:id, :secondary_status, :address]
 end
 
 defmodule Scythe.Queries do
@@ -298,6 +321,17 @@ def search_users(conn, name) do
         %SearchUsersRow{id: id, name: name, email: email}
       end)
       {:ok, results}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec get_user_profile(Postgrex.conn(), integer()) :: {:ok, %GetUserProfileRow{}} | {:error, :not_found} | {:error, term()}
+def get_user_profile(conn, id) do
+  case Postgrex.query(conn, "SELECT id, secondary_status, address FROM users WHERE id = $1", [id]) do
+    {:ok, %{rows: [row | _]}} ->
+      [id, secondary_status, address] = row
+      {:ok, %GetUserProfileRow{id: id, secondary_status: secondary_status, address: address}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
     {:error, err} -> {:error, err}
   end
 end

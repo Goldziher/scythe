@@ -1,4 +1,4 @@
-# scythe:provenance v=0.14.0 backend=python-psycopg3 engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046 options=opt1:7b646550486abf0d  # noqa: E501
+# scythe:provenance v=0.15.0 backend=python-psycopg3 engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:7b646550486abf0d  # noqa: E501
 import datetime  # noqa: F401
 import decimal  # noqa: F401
 import uuid  # noqa: F401
@@ -291,4 +291,32 @@ async def search_users(conn: AsyncConnection, *, name: str) -> list[SearchUsersR
     )
     rows = await cur.fetchall()
     return [SearchUsersRow(id=r[0], name=r[1], email=r[2]) for r in rows]
+
+
+class UserAddress(BaseModel):
+    """Composite type user_address."""
+
+    street: str
+    city: str
+    zip: str
+
+
+class GetUserProfileRow(BaseModel):
+    """Row type for GetUserProfile query."""
+
+    id: int
+    secondary_status: UserStatus | None
+    address: UserAddress | None
+
+
+async def get_user_profile(conn: AsyncConnection, *, id: int) -> GetUserProfileRow:
+    """Execute GetUserProfile query."""
+    cur = await conn.execute(
+        """SELECT id, secondary_status, address FROM users WHERE id = %(id)s""",
+        {"id": id},
+    )
+    row = await cur.fetchone()
+    if row is None:
+        raise ScytheNoRowsError("GetUserProfile: no rows returned")
+    return GetUserProfileRow(id=row[0], secondary_status=row[1], address=row[2])
 

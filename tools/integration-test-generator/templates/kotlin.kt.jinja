@@ -52,6 +52,7 @@ fun main() {
         testGetUserOrders(conn)
         testCountUsersByStatus(conn)
         testSearchUsers(conn)
+        testGetUserProfileNullable(conn)
         testDeleteOrdersByUser(conn)
         testDeleteUser(conn)
     }
@@ -76,6 +77,7 @@ fun runMigration(conn: java.sql.Connection) {
         DROP TABLE IF EXISTS orders CASCADE;
         DROP TABLE IF EXISTS users CASCADE;
         DROP TYPE IF EXISTS user_status CASCADE;
+        DROP TYPE IF EXISTS user_address CASCADE;
     """.trimIndent()
 
     conn.createStatement().use { stmt ->
@@ -261,6 +263,79 @@ fun testSearchUsers(conn: java.sql.Connection) {
         fail(name, e)
     }
 }
+
+// board #197: a nullable enum and a nullable composite column, each
+// observed both present and as SQL NULL. Seeded via raw SQL because a
+// composite VALUES literal is outside this generator's parameter-binding
+// surface -- the point is the *read* path, which runs through generated
+// code (getUserProfile).
+fun testGetUserProfileNullable(conn: java.sql.Connection) {
+    val name = "GetUserProfile"
+    try {
+        var presentId: Int
+        var absentId: Int
+        conn.createStatement().use { stmt ->
+            stmt.executeQuery(
+                "INSERT INTO users (name, email, status, secondary_status, address) " +
+                    "VALUES ('Carol', 'carol@example.com', 'active', 'inactive', " +
+                    "ROW('1 Main St', 'Springfield', '12345')) RETURNING id"
+            ).use { rs ->
+                rs.next()
+                presentId = rs.getInt(1)
+            }
+        }
+        conn.createStatement().use { stmt ->
+            stmt.executeQuery(
+                "INSERT INTO users (name, email, status, secondary_status, address) " +
+                    "VALUES ('Dave', 'dave@example.com', 'active', NULL, NULL) RETURNING id"
+            ).use { rs ->
+                rs.next()
+                absentId = rs.getInt(1)
+            }
+        }
+
+        val profile = getUserProfile(conn, presentId)
+        // Fails if a nullable enum reader zero-decodes instead of returning the value.
+        if (profile.secondary_status != UserStatus.INACTIVE) {
+            fail(name, "expected secondary_status INACTIVE, got ${profile.secondary_status}")
+            return
+        }
+        // Fails if a nullable composite reader throws or returns null/zero fields on a present value.
+        val address = profile.address
+        if (address == null) {
+            fail(name, "expected address to be present")
+            return
+        }
+        if (address.street != "1 Main St") {
+            fail(name, "expected address.street '1 Main St', got ${address.street}")
+            return
+        }
+        if (address.city != "Springfield") {
+            fail(name, "expected address.city 'Springfield', got ${address.city}")
+            return
+        }
+        if (address.zip != "12345") {
+            fail(name, "expected address.zip '12345', got ${address.zip}")
+            return
+        }
+
+        val nullProfile = getUserProfile(conn, absentId)
+        // Fails if a nullable enum reader decodes SQL NULL as a zero/empty variant instead of null.
+        if (nullProfile.secondary_status != null) {
+            fail(name, "expected secondary_status null, got ${nullProfile.secondary_status}")
+            return
+        }
+        // Fails if a nullable composite reader decodes SQL NULL as a non-null all-default object.
+        if (nullProfile.address != null) {
+            fail(name, "expected address null, got ${nullProfile.address}")
+            return
+        }
+        pass(name)
+    } catch (e: Exception) {
+        fail(name, e)
+    }
+}
+
 
 fun testDeleteOrdersByUser(conn: java.sql.Connection) {
     val name = "DeleteOrdersByUser"

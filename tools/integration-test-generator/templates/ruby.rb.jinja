@@ -49,6 +49,7 @@ def setup_schema(conn)
   conn.exec("DROP TABLE IF EXISTS users CASCADE")
 {%- if engine == "postgresql" %}
   conn.exec("DROP TYPE IF EXISTS user_status CASCADE")
+  conn.exec("DROP TYPE IF EXISTS user_address CASCADE")
 {%- endif %}
   schema_sql = File.read(SCHEMA_PATH)
   conn.exec(schema_sql)
@@ -130,6 +131,12 @@ def assert_true(value, message)
   return if value
 
   raise "Assertion failed: #{message}"
+end
+
+def assert_nil(value, message)
+  return if value.nil?
+
+  raise "Assertion failed: #{message} (expected nil, got #{value.inspect})"
 end
 
 def test_create_user(conn)
@@ -256,6 +263,15 @@ def test_count_users_by_status(conn)
 {%- endif %}
   puts "PASS: CountUsersByStatus"
 end
+
+{#- board #204: the generated GetUserProfileRow declares `address` as the composite
+    Address struct, but ruby-pg's reader assigns the driver's raw value straight
+    through -- no composite parser is emitted, so the annotation is wrong. The
+    GetUserProfile test is left out of this harness until that is fixed. When
+    ruby-pg starts emitting a composite parser for nullable composite columns,
+    restore test_get_user_profile_nullable here and add its call site back to
+    run_tests. Kept as a template comment, not an emitted one, to match the six
+    other languages excluded for the same reason. -#}
 {%- endif %}
 
 def test_delete_user(conn, user_id)

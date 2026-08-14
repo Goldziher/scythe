@@ -1,4 +1,4 @@
-// scythe:provenance v=0.14.0 backend=typescript-pg engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046 options=opt1:a33ec5812d75d376
+// scythe:provenance v=0.15.0 backend=typescript-pg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:a33ec5812d75d376
 import type { PoolClient } from "pg";
 import { z } from "zod";
 
@@ -310,4 +310,36 @@ export async function searchUsers(
 		[name],
 	);
 	return rows;
+}
+
+/** Composite type user_address. */
+export interface UserAddress {
+	street: string;
+	city: string;
+	zip: string;
+}
+
+/** Row type for GetUserProfile queries. */
+export const GetUserProfileRowSchema = z.object({
+	id: z.number(),
+	secondary_status: UserStatusSchema.nullable(),
+	address: z.custom<UserAddress>().nullable(),
+});
+
+export type GetUserProfileRow = z.infer<typeof GetUserProfileRowSchema>;
+
+/** Fetch a single GetUserProfileRow. */
+export async function getUserProfile(
+	client: PoolClient,
+	id: number,
+): Promise<GetUserProfileRow> {
+	const { rows } = await client.query<GetUserProfileRow>(
+		`SELECT id, secondary_status, address FROM users WHERE id = $1`,
+		[id],
+	);
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUserProfile");
+	}
+	return row;
 }

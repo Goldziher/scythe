@@ -46,6 +46,7 @@ async def setup_schema(conn: psycopg.AsyncConnection) -> None:
     await conn.execute("DROP TABLE IF EXISTS orders CASCADE")
     await conn.execute("DROP TABLE IF EXISTS users CASCADE")
     await conn.execute("DROP TYPE IF EXISTS user_status CASCADE")
+    await conn.execute("DROP TYPE IF EXISTS user_address CASCADE")
     schema_sql = SCHEMA_PATH.read_text()
     await conn.execute(schema_sql)
     await conn.commit()

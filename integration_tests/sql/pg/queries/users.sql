@@ -40,3 +40,10 @@ WHERE u.id = $1;
 -- @name SearchUsers
 -- @returns :many
 SELECT id, name, email FROM users WHERE name LIKE $1;
+
+-- @name GetUserProfile
+-- @returns :one
+-- Exercises a nullable enum column and a nullable composite column
+-- (board #197). Callers must pass an id seeded via raw SQL, since a
+-- composite VALUES literal is not part of this generator's fixture surface.
+SELECT id, secondary_status, address FROM users WHERE id = $1;

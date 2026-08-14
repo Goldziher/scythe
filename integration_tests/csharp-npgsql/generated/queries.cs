@@ -1,4 +1,4 @@
-// scythe:provenance v=0.14.0 backend=csharp-npgsql engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.15.0 backend=csharp-npgsql engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
 #nullable enable
 
 using Npgsql;
@@ -251,6 +251,30 @@ public static async Task<List<SearchUsersRow>> SearchUsers(NpgsqlConnection conn
         ));
     }
     return results;
+}
+
+public record UserAddress(
+    string Street,
+    string City,
+    string Zip
+);
+
+public record GetUserProfileRow(
+    int Id,
+    UserStatus? SecondaryStatus,
+    UserAddress? Address
+);
+
+public static async Task<GetUserProfileRow> GetUserProfile(NpgsqlConnection conn, int id) {
+    await using var cmd = new NpgsqlCommand(@"SELECT id, secondary_status, address FROM users WHERE id = @p1", conn);
+    cmd.Parameters.AddWithValue("p1", id);
+    await using var reader = await cmd.ExecuteReaderAsync();
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetUserProfile expected exactly one row but found none");
+    return new GetUserProfileRow(
+        reader.GetInt32(0),
+        reader.IsDBNull(1) ? null : (Enum.TryParse<UserStatus>(reader.GetString(1), true, out var enumVal1) ? enumVal1 : throw new InvalidOperationException($"Invalid enum value '{reader.GetString(1)}' for UserStatus")),
+        reader.IsDBNull(2) ? null : reader.GetFieldValue<UserAddress>(2)
+    );
 }
 
 }

@@ -103,6 +103,7 @@ async def setup_schema(conn: psycopg.AsyncConnection) -> None:
     await conn.execute("DROP TABLE IF EXISTS users CASCADE")
 {%- if engine == "postgresql" and engine != "redshift" %}
     await conn.execute("DROP TYPE IF EXISTS user_status CASCADE")
+    await conn.execute("DROP TYPE IF EXISTS user_address CASCADE")
 {%- endif %}
 {%- endif %}
     schema_sql = SCHEMA_PATH.read_text()
@@ -118,6 +119,7 @@ async def setup_schema(conn: asyncpg.Connection) -> None:
     await conn.execute("DROP TABLE IF EXISTS users CASCADE")
 {%- if engine == "postgresql" and engine != "redshift" %}
     await conn.execute("DROP TYPE IF EXISTS user_status CASCADE")
+    await conn.execute("DROP TYPE IF EXISTS user_address CASCADE")
 {%- endif %}
 {%- endif %}
     schema_sql = SCHEMA_PATH.read_text()
@@ -413,6 +415,17 @@ async def test_get_orders_by_user(conn, user_id: int) -> None:
 {%- endif %}
     assert orders[0].notes == "Test order", f"Expected notes 'Test order', got '{orders[0].notes}'"
     print("PASS: GetOrdersByUser")
+
+
+{#- board #204: neither psycopg3 nor asyncpg emits a composite parser for a
+   nullable composite column -- get_user_profile's generated row type
+   declares `address` as the UserAddress model, but psycopg3 hands back a
+   raw str and asyncpg hands back a raw asyncpg.Record, so the annotation
+   is wrong. The GetUserProfile test is left out of this harness until
+   that's fixed. When psycopg3/asyncpg codegen starts emitting a composite
+   parser for nullable composite columns, restore test_get_user_profile_nullable
+   here (see the rust template for the shape of the assertions), one
+   function per driver as before. #}
 
 
 {% if driver == "psycopg3" -%}

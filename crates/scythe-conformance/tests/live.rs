@@ -47,6 +47,31 @@ async fn sqlite_leg_is_sound() {
     );
 }
 
+/// Pins the reason `math_functions/live_power_sqrt_on_nullable_operand_is_null.json`
+/// excludes SQLite: rusqlite's bundled amalgamation (`libsqlite3-sys`'s
+/// `build.rs`) never passes `-DSQLITE_ENABLE_MATH_FUNCTIONS`, so SQRT and
+/// POWER are compiled out of the SQLite this suite actually links against,
+/// not merely absent from the system `sqlite3` binary. If `libsqlite3-sys`
+/// starts enabling that flag, this test starts failing -- widen the
+/// fixture's `engines` list (and add a `_schemas/measurements/sqlite.sql`)
+/// instead of re-excluding SQLite for a reason nobody re-checked.
+#[cfg(feature = "sqlite")]
+#[tokio::test]
+async fn sqlite_leg_lacks_math_functions() {
+    use scythe_conformance::Executor;
+    use scythe_conformance::executors::sqlite::SqliteExecutor;
+
+    let mut executor = SqliteExecutor::open_in_memory().expect("in-memory sqlite must open");
+    let error = executor
+        .query_nullness("SELECT sqrt(4.0)")
+        .await
+        .expect_err("SQRT must still be unavailable in the bundled SQLite build");
+    assert!(
+        error.to_string().contains("no such function: sqrt"),
+        "expected a missing-function error, got: {error}"
+    );
+}
+
 #[cfg(feature = "pg")]
 #[tokio::test]
 async fn postgres_leg_is_sound() {

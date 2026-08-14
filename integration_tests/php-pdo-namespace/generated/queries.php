@@ -1,5 +1,5 @@
 <?php
-// scythe:provenance v=0.14.0 backend=php-pdo engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046 options=opt1:1058eb3707db2fb2
+// scythe:provenance v=0.15.0 backend=php-pdo engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:1058eb3707db2fb2
 
 declare(strict_types=1);
 
@@ -192,6 +192,30 @@ readonly class SearchUsersRow {
             id: (int) $row['id'],
             name: (string) $row['name'],
             email: $row['email'] !== null ? (string) $row['email'] : null,
+        );
+    }
+}
+
+readonly class UserAddress {
+    public function __construct(
+        public string $street,
+        public string $city,
+        public string $zip,
+    ) {}
+}
+
+readonly class GetUserProfileRow {
+    public function __construct(
+        public int $id,
+        public ?UserStatus $secondary_status,
+        public ?UserAddress $address,
+    ) {}
+
+    public static function fromRow(array $row): self {
+        return new self(
+            id: (int) $row['id'],
+            secondary_status: $row['secondary_status'] !== null ? UserStatus::from($row['secondary_status']) : null,
+            address: $row['address'] !== null ? $row['address'] : null,
         );
     }
 }
@@ -393,6 +417,22 @@ final class Queries {
         while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
             yield SearchUsersRow::fromRow($row);
         }
+    }
+
+    /**
+     * @param \PDO $pdo
+     * @param int $id
+     * @return GetUserProfileRow
+     * @throws RecordNotFoundException
+     */
+    public static function getUserProfile(\PDO $pdo, int $id): GetUserProfileRow {
+        $stmt = $pdo->prepare('SELECT id, secondary_status, address FROM users WHERE id = :p1');
+        $stmt->execute(["p1" => $id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false) {
+            throw new RecordNotFoundException('getUserProfile: no row found');
+        }
+        return GetUserProfileRow::fromRow($row);
     }
 
 }

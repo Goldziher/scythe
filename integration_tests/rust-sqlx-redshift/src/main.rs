@@ -7,6 +7,7 @@ use queries::{
 };
 use rust_decimal::Decimal;
 use sqlx::postgres::PgPoolOptions;
+use sqlx::Row;
 use std::str::FromStr;
 
 macro_rules! assert_test {

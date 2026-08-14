@@ -90,6 +90,7 @@ func runMigration(ctx context.Context, pool *pgxpool.Pool) error {
 		DROP TABLE IF EXISTS orders CASCADE;
 		DROP TABLE IF EXISTS users CASCADE;
 		DROP TYPE IF EXISTS user_status CASCADE;
+		DROP TYPE IF EXISTS user_address CASCADE;
 	`
 	if _, err := pool.Exec(ctx, dropSQL); err != nil {
 		return fmt.Errorf("dropping tables: %w", err)

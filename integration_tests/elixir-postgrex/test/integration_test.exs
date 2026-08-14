@@ -22,6 +22,7 @@ Postgrex.query!(conn, "DROP TABLE IF EXISTS tags CASCADE", [])
 Postgrex.query!(conn, "DROP TABLE IF EXISTS orders CASCADE", [])
 Postgrex.query!(conn, "DROP TABLE IF EXISTS users CASCADE", [])
 Postgrex.query!(conn, "DROP TYPE IF EXISTS user_status CASCADE", [])
+Postgrex.query!(conn, "DROP TYPE IF EXISTS user_address CASCADE", [])
 
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "pg/schema.sql"]))
 schema_sql

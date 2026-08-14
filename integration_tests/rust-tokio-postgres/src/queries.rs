@@ -1,4 +1,4 @@
-// scythe:provenance v=0.14.0 backend=rust-tokio-postgres engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.15.0 backend=rust-tokio-postgres engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
 #![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -418,4 +418,42 @@ pub async fn search_users(
         .query(r#"SELECT id, name, email FROM users WHERE name LIKE $1"#, &[&name])
         .await?;
     Ok(rows.iter().map(SearchUsersRow::from_row).collect())
+}
+
+#[derive(Debug, Clone, postgres_types::ToSql, postgres_types::FromSql)]
+#[postgres(name = "user_address")]
+pub struct UserAddress {
+    pub street: String,
+    pub city: String,
+    pub zip: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct GetUserProfileRow {
+    pub id: i32,
+    pub secondary_status: Option<UserStatus>,
+    pub address: Option<UserAddress>,
+}
+
+impl GetUserProfileRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
+        Self {
+            id: row.get("id"),
+            secondary_status: row.get("secondary_status"),
+            address: row.get("address"),
+        }
+    }
+}
+
+pub async fn get_user_profile(
+    client: &(impl tokio_postgres::GenericClient + Sync),
+    id: i32,
+) -> Result<GetUserProfileRow, tokio_postgres::Error> {
+    let row = client
+        .query_one(
+            r#"SELECT id, secondary_status, address FROM users WHERE id = $1"#,
+            &[&id],
+        )
+        .await?;
+    Ok(GetUserProfileRow::from_row(&row))
 }

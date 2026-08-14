@@ -1,4 +1,4 @@
-// scythe:provenance v=0.14.0 backend=kotlin-jdbc engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.15.0 backend=kotlin-jdbc engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
 package generated
 
 import java.math.BigDecimal
@@ -406,6 +406,112 @@ fun searchUsers(
                 )
             }
             return result
+        }
+    }
+}
+
+
+data class UserAddress(
+    val street: String,
+    val city: String,
+    val zip: String,
+) {
+    companion object {
+        /**
+         * ~keep board #196: pgjdbc registers no `getObject(col, UserAddress::class.java)`
+         * type map for this composite -- it throws `PSQLException: conversion to
+         * class UserAddress` at runtime. Parse the driver's composite text form instead.
+         */
+        fun fromText(text: String?): UserAddress? {
+            if (text == null) {
+                return null
+            }
+            val f = parseCompositeFields(text)
+            return UserAddress(
+                f[0]!!,
+                f[1]!!,
+                f[2]!!,
+            )
+        }
+
+        /**
+         * ~keep Splits a PostgreSQL composite's text form ("(a,b,c)") into its raw field tokens,
+         * honoring its escaping rules: an empty unquoted field is SQL NULL (returned as `null`);
+         * a field needing quoting (containing a comma, paren, quote, backslash, or
+         * leading/trailing space, or the empty string) is wrapped in double quotes with `"` and
+         * `\` backslash-escaped inside; every other field is unquoted and taken literally. A
+         * nested composite's own "(x,y)" text form always contains parens, so it always comes
+         * back quoted here, ready for that type's own `fromText` to parse recursively.
+         */
+        private fun parseCompositeFields(text: String): List<String?> {
+            val fields = mutableListOf<String?>()
+            val inner = text.substring(1, text.length - 1)
+            var i = 0
+            val n = inner.length
+            while (true) {
+                val field = StringBuilder()
+                var isNull = false
+                if (i < n && inner[i] == '"') {
+                    i++
+                    while (i < n) {
+                        val c = inner[i]
+                        if (c == '\\' && i + 1 < n) {
+                            field.append(inner[i + 1])
+                            i += 2
+                        } else if (c == '"') {
+                            i++
+                            break
+                        } else {
+                            field.append(c)
+                            i++
+                        }
+                    }
+                } else {
+                    val start = i
+                    while (i < n && inner[i] != ',') {
+                        i++
+                    }
+                    field.append(inner, start, i)
+                    isNull = field.isEmpty()
+                }
+                fields.add(if (isNull) null else field.toString())
+                if (i < n && inner[i] == ',') {
+                    i++
+                    continue
+                }
+                break
+            }
+            return fields
+        }
+    }
+}
+
+
+data class GetUserProfileRow(
+    val id: Int,
+    val secondary_status: UserStatus?,
+    val address: UserAddress?,
+)
+
+
+fun getUserProfile(
+    conn: Connection,
+    id: Int,
+): GetUserProfileRow {
+    conn.prepareStatement("SELECT id, secondary_status, address FROM users WHERE id = ?").use { ps ->
+        ps.setInt(1, id)
+        ps.executeQuery().use { rs ->
+            return if (rs.next()) {
+                val secondary_statusValue = rs.getString("secondary_status")
+                val secondary_status = if (secondary_statusValue == null) null else UserStatus.fromValue(secondary_statusValue)
+                GetUserProfileRow(
+                    id = rs.getInt("id"),
+                    secondary_status = secondary_status,
+                    address = UserAddress.fromText(rs.getString("address")),
+                )
+            } else {
+                throw NoSuchElementException("getUserProfile: no rows returned")
+            }
         }
     }
 }

@@ -41,15 +41,23 @@ async function main(): Promise<void> {
 		await client.query("DROP TABLE IF EXISTS orders CASCADE");
 		await client.query("DROP TABLE IF EXISTS users CASCADE");
 		await client.query("DROP TYPE IF EXISTS user_status CASCADE");
+		await client.query("DROP TYPE IF EXISTS user_address CASCADE");
 
 		await client.query(
 			"CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned')",
+		);
+		// board #197: a nullable composite type, used by the nullable
+		// `address` column below.
+		await client.query(
+			"CREATE TYPE user_address AS (street TEXT, city TEXT, zip TEXT)",
 		);
 		await client.query(`CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       email TEXT,
       status user_status NOT NULL DEFAULT 'active',
+      secondary_status user_status,
+      address user_address,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);
 		await client.query(`CREATE TABLE orders (

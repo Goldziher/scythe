@@ -1,4 +1,4 @@
-# scythe:provenance v=0.14.0 backend=ruby-pg engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046 options=opt1:cbf29ce484222325
+# scythe:provenance v=0.15.0 backend=ruby-pg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
 module Queries
   module UserStatus
     ACTIVE: String
@@ -114,5 +114,14 @@ module Queries
   end
 
   def self.search_users: (PG::Connection, String) -> Array[SearchUsersRow]
+
+  class GetUserProfileRow
+    attr_reader id: Integer
+    attr_reader secondary_status: String?
+    attr_reader address: untyped?
+    def self.new: (id: Integer, secondary_status: String?, address: untyped?) -> GetUserProfileRow
+  end
+
+  def self.get_user_profile: (PG::Connection, Integer) -> GetUserProfileRow
 
 end

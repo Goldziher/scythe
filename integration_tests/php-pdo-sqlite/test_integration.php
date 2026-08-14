@@ -75,6 +75,13 @@ function assert_true(bool $value, string $message): void
     }
 }
 
+function assert_null(mixed $value, string $message): void
+{
+    if ($value !== null) {
+        throw new RuntimeException("Assertion failed: {$message} (expected null, got " . var_export($value, true) . ")");
+    }
+}
+
 
 
 function test_create_user(PDO $pdo): int

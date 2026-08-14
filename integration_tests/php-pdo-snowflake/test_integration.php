@@ -88,6 +88,13 @@ function assert_true(bool $value, string $message): void
     }
 }
 
+function assert_null(mixed $value, string $message): void
+{
+    if ($value !== null) {
+        throw new RuntimeException("Assertion failed: {$message} (expected null, got " . var_export($value, true) . ")");
+    }
+}
+
 function setup_schema(PDO $pdo): void
 {
     $pdo->exec("DROP TABLE IF EXISTS user_tags");

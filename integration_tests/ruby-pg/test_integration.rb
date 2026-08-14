@@ -22,6 +22,7 @@ def setup_schema(conn)
   conn.exec("DROP TABLE IF EXISTS orders CASCADE")
   conn.exec("DROP TABLE IF EXISTS users CASCADE")
   conn.exec("DROP TYPE IF EXISTS user_status CASCADE")
+  conn.exec("DROP TYPE IF EXISTS user_address CASCADE")
   schema_sql = File.read(SCHEMA_PATH)
   conn.exec(schema_sql)
 end
@@ -42,6 +43,12 @@ def assert_true(value, message)
   return if value
 
   raise "Assertion failed: #{message}"
+end
+
+def assert_nil(value, message)
+  return if value.nil?
+
+  raise "Assertion failed: #{message} (expected nil, got #{value.inspect})"
 end
 
 def test_create_user(conn)

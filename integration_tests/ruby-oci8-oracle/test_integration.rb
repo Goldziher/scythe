@@ -48,6 +48,12 @@ def assert_true(value, message)
   raise "Assertion failed: #{message}"
 end
 
+def assert_nil(value, message)
+  return if value.nil?
+
+  raise "Assertion failed: #{message} (expected nil, got #{value.inspect})"
+end
+
 def test_create_user(conn)
   user = Queries.create_user(conn, "Alice", "alice@example.com", 1)
   assert_not_nil(user, "create_user returned nil")
