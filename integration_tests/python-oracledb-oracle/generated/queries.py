@@ -1,4 +1,4 @@
-# scythe:provenance v=0.14.0 backend=python-oracledb engine=oracle schema=sch1:51c12e41405f20c2 queries=q1:9b9c257a90458ab4 options=opt1:cbf29ce484222325  # noqa: E501
+# scythe:provenance v=0.15.0 backend=python-oracledb engine=oracle schema=sch1:51c12e41405f20c2 queries=q1:9b9c257a90458ab4 options=opt1:cbf29ce484222325  # noqa: E501
 import datetime  # noqa: F401
 import decimal  # noqa: F401
 from dataclasses import dataclass

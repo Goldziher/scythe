@@ -1,4 +1,4 @@
-# scythe:provenance v=0.14.0 backend=elixir-myxql engine=mysql schema=sch1:4332a9c33cb39297 queries=q1:f928696deb211f90 options=opt1:cbf29ce484222325
+# scythe:provenance v=0.15.0 backend=elixir-myxql engine=mysql schema=sch1:4332a9c33cb39297 queries=q1:f928696deb211f90 options=opt1:cbf29ce484222325
 defmodule UsersStatus do
   @moduledoc "Enum type for users_status."
 

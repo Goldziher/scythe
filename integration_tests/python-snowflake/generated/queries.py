@@ -1,4 +1,4 @@
-# scythe:provenance v=0.14.0 backend=python-snowflake engine=snowflake schema=sch1:c91500313602fb46 queries=q1:4bc3d50da85e2742 options=opt1:cbf29ce484222325  # noqa: E501
+# scythe:provenance v=0.15.0 backend=python-snowflake engine=snowflake schema=sch1:c91500313602fb46 queries=q1:4bc3d50da85e2742 options=opt1:cbf29ce484222325  # noqa: E501
 import datetime  # noqa: F401
 import decimal  # noqa: F401
 from dataclasses import dataclass

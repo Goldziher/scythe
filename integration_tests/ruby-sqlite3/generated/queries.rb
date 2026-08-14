@@ -1,5 +1,5 @@
 # frozen_string_literal: true
-# scythe:provenance v=0.14.0 backend=ruby-sqlite3 engine=sqlite schema=sch1:588fb635332179bc queries=q1:f7199f36438b6396 options=opt1:cbf29ce484222325
+# scythe:provenance v=0.15.0 backend=ruby-sqlite3 engine=sqlite schema=sch1:588fb635332179bc queries=q1:f7199f36438b6396 options=opt1:cbf29ce484222325
 
 module Queries
   class RecordNotFound < StandardError; end
