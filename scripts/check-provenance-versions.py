@@ -46,6 +46,21 @@ SCAN_ROOTS = (
 
 PROVENANCE_RE = re.compile(r"scythe:provenance v=(\d+\.\d+\.\d+)")
 
+# Files whose provenance headers are quoted history rather than live examples.
+#
+# The changelog page reproduces CHANGELOG.md, and its 0.14.0 entry -- the one
+# announcing provenance headers -- quotes a header as it looked when the
+# feature shipped. `task version:sync` rewrites `v=` across website/src, so
+# without this the 0.14.0 entry would be rewritten to claim the current version
+# on every single release, permanently misstating what 0.14.0 actually emitted.
+# The gate exists so a reader cannot copy a stale *live* example; a changelog
+# quoting its own release is the one place the old version is the correct one.
+#
+# Keep this list minimal. Anything added here stops being checked, so it must
+# be a file where tracking the current version would make the text wrong, not
+# merely inconvenient to update.
+EXCLUDED_FILES = frozenset({"website/src/content/docs/reference/changelog.md"})
+
 # Directories never worth walking: build output and dependency trees, which
 # can contain vendored copies of generated files and are not committed.
 SKIP_DIRS = frozenset(
@@ -90,9 +105,12 @@ def scan_root(root: str) -> list[tuple[str, str]]:
                     contents = handle.read()
             except (OSError, UnicodeDecodeError):
                 continue
+            relative = os.path.relpath(path, ROOT)
+            if relative in EXCLUDED_FILES:
+                continue
             match = PROVENANCE_RE.search(contents)
             if match:
-                found.append((os.path.relpath(path, ROOT), match.group(1)))
+                found.append((relative, match.group(1)))
     return found
 
 
@@ -101,6 +119,24 @@ def main() -> int:
     offenders: list[str] = []
     empty_roots: list[str] = []
     total = 0
+
+    # An exclusion that no longer names a real file carrying a real header has
+    # stopped excluding anything, and a silent no-op entry is how an exemption
+    # list rots into decoration. Fail on it here rather than let the list grow
+    # stale entries nobody can distinguish from live ones.
+    for excluded in sorted(EXCLUDED_FILES):
+        path = os.path.join(ROOT, excluded)
+        if not os.path.isfile(path):
+            print(f"error: EXCLUDED_FILES names '{excluded}', which does not exist -- drop it", file=sys.stderr)
+            return 1
+        with open(path, encoding="utf-8") as handle:
+            if not PROVENANCE_RE.search(handle.read()):
+                print(
+                    f"error: EXCLUDED_FILES names '{excluded}', which carries no provenance header -- "
+                    f"the exclusion does nothing, so drop it",
+                    file=sys.stderr,
+                )
+                return 1
 
     for root in SCAN_ROOTS:
         headers = scan_root(root)
