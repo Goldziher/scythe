@@ -49,8 +49,7 @@ module Queries
   end
 
   def self.delete_attachments_by_order(conn, order_id)
-    cursor = conn.exec("DELETE FROM attachments WHERE order_id = :1", order_id)
-    cursor.row_count
+    conn.exec("DELETE FROM attachments WHERE order_id = :1", order_id)
   end
 
   CreateOrderRow = Data.define(:id, :user_id, :total, :notes, :created_at)
@@ -94,8 +93,7 @@ module Queries
   end
 
   def self.delete_orders_by_user(conn, user_id)
-    cursor = conn.exec("DELETE FROM orders WHERE user_id = :1", user_id)
-    cursor.row_count
+    conn.exec("DELETE FROM orders WHERE user_id = :1", user_id)
   end
 
   GetUserByIdRow = Data.define(:id, :name, :email, :active, :created_at)

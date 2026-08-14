@@ -146,6 +146,14 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   instance of String` in `create_order`. The test covering that path had asserted the wrapped
   spelling, so it guarded the defect instead of against it; it is inverted. (#225)
 
+- **`ruby-oci8` called a cursor method on an integer for `:exec_rows` and `:exec_result`.**
+  `OCI8#exec` is polymorphic in its return: an `OCI8::Cursor` for a `SELECT`, but the number of
+  rows processed — a plain `Integer` — for `INSERT`/`UPDATE`/`DELETE`. The generated code bound the
+  result and called `.row_count` on it, which is a `Cursor` method, so `delete_orders_by_user`
+  raised `undefined method 'row_count' for an instance of Integer`. For DML the count is already
+  the return value. Surfaced by the Oracle CI job only after the LOB fix above let it run that
+  far. (#225)
+
 - **A harness executing the shared schema could send several statements as one.** Every generated
   harness splits `schema.sql` on `;` and runs the fragments; the split was not SQL-aware, so a
   semicolon inside a string literal or a `$$`-quoted body split mid-statement. All eight templates

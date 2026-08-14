@@ -354,8 +354,13 @@ impl CodegenBackend for RubyOci8Backend {
                 let _ = writeln!(out, "    nil");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                let _ = writeln!(out, "    cursor = conn.exec(\"{}\"{})", sql, bind_vars);
-                let _ = writeln!(out, "    cursor.row_count");
+                // ~keep `OCI8#exec` is polymorphic in its return: an `OCI8::Cursor` for a SELECT,
+                // but the number of rows processed -- a plain Integer -- for INSERT/UPDATE/DELETE.
+                // This used to bind the result and call `.row_count` on it, which is a Cursor
+                // method, and the Oracle job failed with "undefined method 'row_count' for an
+                // instance of Integer" in `delete_orders_by_user`. For DML the count is already
+                // the return value. Board #225.
+                let _ = writeln!(out, "    conn.exec(\"{}\"{})", sql, bind_vars);
             }
             QueryCommand::Batch => {
                 let batch_fn_name = format!("{}_batch", func_name);
@@ -609,6 +614,35 @@ mod tests {
             "an output bind is already materialized -- wrapping it raises NoMethodError on \
              String; got:\n{query_fn}"
         );
+    }
+
+    /// `OCI8#exec` returns an `OCI8::Cursor` for a SELECT but the processed-row count -- a plain
+    /// Integer -- for DML. Calling the Cursor-only `.row_count` on that Integer is what made the
+    /// Oracle job fail with "undefined method 'row_count' for an instance of Integer" in
+    /// `delete_orders_by_user`. Board #225.
+    #[test]
+    fn exec_rows_returns_the_oci8_exec_count_directly_instead_of_calling_row_count() {
+        for command in [QueryCommand::ExecRows, QueryCommand::ExecResult] {
+            let query = AnalyzedQuery::build(|aq| {
+                aq.name = "DeleteOrdersByUser".to_string();
+                aq.command = command.clone();
+                aq.sql = "DELETE FROM orders WHERE user_id = :1".to_string();
+                aq.columns = vec![];
+            });
+            let backend = get_backend("ruby-oci8", "oracle").unwrap();
+            let code = generate_with_backend(&query, &*backend).unwrap();
+            let query_fn = code.query_fn.clone().expect("a query fn must be emitted");
+
+            assert!(
+                !query_fn.contains("row_count"),
+                "{command:?}: `row_count` is an OCI8::Cursor method and DML returns an Integer; \
+                 got:\n{query_fn}"
+            );
+            assert!(
+                query_fn.contains("    conn.exec("),
+                "{command:?}: the count must be `conn.exec`'s own return value; got:\n{query_fn}"
+            );
+        }
     }
 
     fn make_grouped_query() -> AnalyzedQuery {
