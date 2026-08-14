@@ -68,7 +68,7 @@ module Queries
     cursor.bind_param(8, nil, Time)
     rows_affected = cursor.exec
     raise RecordNotFound, "create_order: no row found" if rows_affected.zero?
-    CreateOrderRow.new(id: cursor[4], user_id: cursor[5], total: cursor[6], notes: read_lob(cursor[7]), created_at: cursor[8])
+    CreateOrderRow.new(id: cursor[4], user_id: cursor[5], total: cursor[6], notes: cursor[7], created_at: cursor[8])
   end
 
   GetOrdersByUserRow = Data.define(:id, :total, :notes, :created_at)

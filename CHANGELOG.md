@@ -140,7 +140,11 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   hits EOF after the first `#read`, so wrapping the key would blank the field read afterwards.
   Found by `ruby-oci8-oracle`'s first CI run that got far enough to execute queries. Its step is
   restored and now runs last in the Oracle job, so a failure there costs only its own coverage.
-  (#225)
+  Applied to the `cursor.fetch` reads only: a `RETURNING ... INTO` output bind is declared to OCI8
+  up front as `bind_param(n, nil, String)` and OCI8 materializes the value into that class, so
+  `cursor[n]` there is already a `String` and wrapping it raised `undefined method 'read' for an
+  instance of String` in `create_order`. The test covering that path had asserted the wrapped
+  spelling, so it guarded the defect instead of against it; it is inverted. (#225)
 
 - **A harness executing the shared schema could send several statements as one.** Every generated
   harness splits `schema.sql` on `;` and runs the fragments; the split was not SQL-aware, so a

@@ -136,8 +136,15 @@ fn one_and_opt_plain_fetch_wrap_lob_columns() {
 
 /// `RETURNING ... INTO` path: `:one`/`:opt` against a DML statement bind the output columns
 /// and read them back through `cursor[N]`, not `row[N]`.
+///
+/// This assertion is inverted from what it originally shipped as. It asserted
+/// `notes: read_lob(cursor[2])` -- the behaviour that made the Oracle CI job fail with
+/// "undefined method 'read' for an instance of String" in `create_order`, so it guarded the
+/// defect rather than against it. An output bind is declared to oci8 up front as
+/// `cursor.bind_param(n, nil, String)` and oci8 materializes the value into that Ruby class;
+/// only the `cursor.fetch` path (covered by the test above) receives a locator. Board #225.
 #[test]
-fn returning_into_path_wraps_lob_columns_read_through_cursor() {
+fn returning_into_path_reads_lob_columns_raw_because_the_output_bind_materializes_them() {
     for command in [QueryCommand::One, QueryCommand::Opt] {
         let query = AnalyzedQuery::build(|query| {
             query.name = "InsertOrder".to_string();
@@ -164,8 +171,14 @@ fn returning_into_path_wraps_lob_columns_read_through_cursor() {
         let query_fn = generated.query_fn.expect("must produce a query fn");
 
         assert!(
-            query_fn.contains("notes: read_lob(cursor[2])"),
-            "{command:?}: RETURNING INTO CLOB column must be read via read_lob(cursor[N]); got:\n{query_fn}"
+            query_fn.contains("notes: cursor[2]"),
+            "{command:?}: RETURNING INTO CLOB column is already materialized by its output bind \
+             and must be read raw; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("read_lob(cursor["),
+            "{command:?}: no cursor[N] read on the RETURNING INTO path may be wrapped -- \
+             read_lob raises NoMethodError on the String oci8 hands back; got:\n{query_fn}"
         );
         assert!(
             query_fn.contains("id: cursor[1]"),

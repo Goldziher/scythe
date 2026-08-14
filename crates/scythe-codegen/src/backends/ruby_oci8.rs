@@ -61,6 +61,12 @@ fn is_lob_sql_type(sql_type: &str) -> bool {
 /// Wrap a raw column-read expression (`row[N]` or `cursor[N]`) in `read_lob` when the
 /// column's declared type is a LOB, so the emitted `String`/`bytes` field actually holds the
 /// LOB's contents instead of the locator object.
+///
+/// ~keep Only for the `cursor.fetch` path. A `RETURNING ... INTO` output bind is declared to
+/// oci8 up front as `cursor.bind_param(n, nil, String)`, and oci8 materializes the value into
+/// that Ruby class rather than handing back a locator -- so `cursor[n]` there is already a
+/// `String` and wrapping it raised `undefined method 'read' for an instance of String` in
+/// `create_order`. Those two call sites therefore read the ordinal directly. Board #225.
 fn column_read_expr(col: &ResolvedColumn, raw: &str) -> String {
     if is_lob_sql_type(&col.sql_type) {
         format!("read_lob({raw})")
@@ -246,7 +252,7 @@ impl CodegenBackend for RubyOci8Backend {
                         .enumerate()
                         .map(|(i, c)| {
                             let raw = format!("cursor[{}]", params.len() + i + 1);
-                            format!("{}: {}", c.field_name, column_read_expr(c, &raw))
+                            format!("{}: {raw}", c.field_name)
                         })
                         .collect::<Vec<_>>()
                         .join(", ");
@@ -305,7 +311,7 @@ impl CodegenBackend for RubyOci8Backend {
                         .enumerate()
                         .map(|(i, c)| {
                             let raw = format!("cursor[{}]", params.len() + i + 1);
-                            format!("{}: {}", c.field_name, column_read_expr(c, &raw))
+                            format!("{}: {raw}", c.field_name)
                         })
                         .collect::<Vec<_>>()
                         .join(", ");
@@ -510,6 +516,9 @@ mod tests {
     use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
     use scythe_core::parser::QueryCommand;
 
+    use crate::backends::get_backend;
+    use crate::generate_with_backend;
+
     /// Board #225: all four Oracle LOB `sql_type`s -- not just `clob`, the one that showed up
     /// in the CI failure -- must be routed through `read_lob`. `nclob` matches
     /// `attachments.description NCLOB` and `bfile` matches no current schema column but is
@@ -551,6 +560,54 @@ mod tests {
             column_read_expr(&varchar_column, "row[1]"),
             "row[1]",
             "VARCHAR2 shares CLOB's neutral_type (\"string\") but must not be wrapped"
+        );
+    }
+
+    /// Board #225 regression. The LOB fix wrapped *every* CLOB read in `read_lob`, including the
+    /// `RETURNING ... INTO` output binds, and CI failed with
+    /// "undefined method 'read' for an instance of String" in `create_order`. oci8 materializes
+    /// an output bind into the Ruby class the `bind_param(n, nil, String)` declares, so
+    /// `cursor[n]` on that path is already a String and must be read raw -- while the
+    /// `cursor.fetch` path still hands back a locator and must stay wrapped. Both halves are
+    /// asserted here because only one of them can be checked by looking at `column_read_expr`.
+    #[test]
+    fn should_not_wrap_returning_output_binds_in_read_lob() {
+        let query = AnalyzedQuery::build(|aq| {
+            aq.name = "CreateOrder".to_string();
+            aq.command = QueryCommand::One;
+            aq.sql = "-- @name CreateOrder\n-- @returns :one\nINSERT INTO orders (user_id, notes) \
+                      VALUES (:1, :2) RETURNING id, notes"
+                .to_string();
+            aq.columns = vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    sql_type: "number".to_string(),
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "notes".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: true,
+                    sql_type: "clob".to_string(),
+                    ..Default::default()
+                },
+            ];
+        });
+        let backend = get_backend("ruby-oci8", "oracle").unwrap();
+        let code = generate_with_backend(&query, &*backend).unwrap();
+        let query_fn = code.query_fn.clone().expect("a query fn must be emitted");
+
+        assert!(
+            query_fn.contains("nil, String)"),
+            "the fixture must actually take the RETURNING output-bind path, which declares each \
+             returned column's Ruby class up front; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("read_lob(cursor["),
+            "an output bind is already materialized -- wrapping it raises NoMethodError on \
+             String; got:\n{query_fn}"
         );
     }
 
