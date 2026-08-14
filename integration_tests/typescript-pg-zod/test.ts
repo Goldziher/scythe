@@ -191,8 +191,18 @@ async function main(): Promise<void> {
 			`expected 1 deleted order, got ${deletedOrders}`,
 		);
 		await deleteUser(client, userId);
-		const gone = await getUserById(client, userId);
-		assert(gone === null, "DeleteUser", "user should be null after deletion");
+		// GetUserById is `:one`, which errors on a missing row rather than
+		// returning null. Absence is therefore observed as a throw, and
+		// `gone === null` would never be reached. The flag is what makes the
+		// assertion positive: a bare try/catch would pass whether or not
+		// anything was thrown.
+		let goneThrew = false;
+		try {
+			await getUserById(client, userId);
+		} catch {
+			goneThrew = true;
+		}
+		assert(goneThrew, "DeleteUser", "user should not be found after deletion");
 		console.log("PASS: DeleteUser");
 
 		if (exitCode === 0) {
