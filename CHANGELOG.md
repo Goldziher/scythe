@@ -140,11 +140,12 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   cannot perform on the caller's behalf; `go-pgx` is the same story for pgx's type map. PHP's parser
   is emitted once per file as a shared class rather than copied into each composite. (#204)
 
-  **Coverage gap, stated plainly:** none of those seven integration harnesses selects a composite
-  column, so their passing runs prove compilation and absence of regression, not the fix. The fix is
-  backed by unit and regression tests that execute the emitted parsers through the real interpreter
-  against PostgreSQL 16's exact output, and by live driver probes — but end-to-end harness coverage
-  is tracked separately as board #226 and is not yet in place.
+  All seven integration harnesses now select a composite column and assert on it — a present value,
+  a SQL NULL, a nullable enum, and a field containing `"` and `,`. That last case is the one that
+  matters: an assertion using only plain values passes identically against the pre-fix parser, which
+  is how the doubled-quote defect survived in nine backends. Confirmed falsifiable by reverting the
+  fix in `ruby-pg` and watching the new assertion catch it —
+  `expected "12 \"Main\", Apt 3", got "12 "`. (#204, #226)
 
 - **The generated python composite parser did not type-check, and cast a NULL sub-field away.**
   `_from_text` fed `_parse_composite_fields`' `str | None` tokens straight into fields declared

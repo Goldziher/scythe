@@ -148,6 +148,57 @@ function test_get_orders_by_user($pdo, int $user_id): void
     assert_equal("Test order", $orders[0]->notes, "GetOrdersByUser notes");
     echo "PASS: GetOrdersByUser\n";
 }
+function seed_user_profile_row($pdo, string $sql): int
+{
+    $result = $pdo->prepare($sql)->execute([]);
+    foreach ($result as $row) {
+        return (int) $row['id'];
+    }
+    throw new RuntimeException("seed_user_profile_row: no row returned");
+}
+
+function test_get_user_profile($pdo): void
+{
+    // Test: GetUserProfile (board #197/#204) -- a nullable enum and a nullable
+    // composite column, each observed both present and as SQL NULL, plus a
+    // composite field containing a double quote and a comma to prove
+    // UserAddress::fromText handles record_out's doubled-quote escaping
+    // (board #204) rather than truncating on it.
+    $present_id = seed_user_profile_row($pdo,
+        "INSERT INTO users (name, email, status, secondary_status, address) " .
+        "VALUES ('Carol', 'carol@example.com', 'active', 'inactive', " .
+        "ROW('1 Main St', 'Springfield', '12345')) RETURNING id");
+    $absent_id = seed_user_profile_row($pdo,
+        "INSERT INTO users (name, email, status, secondary_status, address) " .
+        "VALUES ('Dave', 'dave@example.com', 'active', NULL, NULL) RETURNING id");
+    $quoted_id = seed_user_profile_row($pdo,
+        "INSERT INTO users (name, email, status, secondary_status, address) " .
+        "VALUES ('Eve', 'eve@example.com', 'active', 'inactive', " .
+        "ROW('12 \"Main\", Apt 3', 'Berlin', '10115')) RETURNING id");
+
+    $profile = Queries::getUserProfile($pdo, $present_id);
+    assert_true($profile->secondary_status === UserStatus::INACTIVE, "GetUserProfile secondary_status present");
+    assert_not_null($profile->address, "GetUserProfile address should be present");
+    assert_equal("1 Main St", $profile->address->street, "GetUserProfile address.street");
+    assert_equal("Springfield", $profile->address->city, "GetUserProfile address.city");
+    assert_equal("12345", $profile->address->zip, "GetUserProfile address.zip");
+
+    $null_profile = Queries::getUserProfile($pdo, $absent_id);
+    assert_true($null_profile->secondary_status === null, "GetUserProfile secondary_status null");
+    assert_true($null_profile->address === null, "GetUserProfile address null");
+
+    $quoted_profile = Queries::getUserProfile($pdo, $quoted_id);
+    assert_not_null($quoted_profile->address, "GetUserProfile quoted address should be present");
+    assert_equal('12 "Main", Apt 3', $quoted_profile->address->street, "GetUserProfile quoted address.street");
+    assert_equal("Berlin", $quoted_profile->address->city, "GetUserProfile quoted address.city");
+    assert_equal("10115", $quoted_profile->address->zip, "GetUserProfile quoted address.zip");
+
+    Queries::deleteUser($pdo, $present_id);
+    Queries::deleteUser($pdo, $absent_id);
+    Queries::deleteUser($pdo, $quoted_id);
+
+    echo "PASS: GetUserProfile\n";
+}
 
 function test_delete_user($pdo, int $user_id): void
 {
@@ -176,6 +227,7 @@ try {
     test_list_active_users($pdo);
     $order_id = test_create_order($pdo, $user_id);
     test_get_orders_by_user($pdo, $user_id);
+    test_get_user_profile($pdo);
     test_delete_user($pdo, $user_id);
 
     echo "\nALL TESTS PASSED\n";

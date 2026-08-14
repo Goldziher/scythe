@@ -77,6 +77,50 @@ assert.(length(orders) == 1, "GetOrdersByUser", "expected 1 order, got #{length(
 first_order = List.first(orders)
 assert.(Decimal.equal?(first_order.total, Decimal.new("99.95")), "GetOrdersByUser", "expected total 99.95")
 IO.puts("PASS: GetOrdersByUser")
+# Test: GetUserProfile (board #197/#204) -- a nullable enum and a nullable
+# composite column, each observed both present and as SQL NULL, plus a
+# composite field containing a double quote and a comma. Postgrex decodes
+# a composite into a native positional tuple, not text, so this exercises
+# UserAddress.from_tuple rather than a text parser -- it still catches a
+# regression that stopped decoding the composite at all (board #204).
+present_sql =
+  "INSERT INTO users (name, email, status, secondary_status, address) " <>
+    "VALUES ('Carol', 'carol@example.com', 'active', 'inactive', " <>
+    "ROW('1 Main St', 'Springfield', '12345')) RETURNING id"
+{:ok, %{rows: [[present_id]]}} = Postgrex.query(conn, present_sql, [])
+
+absent_sql =
+  "INSERT INTO users (name, email, status, secondary_status, address) " <>
+    "VALUES ('Dave', 'dave@example.com', 'active', NULL, NULL) RETURNING id"
+{:ok, %{rows: [[absent_id]]}} = Postgrex.query(conn, absent_sql, [])
+
+quoted_sql =
+  "INSERT INTO users (name, email, status, secondary_status, address) " <>
+    "VALUES ('Eve', 'eve@example.com', 'active', 'inactive', " <>
+    "ROW('12 \"Main\", Apt 3', 'Berlin', '10115')) RETURNING id"
+{:ok, %{rows: [[quoted_id]]}} = Postgrex.query(conn, quoted_sql, [])
+
+{:ok, profile} = Queries.get_user_profile(conn, present_id)
+assert.(profile.secondary_status == "inactive", "GetUserProfile", "expected secondary_status inactive, got #{profile.secondary_status}")
+assert.(profile.address != nil, "GetUserProfile", "expected address to be present")
+assert.(profile.address.street == "1 Main St", "GetUserProfile", "expected address.street '1 Main St', got #{profile.address.street}")
+assert.(profile.address.city == "Springfield", "GetUserProfile", "expected address.city 'Springfield', got #{profile.address.city}")
+assert.(profile.address.zip == "12345", "GetUserProfile", "expected address.zip '12345', got #{profile.address.zip}")
+
+{:ok, null_profile} = Queries.get_user_profile(conn, absent_id)
+assert.(null_profile.secondary_status == nil, "GetUserProfile", "expected secondary_status nil, got #{inspect(null_profile.secondary_status)}")
+assert.(null_profile.address == nil, "GetUserProfile", "expected address nil, got #{inspect(null_profile.address)}")
+
+{:ok, quoted_profile} = Queries.get_user_profile(conn, quoted_id)
+assert.(quoted_profile.address != nil, "GetUserProfile", "expected quoted address to be present")
+assert.(quoted_profile.address.street == "12 \"Main\", Apt 3", "GetUserProfile", "expected address.street '12 \"Main\", Apt 3', got #{quoted_profile.address.street}")
+assert.(quoted_profile.address.city == "Berlin", "GetUserProfile", "expected address.city 'Berlin', got #{quoted_profile.address.city}")
+assert.(quoted_profile.address.zip == "10115", "GetUserProfile", "expected address.zip '10115', got #{quoted_profile.address.zip}")
+
+:ok = Queries.delete_user(conn, present_id)
+:ok = Queries.delete_user(conn, absent_id)
+:ok = Queries.delete_user(conn, quoted_id)
+IO.puts("PASS: GetUserProfile")
 
 # Test: DeleteUser (delete orders first due to FK)
 {:ok, deleted_orders} = Queries.delete_orders_by_user(conn, user_id)

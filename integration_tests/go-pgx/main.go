@@ -66,6 +66,7 @@ func main() {
 	testCountUsersByStatus(ctx, pool)
 	testSearchUsers(ctx, pool)
 	testDeleteOrdersByUser(ctx, pool)
+	testGetUserProfile(ctx, pool)
 	testDeleteUser(ctx, pool)
 
 	fmt.Printf("\nResults: %d passed, %d failed\n", passed, failed)
@@ -266,6 +267,110 @@ func testDeleteOrdersByUser(ctx context.Context, pool *pgxpool.Pool) {
 	if !assertf(name, count == 1, "expected 1 deleted order, got %d", count) {
 		return
 	}
+	pass(name)
+}
+// Test: GetUserProfile (board #197/#204) -- a nullable enum and a nullable
+// composite column, each observed both present and as SQL NULL, plus a
+// composite field containing a double quote and a comma to prove
+// UserAddressFromText handles record_out's doubled-quote escaping (board
+// #204) rather than truncating on it.
+func testGetUserProfile(ctx context.Context, pool *pgxpool.Pool) {
+	name := "GetUserProfile"
+
+	var presentID int32
+	err := pool.QueryRow(ctx,
+		"INSERT INTO users (name, email, status, secondary_status, address) "+
+			"VALUES ('Carol', 'carol@example.com', 'active', 'inactive', "+
+			"ROW('1 Main St', 'Springfield', '12345')) RETURNING id",
+	).Scan(&presentID)
+	if err != nil {
+		fail(name, err)
+		return
+	}
+	var absentID int32
+	err = pool.QueryRow(ctx,
+		"INSERT INTO users (name, email, status, secondary_status, address) "+
+			"VALUES ('Dave', 'dave@example.com', 'active', NULL, NULL) RETURNING id",
+	).Scan(&absentID)
+	if err != nil {
+		fail(name, err)
+		return
+	}
+	var quotedID int32
+	err = pool.QueryRow(ctx,
+		"INSERT INTO users (name, email, status, secondary_status, address) "+
+			"VALUES ('Eve', 'eve@example.com', 'active', 'inactive', "+
+			"ROW('12 \"Main\", Apt 3', 'Berlin', '10115')) RETURNING id",
+	).Scan(&quotedID)
+	if err != nil {
+		fail(name, err)
+		return
+	}
+
+	profile, err := queries.GetUserProfile(ctx, pool, presentID)
+	if err != nil {
+		fail(name, err)
+		return
+	}
+	if !assertf(name, profile.SecondaryStatus != nil && *profile.SecondaryStatus == queries.UserStatusInactive, "expected secondary_status inactive, got %v", profile.SecondaryStatus) {
+		return
+	}
+	if !assertf(name, profile.Address != nil, "expected address to be present") {
+		return
+	}
+	if !assertf(name, profile.Address.Street == "1 Main St", "expected address.street '1 Main St', got %s", profile.Address.Street) {
+		return
+	}
+	if !assertf(name, profile.Address.City == "Springfield", "expected address.city 'Springfield', got %s", profile.Address.City) {
+		return
+	}
+	if !assertf(name, profile.Address.Zip == "12345", "expected address.zip '12345', got %s", profile.Address.Zip) {
+		return
+	}
+
+	nullProfile, err := queries.GetUserProfile(ctx, pool, absentID)
+	if err != nil {
+		fail(name, err)
+		return
+	}
+	if !assertf(name, nullProfile.SecondaryStatus == nil, "expected secondary_status null, got %v", nullProfile.SecondaryStatus) {
+		return
+	}
+	if !assertf(name, nullProfile.Address == nil, "expected address null, got %v", nullProfile.Address) {
+		return
+	}
+
+	quotedProfile, err := queries.GetUserProfile(ctx, pool, quotedID)
+	if err != nil {
+		fail(name, err)
+		return
+	}
+	if !assertf(name, quotedProfile.Address != nil, "expected quoted address to be present") {
+		return
+	}
+	if !assertf(name, quotedProfile.Address.Street == `12 "Main", Apt 3`, "expected address.street '12 \"Main\", Apt 3', got %s", quotedProfile.Address.Street) {
+		return
+	}
+	if !assertf(name, quotedProfile.Address.City == "Berlin", "expected address.city 'Berlin', got %s", quotedProfile.Address.City) {
+		return
+	}
+	if !assertf(name, quotedProfile.Address.Zip == "10115", "expected address.zip '10115', got %s", quotedProfile.Address.Zip) {
+		return
+	}
+
+	if err := queries.DeleteUser(ctx, pool, presentID); err != nil {
+		fail(name, err)
+		return
+	}
+	if err := queries.DeleteUser(ctx, pool, absentID); err != nil {
+		fail(name, err)
+		return
+	}
+	if err := queries.DeleteUser(ctx, pool, quotedID); err != nil {
+		fail(name, err)
+		return
+	}
+
 	pass(name)
 }
 

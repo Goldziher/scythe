@@ -131,6 +131,59 @@ Assert(countResult!.UserCount >= 1, "CountUsersByStatus", $"expected count >= 1,
 Assert(countResult.Status == Queries.UserStatus.Active, "CountUsersByStatus", $"expected status Active, got {countResult.Status}");
 Console.WriteLine("PASS: CountUsersByStatus");
 
+// Test: GetUserProfile (board #197/#204) -- a nullable enum and a nullable
+// composite column, each observed both present and as SQL NULL, plus a
+// composite field containing a double quote and a comma to prove
+// UserAddress.FromText handles record_out's doubled-quote escaping (board
+// #204) rather than truncating on it. The generated GetUserProfile also
+// emits cmd.UnknownResultTypeList for the composite column, which this
+// test exercises by reading through it.
+int presentId;
+await using (var presentCmd = new NpgsqlCommand(
+    "INSERT INTO users (name, email, status, secondary_status, address) " +
+    "VALUES ('Carol', 'carol@example.com', 'active', 'inactive', " +
+    "ROW('1 Main St', 'Springfield', '12345')) RETURNING id", conn))
+{
+    presentId = (int)(await presentCmd.ExecuteScalarAsync())!;
+}
+int absentId;
+await using (var absentCmd = new NpgsqlCommand(
+    "INSERT INTO users (name, email, status, secondary_status, address) " +
+    "VALUES ('Dave', 'dave@example.com', 'active', NULL, NULL) RETURNING id", conn))
+{
+    absentId = (int)(await absentCmd.ExecuteScalarAsync())!;
+}
+int quotedId;
+await using (var quotedCmd = new NpgsqlCommand(
+    "INSERT INTO users (name, email, status, secondary_status, address) " +
+    "VALUES ('Eve', 'eve@example.com', 'active', 'inactive', " +
+    "ROW('12 \"Main\", Apt 3', 'Berlin', '10115')) RETURNING id", conn))
+{
+    quotedId = (int)(await quotedCmd.ExecuteScalarAsync())!;
+}
+
+var profile = await Queries.GetUserProfile(conn, presentId);
+Assert(profile.SecondaryStatus == Queries.UserStatus.Inactive, "GetUserProfile", $"expected secondary_status Inactive, got {profile.SecondaryStatus}");
+Assert(profile.Address != null, "GetUserProfile", "expected address to be present");
+Assert(profile.Address!.Street == "1 Main St", "GetUserProfile", $"expected address.Street '1 Main St', got {profile.Address.Street}");
+Assert(profile.Address.City == "Springfield", "GetUserProfile", $"expected address.City 'Springfield', got {profile.Address.City}");
+Assert(profile.Address.Zip == "12345", "GetUserProfile", $"expected address.Zip '12345', got {profile.Address.Zip}");
+
+var nullProfile = await Queries.GetUserProfile(conn, absentId);
+Assert(nullProfile.SecondaryStatus == null, "GetUserProfile", $"expected secondary_status null, got {nullProfile.SecondaryStatus}");
+Assert(nullProfile.Address == null, "GetUserProfile", "expected address null");
+
+var quotedProfile = await Queries.GetUserProfile(conn, quotedId);
+Assert(quotedProfile.Address != null, "GetUserProfile", "expected quoted address to be present");
+Assert(quotedProfile.Address!.Street == "12 \"Main\", Apt 3", "GetUserProfile", $"expected address.Street '12 \"Main\", Apt 3', got {quotedProfile.Address.Street}");
+Assert(quotedProfile.Address.City == "Berlin", "GetUserProfile", $"expected address.City 'Berlin', got {quotedProfile.Address.City}");
+Assert(quotedProfile.Address.Zip == "10115", "GetUserProfile", $"expected address.Zip '10115', got {quotedProfile.Address.Zip}");
+Console.WriteLine("PASS: GetUserProfile");
+
+await Queries.DeleteUser(conn, presentId);
+await Queries.DeleteUser(conn, absentId);
+await Queries.DeleteUser(conn, quotedId);
+
 // Test: DeleteUser (delete orders first due to FK)
 var deletedOrders = await Queries.DeleteOrdersByUser(conn, userId);
 Assert(deletedOrders == 1, "DeleteUser", $"expected 1 deleted order, got {deletedOrders}");

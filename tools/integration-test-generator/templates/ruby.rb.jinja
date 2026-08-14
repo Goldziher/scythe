@@ -264,14 +264,53 @@ def test_count_users_by_status(conn)
   puts "PASS: CountUsersByStatus"
 end
 
-{#- board #204: the generated GetUserProfileRow declares `address` as the composite
-    Address struct, but ruby-pg's reader assigns the driver's raw value straight
-    through -- no composite parser is emitted, so the annotation is wrong. The
-    GetUserProfile test is left out of this harness until that is fixed. When
-    ruby-pg starts emitting a composite parser for nullable composite columns,
-    restore test_get_user_profile_nullable here and add its call site back to
-    run_tests. Kept as a template comment, not an emitted one, to match the six
-    other languages excluded for the same reason. -#}
+def test_get_user_profile(conn)
+  # Test: GetUserProfile (board #197/#204) -- a nullable enum and a nullable
+  # composite column, each observed both present and as SQL NULL, plus a
+  # composite field containing a double quote and a comma to prove
+  # UserAddress.from_text handles record_out's doubled-quote escaping
+  # (board #204) rather than truncating on it.
+  present = conn.exec_params(
+    "INSERT INTO users (name, email, status, secondary_status, address) " \
+    "VALUES ('Carol', 'carol@example.com', 'active', 'inactive', " \
+    "ROW('1 Main St', 'Springfield', '12345')) RETURNING id"
+  )
+  present_id = present[0]["id"].to_i
+  absent = conn.exec_params(
+    "INSERT INTO users (name, email, status, secondary_status, address) " \
+    "VALUES ('Dave', 'dave@example.com', 'active', NULL, NULL) RETURNING id"
+  )
+  absent_id = absent[0]["id"].to_i
+  quoted = conn.exec_params(
+    "INSERT INTO users (name, email, status, secondary_status, address) " \
+    "VALUES ('Eve', 'eve@example.com', 'active', 'inactive', " \
+    "ROW('12 \"Main\", Apt 3', 'Berlin', '10115')) RETURNING id"
+  )
+  quoted_id = quoted[0]["id"].to_i
+
+  profile = Queries.get_user_profile(conn, present_id)
+  assert_equal("inactive", profile.secondary_status, "get_user_profile secondary_status present")
+  assert_not_nil(profile.address, "get_user_profile address should be present")
+  assert_equal("1 Main St", profile.address.street, "get_user_profile address.street")
+  assert_equal("Springfield", profile.address.city, "get_user_profile address.city")
+  assert_equal("12345", profile.address.zip, "get_user_profile address.zip")
+
+  null_profile = Queries.get_user_profile(conn, absent_id)
+  assert_true(null_profile.secondary_status.nil?, "get_user_profile secondary_status null")
+  assert_true(null_profile.address.nil?, "get_user_profile address null")
+
+  quoted_profile = Queries.get_user_profile(conn, quoted_id)
+  assert_not_nil(quoted_profile.address, "get_user_profile quoted address should be present")
+  assert_equal('12 "Main", Apt 3', quoted_profile.address.street, "get_user_profile quoted address.street")
+  assert_equal("Berlin", quoted_profile.address.city, "get_user_profile quoted address.city")
+  assert_equal("10115", quoted_profile.address.zip, "get_user_profile quoted address.zip")
+
+  Queries.delete_user(conn, present_id)
+  Queries.delete_user(conn, absent_id)
+  Queries.delete_user(conn, quoted_id)
+
+  puts "PASS: GetUserProfile"
+end
 {%- endif %}
 
 def test_delete_user(conn, user_id)
@@ -349,6 +388,7 @@ begin
   test_search_users(conn)
 {%- if engine == "postgresql" %}
   test_count_users_by_status(conn)
+  test_get_user_profile(conn)
 {%- endif %}
   test_delete_user(conn, user_id)
 
