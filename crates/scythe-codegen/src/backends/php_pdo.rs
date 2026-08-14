@@ -822,4 +822,87 @@ mod tests {
             "must return result array; got:\n{query_fn}"
         );
     }
+
+    /// Mirrors `testing_data/aggregates/nested_json/01_json_agg_wildcard_nested_struct.json`:
+    /// a `:many` query whose `orders` column is a `json_agg(o.*)` aggregate.
+    /// `php-pdo` does not implement `generate_nested_struct_def`, so
+    /// `degrade_unsupported_nested_structs` (crate::lib) rewrites the column's
+    /// neutral type from `json_nested<array<...>>` to the manifest's
+    /// `json_array` scalar before this backend ever sees it.
+    fn make_nested_json_agg_query() -> AnalyzedQuery {
+        use scythe_core::analyzer::{NestedFieldInfo, NestedStructInfo};
+
+        let columns = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+                ..Default::default()
+            },
+            AnalyzedColumn {
+                name: "orders".to_string(),
+                neutral_type: "json_nested<array<GetUserOrdersRowOrders>>".to_string(),
+                nullable: true,
+                ..Default::default()
+            },
+        ];
+        AnalyzedQuery::build(|aq| {
+            aq.name = "GetUserOrders".to_string();
+            aq.command = QueryCommand::Many;
+            aq.sql = "SELECT u.id, json_agg(o.*) AS orders FROM users u \
+                JOIN orders o ON o.user_id = u.id GROUP BY u.id"
+                .to_string();
+            aq.columns = columns;
+            aq.nested_structs = vec![NestedStructInfo {
+                name: "get_user_orders_row_orders".to_string(),
+                fields: vec![
+                    NestedFieldInfo {
+                        name: "id".to_string(),
+                        neutral_type: "int32".to_string(),
+                        nullable: false,
+                    },
+                    NestedFieldInfo {
+                        name: "status".to_string(),
+                        neutral_type: "string".to_string(),
+                        nullable: false,
+                    },
+                ],
+            }];
+        })
+    }
+
+    /// #147: `php-pdo` degraded `orders` to plain `json` and, before #198's
+    /// fix, cast it with the neutral-type-keyed `php_cast("json")` -> `"(string) "`
+    /// table -- while the manifest declares `json = "array"` for PostgreSQL,
+    /// so the promoted property was typed `?array` and handed a `string`.
+    /// `GetUserOrdersRow::__construct(): Argument #2 ($orders) must be of
+    /// type ?array, string given` was the resulting `TypeError` at runtime.
+    ///
+    /// This pins the fix (`php_convert_column` keyed on `lang_type`, not
+    /// `neutral_type`): the promoted property and the `fromRow` value it is
+    /// constructed from must agree on `array`, via `json_decode`, not
+    /// `(string)`.
+    #[test]
+    fn test_php_pdo_nested_json_agg_property_and_constructor_agree_on_array() {
+        let backend = PhpPdoBackend::new("postgresql").unwrap();
+        let query = make_nested_json_agg_query();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("        public ?array $orders,\n"),
+            "expected the promoted property to be typed `?array`; got:\n{row_struct}"
+        );
+        let expected_from_row_line =
+            "            orders: $row['orders'] !== null ? json_decode($row['orders'], true) : null,\n";
+        assert!(
+            row_struct.contains(expected_from_row_line),
+            "expected the constructor to json_decode `orders` into an array; got:\n{row_struct}"
+        );
+        assert!(
+            !row_struct.contains("(string) $row['orders']"),
+            "must never cast a degraded json_agg column to string -- ?array vs string is the exact \
+             `GetUserOrdersRow::__construct()` TypeError #147 reported; got:\n{row_struct}"
+        );
+    }
 }

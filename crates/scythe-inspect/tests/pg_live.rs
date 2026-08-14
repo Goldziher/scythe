@@ -696,6 +696,100 @@ async fn sc_ins09_skips_when_violation_absent() {
         .ok();
 }
 
+/// Regression test for #144. The two tests above sidestep contention by design: each starts
+/// from a different first candidate, so they never actually collide. That leaves the exact
+/// scenario in the bug report -- two callers racing for the *same* extension name -- unexercised.
+/// This test forces that collision on every run, on two independent connections:
+/// `install_test_extension_in_schema` must still hand back disjoint, correctly-located
+/// extensions. Before the catalog check landed, both callers would report success for
+/// `pgcrypto` regardless of which schema it actually landed in, because
+/// `CREATE EXTENSION IF NOT EXISTS` alone can't distinguish "I installed it" from "someone else
+/// already did, elsewhere".
+#[tokio::test]
+async fn install_test_extension_in_schema_picks_disjoint_extensions_under_concurrent_contention() {
+    let public_client = raw_client().await;
+    let scoped_client = raw_client().await;
+    let schema = "sc_ins09_race_regression";
+    scoped_client
+        .batch_execute(&format!(
+            "DROP SCHEMA IF EXISTS {schema} CASCADE; CREATE SCHEMA {schema}"
+        ))
+        .await
+        .expect("create dedicated schema");
+
+    let candidates: &[&str] = &["pgcrypto", "btree_gin", "btree_gist"];
+    let (public_result, scoped_result) = tokio::join!(
+        install_test_extension_in_schema(&public_client, "public", candidates),
+        install_test_extension_in_schema(&scoped_client, schema, candidates),
+    );
+
+    let Some(public_ext) = public_result else {
+        println!(
+            "skipping install_test_extension_in_schema_picks_disjoint_extensions_under_concurrent_contention: \
+             no benign extension available for public"
+        );
+        scoped_client
+            .batch_execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"))
+            .await
+            .ok();
+        return;
+    };
+    let Some(scoped_ext) = scoped_result else {
+        println!(
+            "skipping install_test_extension_in_schema_picks_disjoint_extensions_under_concurrent_contention: \
+             no benign extension available for {schema}"
+        );
+        public_client
+            .batch_execute(&format!("DROP EXTENSION IF EXISTS {public_ext}"))
+            .await
+            .ok();
+        scoped_client
+            .batch_execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"))
+            .await
+            .ok();
+        return;
+    };
+
+    assert_ne!(
+        public_ext, scoped_ext,
+        "both concurrent callers converged on the same extension `{public_ext}` -- \
+         the catalog check failed to detect the contention"
+    );
+
+    let public_row = public_client
+        .query_one(
+            "SELECT n.nspname FROM pg_extension e \
+             JOIN pg_namespace n ON n.oid = e.extnamespace \
+             WHERE e.extname = $1",
+            &[&public_ext],
+        )
+        .await
+        .expect("public extension row must exist after a successful install");
+    assert_eq!(public_row.get::<_, String>("nspname"), "public");
+
+    let scoped_row = scoped_client
+        .query_one(
+            "SELECT n.nspname FROM pg_extension e \
+             JOIN pg_namespace n ON n.oid = e.extnamespace \
+             WHERE e.extname = $1",
+            &[&scoped_ext],
+        )
+        .await
+        .expect("scoped extension row must exist after a successful install");
+    assert_eq!(scoped_row.get::<_, String>("nspname"), schema);
+
+    public_client
+        .batch_execute(&format!("DROP EXTENSION IF EXISTS {public_ext}"))
+        .await
+        .ok();
+    scoped_client
+        .batch_execute(&format!(
+            "DROP EXTENSION IF EXISTS {scoped_ext}; DROP SCHEMA IF EXISTS {schema} CASCADE"
+        ))
+        .await
+        .ok();
+}
+
 #[tokio::test]
 async fn sc_ins10_fires_when_violation_present() {
     let client = raw_client().await;

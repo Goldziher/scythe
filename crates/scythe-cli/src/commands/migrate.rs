@@ -599,7 +599,8 @@ fn convert_query_files(query_paths: &[String], base_dir: &Path) -> Result<Conver
 fn convert_single_file(path: &Path) -> Result<(usize, usize), ScytheError> {
     let content = fs::read_to_string(path).map_err(|e| internal(format!("read {}: {e}", path.display())))?;
 
-    let (converted, query_count, param_count) = convert_query_content(&content)?;
+    let (converted, query_count, param_count) = convert_query_content(&content)
+        .map_err(|e| ScytheError::new(e.code, format!("{}: {}", path.display(), e.message)))?;
 
     if converted != content {
         let bak = path.with_extension("sql.bak");
@@ -625,6 +626,15 @@ fn convert_query_content(input: &str) -> Result<(String, usize, usize), ScytheEr
 
     let positional_re = Regex::new(r"\$(\d+)").map_err(|e| internal(format!("regex: {e}")))?;
 
+    // A typo'd sqlc directive (wrong-case return type, an unsupported keyword, a missing
+    // colon) does not match `annotation_re`, so before this check it fell straight through to
+    // the output untouched: the query it names was never converted, `migrate` still reported
+    // success, and nothing told the caller that query was skipped. Loose enough to catch any
+    // line that is clearly *trying* to be a `-- name:` directive (case-insensitive, tolerant of
+    // spacing) without caring about the return-type keyword, so it never matches an unrelated
+    // comment that happens to contain the word "name". See #152.
+    let loose_name_re = Regex::new(r"(?mi)^--\s*name\s*:\s*.*$").map_err(|e| internal(format!("regex: {e}")))?;
+
     let mut output = String::with_capacity(input.len());
     let mut query_count: usize = 0;
     let mut param_rename_count: usize = 0;
@@ -635,6 +645,20 @@ fn convert_query_content(input: &str) -> Result<(String, usize, usize), ScytheEr
         let name = caps[1].to_string();
         let return_type = caps[2].to_string();
         match_positions.push((m.start(), m.end(), name, return_type));
+    }
+
+    // Checked before the `is_empty` early return below: a file whose *only* directive is
+    // malformed has no strict matches at all, and would otherwise pass through as if it had no
+    // sqlc annotations to convert.
+    let strict_starts: std::collections::HashSet<usize> = match_positions.iter().map(|(start, ..)| *start).collect();
+    for m in loose_name_re.find_iter(input) {
+        if !strict_starts.contains(&m.start()) {
+            return Err(invalid_config(format!(
+                "unrecognised sqlc query annotation -- expected `-- name: <Identifier> \
+                 :<one|many|exec|execrows|execresult|batchone|batchmany|batchexec|copyfrom>`, got: {:?}",
+                m.as_str().trim()
+            )));
+        }
     }
 
     if match_positions.is_empty() {
@@ -722,6 +746,21 @@ fn convert_query_content(input: &str) -> Result<(String, usize, usize), ScytheEr
         }
 
         output.push_str(&converted_body);
+    }
+
+    // A `sqlc.arg`/`sqlc.narg` call survives the loop above only when its parameter name didn't
+    // match `\w+` (stray whitespace inside the parens, an empty name) -- the exact same
+    // silent-passthrough failure mode as the annotation check above, just for parameter names
+    // instead of query names. Left unchecked, the call ships verbatim in a file scythe's own SQL
+    // parser does not understand, while `migrate` still reports every query as converted. See
+    // #152.
+    let loose_param_re = Regex::new(r"(?i)sqlc\s*\.\s*n?arg\s*\(").map_err(|e| internal(format!("regex: {e}")))?;
+    if let Some(m) = loose_param_re.find(&output) {
+        return Err(invalid_config(format!(
+            "unrecognised sqlc parameter reference -- expected `sqlc.arg(name)` or \
+             `sqlc.narg(name)` with a plain identifier and no internal whitespace, got: {:?}",
+            m.as_str()
+        )));
     }
 
     Ok((output, query_count, param_rename_count))
@@ -833,6 +872,14 @@ mod tests {
         assert!(out.contains("WHERE id = $1"));
     }
 
+    /// Verified against board #127/#152's suspicion that this file pins defective output around
+    /// (then-)lines 848-849: hand-traced `convert_query_content` for `page_limit` and
+    /// `page_offset` and confirmed each `sqlc.arg(...)` call is replaced with its own
+    /// sequentially-numbered placeholder and its own `-- @param` line -- the intended mapping,
+    /// not a bug this test happens to encode. Left un-inverted: inverting a correct assertion
+    /// would itself become a bug-pinning test. The same check was made for
+    /// `test_sqlc_narg_conversion`, `test_repeated_arg_same_name` and
+    /// `test_mixed_arg_and_narg` -- their `-- @param` assertions are correct output too.
     #[test]
     fn test_sqlc_arg_conversion() {
         let input = "\
@@ -861,6 +908,7 @@ LIMIT sqlc.arg(page_limit)::int4;
         assert!(out.contains("LIMIT $2::int4"), "got: {out}");
     }
 
+    /// See `test_sqlc_arg_conversion`'s doc comment: verified correct, not bug-pinning.
     #[test]
     fn test_sqlc_narg_conversion() {
         let input = "\
@@ -898,6 +946,7 @@ SELECT 2;
         assert_eq!(out, input);
     }
 
+    /// See `test_sqlc_arg_conversion`'s doc comment: verified correct, not bug-pinning.
     #[test]
     fn test_repeated_arg_same_name() {
         let input = "\
@@ -920,6 +969,7 @@ SELECT * FROM t WHERE a = sqlc.arg(x) AND b = sqlc.arg(x);
         assert!(out.contains("-- @returns :exec"));
     }
 
+    /// See `test_sqlc_arg_conversion`'s doc comment: verified correct, not bug-pinning.
     #[test]
     fn test_mixed_arg_and_narg() {
         let input = "\
@@ -949,5 +999,47 @@ SELECT 1;
         assert_eq!(qc, 1);
         assert!(out.starts_with("-- Some header comment"));
         assert!(out.contains("-- @name GetOne"));
+    }
+
+    /// Regression for #152: a wrong-case return-type keyword (sqlc itself is always lowercase)
+    /// used to fail the strict `annotation_re` silently -- the query was left unconverted and
+    /// `migrate` still reported success. It must now be a load error.
+    #[test]
+    fn convert_query_content_rejects_a_malformed_return_type_keyword() {
+        let input = "-- name: GetProject :One\nSELECT id FROM projects WHERE id = $1;\n";
+        let error = convert_query_content(input)
+            .expect_err("a wrong-case return-type keyword must be rejected, not silently skipped")
+            .to_string();
+        assert!(
+            error.contains("unrecognised sqlc query annotation"),
+            "error must identify the problem, got: {error}"
+        );
+    }
+
+    /// Regression for #152: a file whose *only* directive is malformed has no strict matches at
+    /// all, and the early `match_positions.is_empty()` return used to let it through as if the
+    /// file had no sqlc annotations to convert -- the check above must run before that return.
+    #[test]
+    fn convert_query_content_rejects_a_malformed_annotation_when_it_is_the_only_one() {
+        let input = "-- name: GetProject\nSELECT id FROM projects WHERE id = $1;\n";
+        assert!(
+            convert_query_content(input).is_err(),
+            "a directive-only file with no valid annotations must not pass through silently"
+        );
+    }
+
+    /// Regression for #152: internal whitespace inside `sqlc.arg(...)` doesn't match `\w+`, so
+    /// the call used to survive verbatim in the converted output -- a query scythe's own parser
+    /// does not understand, shipped while `migrate` reported success.
+    #[test]
+    fn convert_query_content_rejects_a_sqlc_arg_call_with_internal_whitespace() {
+        let input = "-- name: GetPage :many\nSELECT * FROM t LIMIT sqlc.arg( page_limit );\n";
+        let error = convert_query_content(input)
+            .expect_err("a malformed sqlc.arg call must be rejected, not left unconverted")
+            .to_string();
+        assert!(
+            error.contains("unrecognised sqlc parameter reference"),
+            "error must identify the problem, got: {error}"
+        );
     }
 }
