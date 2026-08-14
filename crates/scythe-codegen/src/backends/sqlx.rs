@@ -131,7 +131,18 @@ impl SqlxBackend {
             derives.push("serde::Serialize".to_string());
             derives.push("serde::Deserialize".to_string());
         }
-        derives.extend(self.extra_derives.iter().cloned());
+        // ~keep `base` always includes "Debug" and "Clone" (every call site does; some also
+        // add "PartialEq", "Eq"), so a `derive` option that happens to name one of those --
+        // plausible when a user thinks they need to ask for `Debug` explicitly, or sets
+        // both `serde = true` and lists `serde::Serialize` in `derive` -- would otherwise
+        // append a second, identical derive token. Two `impl Debug for Foo` from two
+        // identical `#[derive(Debug)]` expansions is E0119 in the generated file, not a
+        // harmless no-op.
+        for extra in &self.extra_derives {
+            if !derives.iter().any(|d| d == extra) {
+                derives.push(extra.clone());
+            }
+        }
         format!("#[derive({})]", derives.join(", "))
     }
 }
@@ -923,6 +934,40 @@ mod option_tests {
         assert!(backend.serde);
         assert_eq!(backend.extra_derives, vec!["PartialEq".to_string(), "Eq".to_string()]);
         assert!(backend.structs_only);
+    }
+
+    /// Must fail before the fix: `derive_line` appended every `extra_derives` entry
+    /// unconditionally, so a `derive` option repeating a name already in `base` (every row
+    /// struct's base always includes "Debug" and "Clone") produced a literal duplicate
+    /// derive token -- `#[derive(Debug, Clone, sqlx::FromRow, Debug)]` -- which is E0119
+    /// ("conflicting implementations of trait `Debug`") in the generated file, not a
+    /// harmless no-op.
+    #[test]
+    fn derive_line_dedupes_extra_derive_matching_a_base_derive() {
+        let mut backend = SqlxBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "derive".to_string(),
+                "Debug, PartialEq".to_string(),
+            )]))
+            .unwrap();
+        let line = backend.derive_line(&["Debug", "Clone", "sqlx::FromRow"]);
+        assert_eq!(line, "#[derive(Debug, Clone, sqlx::FromRow, PartialEq)]");
+    }
+
+    /// The companion case: `derive` naming `serde::Serialize` while `serde = true` is also
+    /// set must not duplicate the derive `serde` itself already inserted.
+    #[test]
+    fn derive_line_dedupes_extra_derive_matching_the_serde_derives() {
+        let mut backend = SqlxBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([
+                ("serde".to_string(), "true".to_string()),
+                ("derive".to_string(), "serde::Serialize".to_string()),
+            ]))
+            .unwrap();
+        let line = backend.derive_line(&["Debug", "Clone"]);
+        assert_eq!(line, "#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]");
     }
 
     /// An unrecognized value must be reported, not silently treated as

@@ -204,6 +204,17 @@ pub fn to_screaming_snake_case(s: &str) -> Cow<'_, str> {
     Cow::Owned(snake.to_uppercase())
 }
 
+/// The case-convention names [`apply_case`] recognizes.
+///
+/// Every compiled-in manifest's `[naming]` table is maintained by this repo, so its case
+/// values are trusted by construction. A manifest *overlay* (`manifest = "..."` on a
+/// `[[sql.gen]]` target) is the one place an unrecognized case name can enter from outside
+/// -- see `scythe_backend::manifest::BackendManifest::apply_overlay`, which validates
+/// against this list before writing an overlay value in, precisely because `apply_case`
+/// itself does not: its `_` arm passes the input through unchanged rather than erroring, so
+/// a typo reaching it silently emits an uncased identifier instead of failing loudly.
+pub const VALID_CASE_NAMES: &[&str] = &["PascalCase", "snake_case", "camelCase", "SCREAMING_SNAKE_CASE"];
+
 /// Apply a named case convention to a string.
 pub fn apply_case<'a>(s: &'a str, case: &str) -> Cow<'a, str> {
     match case {

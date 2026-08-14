@@ -8,7 +8,7 @@ Scythe includes 23 built-in lint rules plus sqruff integration for SQL style and
 `SC-CHK01`), so `scythe lint` runs all 58 built-in rules together -- see [Audit](/scythe/guide/audit/)
 for the audit-only catalog.
 
-The 8 `SC-PRV*` provenance rules and the 7 `SC-DRF*` schema drift rules are not part of that 58. They
+The 11 `SC-PRV*` provenance rules and the 7 `SC-DRF*` schema drift rules are not part of that 58. They
 live in separate registries, fire only from [`scythe check`](/scythe/guide/cli-reference/#check), and
 never appear in `scythe lint` or `scythe audit --list-rules` output. See the
 [lint rules reference](/scythe/reference/lint-rules/) for both catalogs.
@@ -137,7 +137,7 @@ performance = "off"     # Disable all performance rules
 | `provenance` | `SC-PRV` | Check-time only: generated artifact vs. current schema/engine/backend/version. Not reachable from `scythe lint`. |
 | `drift` | `SC-DRF` | Check-time only: committed DDL vs. a live database. Not reachable from `scythe lint`. |
 
-`security` and `migration` between them cover 34 of the 58 built-in rules. `provenance` (8 rules) and
+`security` and `migration` between them cover 34 of the 58 built-in rules. `provenance` (11 rules) and
 `drift` (7 rules) are counted separately and only fire from `scythe check`; see the
 [lint rules reference](/scythe/reference/lint-rules/).
 
@@ -145,10 +145,11 @@ Category-level settings are overridden by rule-level settings.
 
 ### Check-time rules
 
-`SC-PRV*` and `SC-DRF*` are ordinary registry rules, configured from this same `[lint]` table even
-though `scythe lint` never reports them. `scythe check` applies your `[lint]` config to their
+All `SC-PRV*` and all `SC-DRF*` rules are ordinary registry rules, configured from this same `[lint]`
+table even though `scythe lint` never reports them. `scythe check` applies your `[lint]` config to their
 registries before resolving severities, so per-rule overrides and whole-category switches work
-exactly as they do above:
+exactly as they do above (see the
+[lint rules reference](/scythe/reference/lint-rules/#provenance-rules-11)):
 
 ```toml
 [lint.rules]

@@ -283,6 +283,104 @@ fn lint_reports_an_unparseable_query_as_an_error_and_exits_two() {
     assert_eq!(output.status.code(), Some(2), "stderr: {stderr}");
 }
 
+/// `SC-PARSE01` joined a registry so `[lint.rules]` could reach it. Before
+/// that, `lint_from_config` hardcoded `Severity::Error` at the point this
+/// finding was constructed, so `"SC-PARSE01" = "warn"` here had no effect:
+/// the exit code stayed `2` and the JSON finding stayed `"error"`.
+#[test]
+fn lint_unparseable_query_honours_configured_severity() {
+    let dir = TempDir::new().expect("tempdir");
+    fs::write(dir.path().join("schema.sql"), SCHEMA).expect("write schema.sql");
+    fs::write(
+        dir.path().join("queries.sql"),
+        "-- @name Broken\n-- @returns :one\nSELECT * FROM users WHERE ((;\n",
+    )
+    .expect("write queries.sql");
+    let config_path = dir.path().join("scythe.toml");
+    fs::write(
+        &config_path,
+        r#"[scythe]
+version = "1"
+
+[[sql]]
+name = "test"
+engine = "postgresql"
+schema = ["schema.sql"]
+queries = ["queries.sql"]
+
+[lint.rules]
+"SC-PARSE01" = "warn"
+"#,
+    )
+    .expect("write scythe.toml");
+
+    let output = run_lint(&config_path.to_string_lossy(), &["--format", "json"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: Value = serde_json::from_str(&stdout).expect("valid JSON");
+    let sc_parse01 = parsed
+        .as_array()
+        .expect("array")
+        .iter()
+        .find(|f| f["rule_id"] == "SC-PARSE01")
+        .unwrap_or_else(|| panic!("SC-PARSE01 must still be reported; stdout: {stdout}"));
+
+    assert_eq!(sc_parse01["severity"], "warning", "the configured severity must win");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "a warning-only run exits 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Same regression as `lint_unparseable_query_honours_configured_severity`,
+/// for `SC-PARSE02` (analysis failure).
+#[test]
+fn lint_unanalysable_query_honours_configured_severity() {
+    let dir = TempDir::new().expect("tempdir");
+    fs::write(dir.path().join("schema.sql"), SCHEMA).expect("write schema.sql");
+    fs::write(
+        dir.path().join("queries.sql"),
+        "-- @name GetUsers\n-- @returns :many\nSELECT * FROM users WHERE email = 42;\n",
+    )
+    .expect("write queries.sql");
+    let config_path = dir.path().join("scythe.toml");
+    fs::write(
+        &config_path,
+        r#"[scythe]
+version = "1"
+
+[[sql]]
+name = "test"
+engine = "postgresql"
+schema = ["schema.sql"]
+queries = ["queries.sql"]
+
+[lint.rules]
+"SC-PARSE02" = "warn"
+"#,
+    )
+    .expect("write scythe.toml");
+
+    let output = run_lint(&config_path.to_string_lossy(), &["--format", "json"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: Value = serde_json::from_str(&stdout).expect("valid JSON");
+    let sc_parse02 = parsed
+        .as_array()
+        .expect("array")
+        .iter()
+        .find(|f| f["rule_id"] == "SC-PARSE02")
+        .unwrap_or_else(|| panic!("SC-PARSE02 must still be reported; stdout: {stdout}"));
+
+    assert_eq!(sc_parse02["severity"], "warning", "the configured severity must win");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "a warning-only run exits 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 /// `LintRule::is_applicable_to` gates most canonical migration and security
 /// rules to PostgreSQL. Running them against a MySQL block produced nothing,
 /// which is indistinguishable from "they ran and found nothing" -- lint now

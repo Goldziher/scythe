@@ -164,15 +164,16 @@ pub fn default_registry() -> RuleRegistry {
     reg
 }
 
-/// The eight `SC-PRV*` provenance rules, in their own registry.
+/// The eleven `SC-PRV*` provenance rules, in their own registry.
 ///
 /// Deliberately **not** part of [`default_registry`]. Every consumer of that
 /// registry evaluates rules through `LintRule::check_query` /
-/// `check_catalog`, and these eight implement neither — their findings come
-/// from `scythe check`'s generated-artifact verification pass, which has no
-/// `LintContext` to offer. Putting them in the default registry would have
+/// `check_catalog`, and these eleven implement neither — their findings come
+/// from `scythe check`'s generated-artifact verification pass and its
+/// `[[sql.gen]]`/query-file validation, neither of which has a `LintContext`
+/// to offer. Putting them in the default registry would have
 /// `scythe audit --list-rules` (via `load_registry_for_discovery`) and
-/// `scythe lint` advertise eight rules that neither command can ever emit,
+/// `scythe lint` advertise eleven rules that neither command can ever emit,
 /// and would move the documented "58 built-in rules" figure that appears
 /// across the README, the website, and the skills bundle.
 ///
@@ -194,7 +195,33 @@ pub fn provenance_registry() -> RuleRegistry {
     reg.register(Box::new(rules::provenance::MalformedProvenanceHeader));
     reg.register(Box::new(rules::provenance::UnverifiableProvenance));
     reg.register(Box::new(rules::provenance::QueryDrift));
+    reg.register(Box::new(rules::provenance::GenTargetInvalid));
+    reg.register(Box::new(rules::provenance::EmptyQueryFile));
     reg.register(Box::new(rules::provenance::OptionsDrift));
+
+    reg
+}
+
+/// The two `SC-PARSE*` rules, in their own registry.
+///
+/// Deliberately **not** part of [`default_registry`], for the same
+/// structural reason as [`provenance_registry`]: a query that fails to parse
+/// or fails semantic analysis never becomes the `LintContext` any
+/// `check_query` rule needs, so neither rule can run through the paths
+/// `scythe lint` / `scythe audit --list-rules` advertise.
+///
+/// Unlike [`provenance_registry`] and [`drift_registry`], this registry is
+/// consulted from three different commands -- `scythe check`, `scythe lint`,
+/// and `scythe audit` all hit the same parse/analyze failure and used to
+/// each hardcode their own `Severity::Error` at the point the finding was
+/// constructed. A registry is what lets one `[lint.rules] "SC-PARSE01" =
+/// "warn"` (or `[lint.categories] parse = "off"`) reach all three at once,
+/// via [`RuleRegistry::effective_severity`] exactly as any other rule does.
+pub fn parse_registry() -> RuleRegistry {
+    let mut reg = RuleRegistry::new();
+
+    reg.register(Box::new(rules::parse::UnparseableQuery));
+    reg.register(Box::new(rules::parse::UnanalyzableQuery));
 
     reg
 }
@@ -370,7 +397,7 @@ mod tests {
             ids,
             vec![
                 "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07", "SC-PRV08",
-                "SC-PRV11"
+                "SC-PRV09", "SC-PRV10", "SC-PRV11"
             ]
         );
     }
@@ -379,6 +406,11 @@ mod tests {
     /// severity-resolution path every other rule uses — that reachability is
     /// the entire reason they get a registry rather than a bare list, and it
     /// is what lets `[lint.rules]` disable a schema-drift failure in CI.
+    ///
+    /// Covers `SC-PRV09`/`SC-PRV10` alongside an existing rule specifically:
+    /// before these two joined `provenance_registry`, `scythe-cli` hardcoded
+    /// `Severity::Error` at the point each finding was constructed, so no
+    /// `[lint.rules]` entry for either id could have any effect at all.
     #[test]
     fn provenance_rules_honor_per_rule_config_overrides() {
         let mut reg = provenance_registry();
@@ -386,12 +418,22 @@ mod tests {
         let mut config = LintConfig::default();
         config.rules.insert("SC-PRV01".to_string(), Severity::Off);
         config.rules.insert("SC-PRV02".to_string(), Severity::Error);
+        config.rules.insert("SC-PRV09".to_string(), Severity::Warn);
+        config.rules.insert("SC-PRV10".to_string(), Severity::Off);
         reg.apply_config(&config);
 
         assert_eq!(reg.effective_severity(&rules::provenance::SchemaDrift), Severity::Off);
         assert_eq!(
             reg.effective_severity(&rules::provenance::ScytheVersionDrift),
             Severity::Error
+        );
+        assert_eq!(
+            reg.effective_severity(&rules::provenance::GenTargetInvalid),
+            Severity::Warn
+        );
+        assert_eq!(
+            reg.effective_severity(&rules::provenance::EmptyQueryFile),
+            Severity::Off
         );
         // Untouched by the config: still its own default.
         assert_eq!(
@@ -412,7 +454,8 @@ mod tests {
         reg.apply_config(&config);
 
         for id in [
-            "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07", "SC-PRV08",
+            "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07", "SC-PRV08", "SC-PRV09",
+            "SC-PRV10", "SC-PRV11",
         ] {
             assert!(
                 !reg.active_rules().iter().any(|(r, _)| r.id() == id),
@@ -469,6 +512,56 @@ mod tests {
 
         let mut config = LintConfig::default();
         config.categories.insert(RuleCategory::Drift, Severity::Off);
+        reg.apply_config(&config);
+
+        assert!(reg.active_rules().is_empty());
+    }
+
+    /// `SC-PARSE*` rules must stay out of the default registry, for the same
+    /// reason the provenance and drift families do: no consumer of
+    /// `default_registry` reaches them through `check_query`/`check_catalog`.
+    #[test]
+    fn default_registry_excludes_parse_rules() {
+        let reg = default_registry();
+        assert!(
+            !reg.rules.iter().any(|r| r.id().starts_with("SC-PARSE")),
+            "parse rules belong to parse_registry(), not default_registry()"
+        );
+    }
+
+    #[test]
+    fn parse_registry_has_every_registered_rule() {
+        let reg = parse_registry();
+        let ids: Vec<&str> = reg.rules.iter().map(|r| r.id()).collect();
+        assert_eq!(ids, vec!["SC-PARSE01", "SC-PARSE02"]);
+    }
+
+    /// The whole reason `SC-PARSE01`/`SC-PARSE02` moved into a registry:
+    /// before this, `scythe check`, `scythe lint`, and `scythe audit` each
+    /// hardcoded `Severity::Error` at the point their own ad hoc finding was
+    /// constructed, so no `[lint.rules]` entry for either id could have any
+    /// effect in any of the three commands.
+    #[test]
+    fn parse_rules_honor_per_rule_config_overrides() {
+        let mut reg = parse_registry();
+
+        let mut config = LintConfig::default();
+        config.rules.insert("SC-PARSE01".to_string(), Severity::Warn);
+        config.rules.insert("SC-PARSE02".to_string(), Severity::Off);
+        reg.apply_config(&config);
+
+        assert_eq!(reg.effective_severity(&rules::parse::UnparseableQuery), Severity::Warn);
+        assert_eq!(reg.effective_severity(&rules::parse::UnanalyzableQuery), Severity::Off);
+    }
+
+    /// A single `[lint.categories] parse = "off"` switch must turn off both
+    /// rules at once.
+    #[test]
+    fn parse_category_override_disables_every_parse_rule() {
+        let mut reg = parse_registry();
+
+        let mut config = LintConfig::default();
+        config.categories.insert(RuleCategory::Parse, Severity::Off);
         reg.apply_config(&config);
 
         assert!(reg.active_rules().is_empty());

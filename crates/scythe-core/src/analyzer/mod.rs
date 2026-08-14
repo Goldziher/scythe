@@ -194,8 +194,15 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         .chain(nested_field_types.iter().copied())
         .chain(composite_field_types.iter().map(String::as_str))
         .collect();
-    for nt in &all_types {
-        if let Some(enum_name) = nt.strip_prefix("enum::")
+    for &nt in &all_types {
+        // ~keep `array<enum::x>` / `nullable<enum::x>` (an enum array column, or an
+        // enum widened nullable by an outer join) must unwrap to the same `enum::x`
+        // an unwrapped column resolves to -- otherwise this loop never inserts that
+        // enum's `EnumInfo` into `enums`, and `generate_enum_defs_via_backend`
+        // (scythe-codegen), which independently recognizes the type as reachable via
+        // its own container-unwrapping, falls back to an empty-variants stub instead
+        // of finding it here.
+        if let Some(enum_name) = unwrap_neutral_containers(nt).strip_prefix("enum::")
             && seen_enums.insert(enum_name.to_string())
             && let Some(enum_type) = catalog.get_enum(enum_name)
         {
@@ -283,6 +290,30 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         custom: query.annotations.custom.clone(),
         nested_structs,
     })
+}
+
+/// Strip any number of `array<...>` / `nullable<...>` container wrappers from a
+/// neutral type, returning the innermost type.
+///
+/// Mirrors `scythe_codegen::unwrap_containers`, duplicated rather than shared because
+/// scythe-core cannot depend on scythe-codegen: that function's own enum/composite
+/// reachability checks already unwrap both wrappers, so the caller here has to strip the
+/// same ones or it disagrees with codegen about what `enum::x` reachable means. Matching
+/// only the bare `"enum::x"` string misses `array<enum::x>` -- e.g. an enum array column --
+/// entirely; `nullable<...>` is stripped alongside it for the same reason `array<...>` is,
+/// even though no analyzer output currently wraps an `enum::`/`composite::` type in it
+/// directly.
+fn unwrap_neutral_containers(neutral: &str) -> &str {
+    let mut current = neutral;
+    loop {
+        if let Some(inner) = current.strip_prefix("array<").and_then(|r| r.strip_suffix('>')) {
+            current = inner.trim();
+        } else if let Some(inner) = current.strip_prefix("nullable<").and_then(|r| r.strip_suffix('>')) {
+            current = inner.trim();
+        } else {
+            return current;
+        }
+    }
 }
 
 /// Phase 2 of nested-struct naming. Walks `columns` for `__nested__{id}`
@@ -1884,5 +1915,38 @@ SELECT id, contents FROM boxes WHERE id = $1;",
                 "{expected} must be collected"
             );
         }
+    }
+
+    /// Must fail before the fix: the enum-discovery loop matched only the bare
+    /// `"enum::mood"` string, so a column typed `mood[]` -- neutral type
+    /// `"array<enum::mood>"` -- was never recognized as referencing `mood` at all.
+    /// `analyzed.enums` came back empty, and `scythe-codegen`'s
+    /// `generate_enum_defs_via_backend` (which *does* unwrap `array<...>` before
+    /// matching) then fell back to a stub `EnumInfo` with `values: vec![]` --
+    /// emitting an enum declaration with no variants instead of the real ones.
+    #[test]
+    fn test_enums_reachable_only_through_array_column_are_collected() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TYPE mood AS ENUM ('sad', 'happy', 'ok');",
+            "CREATE TABLE t (id SERIAL PRIMARY KEY, moods mood[] NOT NULL);",
+        ])
+        .unwrap();
+        let query = parse_query(
+            "-- @name GetMoods
+-- @returns :one
+SELECT id, moods FROM t WHERE id = $1;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        let mood = result
+            .enums
+            .iter()
+            .find(|e| e.sql_name == "mood")
+            .expect("mood is reachable through the array<enum::mood> column");
+        assert_eq!(
+            mood.values,
+            vec!["sad".to_string(), "happy".to_string(), "ok".to_string()]
+        );
     }
 }

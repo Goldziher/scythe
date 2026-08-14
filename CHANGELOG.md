@@ -115,6 +115,40 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   noticed; python evaluates `@dataclass` annotations when the class body runs, so the generated module
   raised `NameError` on import. Definitions are now emitted in dependency order. (#204)
 
+- **An enum reachable only through an array column generated with no variants.** The analyzer's
+  enum-discovery loop matched the bare `enum::x` neutral type, so a column typed `mood[]` — neutral
+  type `array<enum::mood>` — was never recognized as referencing `mood`. `scythe-codegen`, which
+  unwraps containers on its own, then found the type reachable but had no `EnumInfo` for it and fell
+  back to a stub with an empty variant list, emitting an enum declaration with no variants. (#165)
+
+- **An explicit but empty `[sql.gen]` table silently generated a `rust-sqlx` target.** A legacy
+  `[sql.gen]` block naming none of `rust`/`python`/`typescript`/`go`/`kotlin` resolved to a default
+  `rust-sqlx` target rather than an error — the same silent-fallback shape #97 removed for an
+  *unresolvable* target, left open for a block that resolves to *nothing*. Omitting the `gen` key
+  entirely still defaults to `rust-sqlx`, which is documented and intended. (#165)
+
+- **A `derive` backend option repeating a base derive produced code that would not compile.**
+  `SqlxBackend::derive_line` appended every `extra_derives` entry unconditionally, so naming `Debug`
+  (always in the base set) or `serde::Serialize` alongside `serde = true` emitted a duplicate derive
+  token — `E0119`, conflicting trait implementations, in the generated file. (#165)
+
+- **A typo'd case name in a `[naming]` manifest overlay installed silently.** `apply_case` passes an
+  unrecognized case name through unchanged, which is safe for the compiled-in manifests but not for an
+  overlay, the one path a case name reaches it from outside. `struct_case = "PascalCse"` was accepted
+  and then emitted every affected identifier uncased. Overlays are now validated against the four real
+  case names. (#165)
+
+- **`scythe lint <file>` ignored `[lint.sqruff]`.** Explicit-file mode built its sqruff linter with
+  `None` in place of the config's rule table, unconditionally — the same gap #206 closed for `fmt`,
+  left open in `lint`. A `[lint.sqruff]` that config-mode `lint` rejects was silently accepted when
+  the same config was paired with a file argument. (#206)
+
+- **A `column = "table.col"` override that could only ever match a *parameter* was never flagged.**
+  The unmatched-override preflight built its known-references set from columns alone, so a qualified
+  override naming a real parameter reference but no column passed silently — as did a typo'd one,
+  since neither could be distinguished from an override that simply never fires. `resolve::param_references`
+  is now chained into the same set, feeding the existing diagnostic rather than adding a second. (#189)
+
 - **`SC-PRV09`, `SC-PRV10`, `SC-PARSE01` and `SC-PARSE02` could not be configured, counted, or
   discovered.** All four were ad hoc `Error`-severity findings `scythe-cli` constructed directly at
   the point of failure (an unconstructable `[[sql.gen]]` target, a query file with zero recognized

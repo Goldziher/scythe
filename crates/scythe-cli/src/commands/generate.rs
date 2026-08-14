@@ -18,7 +18,8 @@ use scythe_core::parser::{QueryCommand, parse_query_with_dialect};
 use scythe_lint::{QueryViolation, RuleRegistry, Severity};
 
 use super::shared::{
-    config_dir, has_unannotated_sql, redact_url_password, resolve_contained_output, resolve_globs, split_query_file,
+    ParseSeverities, config_dir, has_unannotated_sql, redact_url_password, resolve_contained_output, resolve_globs,
+    split_query_file,
 };
 
 #[derive(Debug, Deserialize)]
@@ -272,6 +273,7 @@ struct TypeOverrideConfig {
 }
 
 /// A resolved generation target with backend name, output directory, and options.
+#[derive(Debug)]
 struct ResolvedGenTarget {
     backend: String,
     output: String,
@@ -394,13 +396,21 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>,
                     options: std::collections::HashMap::new(),
                 });
             }
+            // An explicit `[sql.gen]` table that names none of the five legacy language
+            // keys (and no unrecognized key either, or `unsupported` would already have
+            // errored above) is not "no `gen` configured" -- that's the `None` arm below,
+            // reached only when the `gen` key is absent entirely. A present-but-empty
+            // `[sql.gen]` is a config that names no target at all, and silently defaulting
+            // it to `rust-sqlx` is exactly the silent-fallback #97 already fixed for an
+            // *unresolvable* legacy target -- this is the same failure mode for a legacy
+            // block that resolves to nothing instead.
             if targets.is_empty() {
-                targets.push(ResolvedGenTarget {
-                    backend: "rust-sqlx".to_string(),
-                    output: default_output,
-                    manifest_override: None,
-                    options: std::collections::HashMap::new(),
-                });
+                return Err(format!(
+                    "[[sql]] block \"{}\": [sql.gen] is present but configures none of its supported \
+                     languages (rust, python, typescript, go, kotlin) -- add e.g. `[sql.gen.rust]`, or \
+                     remove the `gen` key entirely to fall back to the default rust-sqlx backend",
+                    sql_config.name
+                ));
             }
             Ok(targets)
         }
@@ -413,26 +423,33 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>,
     }
 }
 
-/// Reject a `column = "table.col"` override whose target names no column present in any of
-/// `analyzed_queries` -- almost always a typo'd table or column name.
+/// Reject a `column = "table.col"` override whose target names no column or parameter
+/// present in any of `analyzed_queries` -- almost always a typo'd table or column name.
 ///
 /// Without this, such an entry is indistinguishable from a correct one that simply never
-/// happens to fire: [`scythe_codegen::resolve::resolve_columns`] silently falls back to the
-/// column's inferred type either way (#189). Covers every query's flat `columns` plus, for a
-/// `:grouped` query, both halves of `group_by`'s parent/child split -- the same column sets
-/// [`generate_with_backend_and_overrides`] and [`generate_rbs_if_supported`] resolve.
+/// happens to fire: [`scythe_codegen::resolve::resolve_columns`] and
+/// [`scythe_codegen::resolve::resolve_params`] both silently fall back to the inferred type
+/// either way (#189). Covers every query's flat `columns` plus, for a `:grouped` query, both
+/// halves of `group_by`'s parent/child split -- the same column sets
+/// [`generate_with_backend_and_overrides`] and [`generate_rbs_if_supported`] resolve -- and
+/// every query's `params`, via [`scythe_codegen::resolve::param_references`] (#189's
+/// remainder: a qualified override that only ever targets a parameter, not a column, used to
+/// pass this check silently even though it could never match anything either).
 fn check_type_overrides_resolve(
     config_name: &str,
     analyzed_queries: &[AnalyzedQuery],
     overrides: &[TypeOverride],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let known = scythe_codegen::overrides::column_references(analyzed_queries.iter().flat_map(|query| {
+    let mut known = scythe_codegen::overrides::column_references(analyzed_queries.iter().flat_map(|query| {
         let group_columns = query
             .group_by
             .iter()
             .flat_map(|group| group.parent_columns.iter().chain(group.child_columns.iter()));
         query.columns.iter().chain(group_columns)
     }));
+    known.extend(scythe_codegen::resolve::param_references(
+        analyzed_queries.iter().flat_map(|query| query.params.iter()),
+    ));
     let unmatched = scythe_codegen::overrides::unmatched_column_overrides(overrides, &known);
     if unmatched.is_empty() {
         return Ok(());
@@ -828,8 +845,9 @@ fn resolve_options_fingerprint(target: &ResolvedGenTarget, base_dir: &Path) -> R
 /// `[main] All queries valid.` printed regardless.
 ///
 /// Returns a plain `Vec`, like [`verify_provenance`], rather than a
-/// `Result` propagated via `?`: this function's finding must move the exit
-/// code (it is `Error`, not `Warn`, unlike SC-PRV07), but it must not be
+/// `Result` propagated via `?`: this function's finding is `Error` by
+/// default (unlike SC-PRV07's `Warn`), so it moves the exit code unless a
+/// user has downgraded it via `[lint.rules]`, but it must not be
 /// able to abort `run_check` before `emit_findings` runs, which would
 /// discard every other finding already collected for this block and every
 /// block after it -- and, for `check --output r.json`, leave no report
@@ -838,7 +856,16 @@ fn resolve_options_fingerprint(target: &ResolvedGenTarget, base_dir: &Path) -> R
 /// which pins exactly that: a real SC-S03 lint finding must survive an
 /// unconstructable `[[sql.gen]]` target in the same config, not disappear
 /// with it.
-fn validate_gen_targets_constructible(sql_config: &SqlConfig, base_dir: &Path) -> Vec<QueryViolation> {
+///
+/// `severity` is `SC-PRV09`'s effective severity, resolved by the caller
+/// from [`scythe_lint::provenance_registry`] (see [`ProvenanceSeverities`])
+/// -- not hardcoded here -- so `[lint.rules] "SC-PRV09" = "warn"` reaches
+/// this finding exactly like any other provenance rule.
+fn validate_gen_targets_constructible(
+    sql_config: &SqlConfig,
+    base_dir: &Path,
+    severity: Severity,
+) -> Vec<QueryViolation> {
     let mut violations = Vec::new();
 
     let gen_targets = match resolve_gen_targets(sql_config) {
@@ -847,7 +874,7 @@ fn validate_gen_targets_constructible(sql_config: &SqlConfig, base_dir: &Path) -
             violations.push(QueryViolation {
                 query_name: sql_config.name.clone(),
                 rule_id: Cow::Borrowed("SC-PRV09"),
-                severity: Severity::Error,
+                severity,
                 message: format!(
                     "failed to resolve [sql.gen] targets: {e} (run `scythe generate` for the full diagnosis)"
                 ),
@@ -865,7 +892,7 @@ fn validate_gen_targets_constructible(sql_config: &SqlConfig, base_dir: &Path) -
                 violations.push(QueryViolation {
                     query_name: target_label,
                     rule_id: Cow::Borrowed("SC-PRV09"),
-                    severity: Severity::Error,
+                    severity,
                     message: format!(
                         "backend '{}' with engine '{}' could not be constructed: {} (run `scythe generate` \
                          for the full diagnosis)",
@@ -882,7 +909,7 @@ fn validate_gen_targets_constructible(sql_config: &SqlConfig, base_dir: &Path) -
             violations.push(QueryViolation {
                 query_name: target_label.clone(),
                 rule_id: Cow::Borrowed("SC-PRV09"),
-                severity: Severity::Error,
+                severity,
                 message: format!(
                     "manifest override could not be applied: {e} (run `scythe generate` for the full diagnosis)"
                 ),
@@ -896,7 +923,7 @@ fn validate_gen_targets_constructible(sql_config: &SqlConfig, base_dir: &Path) -
             violations.push(QueryViolation {
                 query_name: target_label.clone(),
                 rule_id: Cow::Borrowed("SC-PRV09"),
-                severity: Severity::Error,
+                severity,
                 message: format!(
                     "backend options could not be applied: {e} (run `scythe generate` for the full diagnosis)"
                 ),
@@ -918,7 +945,7 @@ fn validate_gen_targets_constructible(sql_config: &SqlConfig, base_dir: &Path) -
             violations.push(QueryViolation {
                 query_name: target_label,
                 rule_id: Cow::Borrowed("SC-PRV09"),
-                severity: Severity::Error,
+                severity,
                 message: format!("{e} (run `scythe generate` for the full diagnosis)"),
             });
         }
@@ -1735,6 +1762,18 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
     }
     let provenance_severities = ProvenanceSeverities::from_registry(&provenance_rules);
 
+    // Same reasoning as `provenance_rules` just above, for `SC-PARSE01`/
+    // `SC-PARSE02`: a query that fails to parse or analyze never becomes a
+    // `LintContext`, so these two also cannot pick up severity through
+    // `default_registry`'s `active_rules`. `scythe lint` and `scythe audit`
+    // each build this same registry from their own parsed `[lint]` table, so
+    // all three commands agree on severity.
+    let mut parse_rules = scythe_lint::parse_registry();
+    if let Some(ref lint_config) = config.lint {
+        parse_rules.apply_config(lint_config);
+    }
+    let parse_severities = ParseSeverities::from_registry(&parse_rules);
+
     let mut all_violations: Vec<QueryViolation> = Vec::new();
     // Queries are grouped per `[[sql]]` block so verification connects once and
     // labels findings with the block's engine. `engine` is carried alongside
@@ -1781,7 +1820,11 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         // finding -- not silently degraded to a droppable SC-PRV07
         // *warning* that only fires once an artifact already happens to
         // exist on disk to check provenance against. See #209, item 1.
-        all_violations.extend(validate_gen_targets_constructible(sql_config, base_dir));
+        all_violations.extend(validate_gen_targets_constructible(
+            sql_config,
+            base_dir,
+            provenance_severities.gen_target_invalid,
+        ));
 
         let query_files = resolve_globs(&sql_config.queries, base_dir, &format!("[{}] queries", sql_config.name))?;
         let mut all_query_blocks: Vec<(String, String)> = Vec::new();
@@ -1810,7 +1853,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
                 all_violations.push(QueryViolation {
                     query_name: String::new(),
                     rule_id: Cow::Borrowed("SC-PRV10"),
-                    severity: Severity::Error,
+                    severity: provenance_severities.empty_query_file,
                     message: format!(
                         "[{}] query file '{}' has content but produced zero `-- name:` / `-- @name` query \
                          blocks; nothing in this file was checked. If every statement here is intentionally \
@@ -1844,7 +1887,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
                     all_violations.push(QueryViolation {
                         query_name: String::new(),
                         rule_id: Cow::Borrowed("SC-PARSE01"),
-                        severity: Severity::Error,
+                        severity: parse_severities.unparseable,
                         message: format!("{query_file}: failed to parse query: {e}"),
                     });
                     continue;
@@ -1856,7 +1899,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
                     all_violations.push(QueryViolation {
                         query_name: parsed.annotations.name.clone(),
                         rule_id: Cow::Borrowed("SC-PARSE02"),
-                        severity: Severity::Error,
+                        severity: parse_severities.unanalyzable,
                         message: format!(
                             "{query_file}: failed to analyze query '{}': {e}",
                             parsed.annotations.name
@@ -2302,7 +2345,7 @@ fn parse_provenance_header(content: &str) -> Option<ProvenanceHeader> {
 /// their severity the way a SQL rule does, by being iterated out of
 /// [`scythe_lint::RuleRegistry::active_rules`]. That is also why they are
 /// kept out of `default_registry`: `scythe lint` and `scythe audit
-/// --list-rules` would otherwise advertise nine rules neither can emit.
+/// --list-rules` would otherwise advertise eleven rules neither can emit.
 /// Resolving them here through
 /// [`scythe_lint::RuleRegistry::effective_severity`] -- the same call every
 /// SQL rule's severity goes through, against a registry the same `[lint]`
@@ -2315,7 +2358,7 @@ fn parse_provenance_header(content: &str) -> Option<ProvenanceHeader> {
 ///
 /// Snapshotted into a `Copy` struct rather than holding a `&RuleRegistry` so
 /// the registry does not have to outlive the whole check run just to answer
-/// nine fixed questions.
+/// eleven fixed questions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ProvenanceSeverities {
     schema_drift: Severity,
@@ -2326,6 +2369,8 @@ struct ProvenanceSeverities {
     malformed_header: Severity,
     unverifiable: Severity,
     query_drift: Severity,
+    gen_target_invalid: Severity,
+    empty_query_file: Severity,
     options_drift: Severity,
 }
 
@@ -2350,6 +2395,8 @@ impl ProvenanceSeverities {
             malformed_header: registry.effective_severity(&rules::MalformedProvenanceHeader),
             unverifiable: registry.effective_severity(&rules::UnverifiableProvenance),
             query_drift: registry.effective_severity(&rules::QueryDrift),
+            gen_target_invalid: registry.effective_severity(&rules::GenTargetInvalid),
+            empty_query_file: registry.effective_severity(&rules::EmptyQueryFile),
             options_drift: registry.effective_severity(&rules::OptionsDrift),
         }
     }
@@ -2917,6 +2964,65 @@ SELECT * FROM users WHERE id = $1;
         check_type_overrides_resolve("main", &[query], &overrides).expect("db_type-only overrides are never flagged");
     }
 
+    /// Must fail before the fix: `known` was built from `column_references` alone, which
+    /// only ever sees `AnalyzedQuery::columns`/`group_by`. A `column` override that names no
+    /// real column but does name a real parameter's `"table.column"` reference passed this
+    /// check silently -- it never had a chance to fire in `resolve_params` either, since
+    /// `email` here is a param, not a column, so both halves of #189 stayed silent for a
+    /// param-only typo. Wiring `param_references` into `known` alongside `column_references`
+    /// closes that gap.
+    #[test]
+    fn check_type_overrides_resolve_rejects_column_override_matching_no_param() {
+        use scythe_core::analyzer::AnalyzedParam;
+
+        let query = AnalyzedQuery::build(|q| {
+            q.name = "GetUserByEmail".to_string();
+            q.params = vec![AnalyzedParam {
+                name: "email".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+                position: 1,
+                source_relation: Some("users".to_string()),
+            }];
+        });
+        let overrides = vec![TypeOverride {
+            column: Some("users.emial".to_string()), // deliberate typo
+            db_type: None,
+            neutral_type: Some("json".to_string()),
+        }];
+
+        let err = check_type_overrides_resolve("main", &[query], &overrides)
+            .expect_err("a column override naming no real column or param must be rejected");
+        let message = err.to_string();
+        assert!(message.contains("users.emial"), "{message}");
+    }
+
+    /// The companion case to the rejection above: a `column` override that names the real
+    /// `"table.column"` reference a parameter's `source_relation` produces must not be
+    /// flagged, even though no `AnalyzedColumn` names it.
+    #[test]
+    fn check_type_overrides_resolve_passes_when_param_matches() {
+        use scythe_core::analyzer::AnalyzedParam;
+
+        let query = AnalyzedQuery::build(|q| {
+            q.name = "GetUserByEmail".to_string();
+            q.params = vec![AnalyzedParam {
+                name: "email".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+                position: 1,
+                source_relation: Some("users".to_string()),
+            }];
+        });
+        let overrides = vec![TypeOverride {
+            column: Some("users.email".to_string()),
+            db_type: None,
+            neutral_type: Some("json".to_string()),
+        }];
+
+        check_type_overrides_resolve("main", &[query], &overrides).expect("users.email is a real param reference");
+    }
+
     /// Minimal `[[sql]]` preamble shared by the config-parsing tests below --
     /// only `sql` varies between them.
     fn sql_block(sql: &str) -> String {
@@ -3042,6 +3148,22 @@ backend = \"rust-sqlx\"
             }
             other => panic!("expected GenTargets::Legacy, got {other:?}"),
         }
+    }
+
+    /// Must fail before the fix: an explicit `[sql.gen]` table naming none of the five
+    /// legacy language keys (`rust`/`python`/`typescript`/`go`/`kotlin`) silently resolved
+    /// to a single `rust-sqlx` target -- the same silent-default-backend failure mode #97
+    /// already fixed for an *unresolvable* `[sql.gen.rust] target`, just reached through an
+    /// empty block instead of a bad one. This is distinct from the `gen` key being absent
+    /// entirely (`config_with_no_gen_key_parses`, below), which is the one case where
+    /// defaulting to `rust-sqlx` is the documented, intended behavior.
+    #[test]
+    fn resolve_gen_targets_rejects_legacy_table_naming_no_language() {
+        let toml = sql_block("[sql.gen]\n");
+        let config: ScytheConfig = toml::from_str(&toml).expect("an empty [sql.gen] table must still parse");
+        let err = resolve_gen_targets(&config.sql[0])
+            .expect_err("an empty [sql.gen] table must be rejected, not silently default to rust-sqlx");
+        assert!(err.contains("none of its supported languages"), "{err}");
     }
 
     /// A `[[sql]]` block with no `gen` key at all (relying entirely on the
@@ -5375,6 +5497,236 @@ backend = \"rust-sqlx\"
         );
     }
 
+    /// The behaviour joining `SC-PRV09` to `provenance_registry` exists for:
+    /// before that, `validate_gen_targets_constructible` hardcoded
+    /// `Severity::Error` at every finding it built, so a `[lint.rules]
+    /// "SC-PRV09" = "warn"` entry had no effect. The report still showed
+    /// `"severity": "error"` and, without `--exit-zero`, `run_check` would
+    /// have called `std::process::exit(2)` on it -- which would kill this
+    /// test's own process, not return an `Err` this test could assert on.
+    #[test]
+    fn run_check_sc_prv09_severity_follows_lint_config() {
+        let dir = tempfile::tempdir().unwrap();
+
+        std::fs::write(
+            dir.path().join("schema.sql"),
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("queries.sql"),
+            "-- @name GetUser\n-- @returns :one\nSELECT id FROM users WHERE id = $1;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("scythe.toml"),
+            concat!(
+                "[scythe]\nversion = \"1\"\n\n",
+                "[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n",
+                "schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n",
+                "[[sql.gen]]\nbackend = \"rust-sqlx-typo\"\noutput = \"generated\"\n\n",
+                "[lint.rules]\n\"SC-PRV09\" = \"warn\"\n",
+            ),
+        )
+        .unwrap();
+
+        let report_path = dir.path().join("report.json");
+        let result = run_check(RunCheckOpts {
+            config_path: dir.path().join("scythe.toml").to_string_lossy().into_owned(),
+            database_url: None,
+            format: "json".to_string(),
+            output: Some(report_path.to_string_lossy().into_owned()),
+            exit_zero: false,
+        });
+
+        assert!(
+            result.is_ok(),
+            "a downgraded SC-PRV09 must leave no error-severity finding behind to exit(2) over: {result:?}"
+        );
+
+        let report = std::fs::read_to_string(&report_path).expect("a report file must have been written");
+        let findings: serde_json::Value = serde_json::from_str(&report).expect("report must be valid JSON");
+        let sc_prv09 = findings
+            .as_array()
+            .expect("json reporter emits an array")
+            .iter()
+            .find(|f| f["rule_id"] == "SC-PRV09")
+            .unwrap_or_else(|| panic!("SC-PRV09 must still be reported at a downgraded severity:\n{report}"));
+        assert_eq!(
+            sc_prv09["severity"], "warning",
+            "SC-PRV09 must honor the configured severity, not the hardcoded default:\n{report}"
+        );
+    }
+
+    /// Same regression as `run_check_sc_prv09_severity_follows_lint_config`,
+    /// for `SC-PRV10`: before it joined `provenance_registry`, the
+    /// empty-query-file check hardcoded `Severity::Error` inline, so
+    /// `[lint.rules] "SC-PRV10" = "off"` could not suppress it.
+    #[test]
+    fn run_check_sc_prv10_severity_follows_lint_config() {
+        let dir = tempfile::tempdir().unwrap();
+
+        std::fs::write(
+            dir.path().join("schema.sql"),
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);\n",
+        )
+        .unwrap();
+        // Real content, but every line is a plain comment -- zero `-- name:`
+        // / `-- @name` blocks come out of `split_query_file`, and
+        // `has_unannotated_sql` does not treat a comment-only file as
+        // unannotated SQL, so this reaches the SC-PRV10 check rather than
+        // the hard config error `has_unannotated_sql` would raise for real
+        // (uncommented) SQL.
+        std::fs::write(
+            dir.path().join("queries.sql"),
+            "-- every query in here got commented out during a migration\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("scythe.toml"),
+            concat!(
+                "[scythe]\nversion = \"1\"\n\n",
+                "[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n",
+                "schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n",
+                "[[sql.gen]]\nbackend = \"rust-sqlx\"\noutput = \"generated\"\n\n",
+                "[lint.rules]\n\"SC-PRV10\" = \"off\"\n",
+            ),
+        )
+        .unwrap();
+
+        let report_path = dir.path().join("report.json");
+        let result = run_check(RunCheckOpts {
+            config_path: dir.path().join("scythe.toml").to_string_lossy().into_owned(),
+            database_url: None,
+            format: "json".to_string(),
+            output: Some(report_path.to_string_lossy().into_owned()),
+            exit_zero: false,
+        });
+
+        assert!(result.is_ok(), "an off SC-PRV10 must not fail the run: {result:?}");
+
+        let report = std::fs::read_to_string(&report_path).expect("a report file must have been written");
+        assert!(
+            !report.contains("SC-PRV10"),
+            "SC-PRV10 must not be reported once its severity is configured off:\n{report}"
+        );
+    }
+
+    /// Same regression, for `SC-PARSE01`: before it joined `parse_registry`,
+    /// `run_check` hardcoded `Severity::Error` at the point the parse-failure
+    /// finding was constructed, so `[lint.rules] "SC-PARSE01" = "warn"` had
+    /// no effect.
+    #[test]
+    fn run_check_sc_parse01_severity_follows_lint_config() {
+        let dir = tempfile::tempdir().unwrap();
+
+        std::fs::write(
+            dir.path().join("schema.sql"),
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("queries.sql"),
+            "-- @name Broken\n-- @returns :one\nSELECT * FROM users WHERE ((;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("scythe.toml"),
+            concat!(
+                "[scythe]\nversion = \"1\"\n\n",
+                "[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n",
+                "schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n",
+                "[[sql.gen]]\nbackend = \"rust-sqlx\"\noutput = \"generated\"\n\n",
+                "[lint.rules]\n\"SC-PARSE01\" = \"warn\"\n",
+            ),
+        )
+        .unwrap();
+
+        let report_path = dir.path().join("report.json");
+        let result = run_check(RunCheckOpts {
+            config_path: dir.path().join("scythe.toml").to_string_lossy().into_owned(),
+            database_url: None,
+            format: "json".to_string(),
+            output: Some(report_path.to_string_lossy().into_owned()),
+            exit_zero: false,
+        });
+
+        assert!(
+            result.is_ok(),
+            "a downgraded SC-PARSE01 must leave no error-severity finding behind to exit(2) over: {result:?}"
+        );
+
+        let report = std::fs::read_to_string(&report_path).expect("a report file must have been written");
+        let findings: serde_json::Value = serde_json::from_str(&report).expect("report must be valid JSON");
+        let sc_parse01 = findings
+            .as_array()
+            .expect("json reporter emits an array")
+            .iter()
+            .find(|f| f["rule_id"] == "SC-PARSE01")
+            .unwrap_or_else(|| panic!("SC-PARSE01 must still be reported at a downgraded severity:\n{report}"));
+        assert_eq!(
+            sc_parse01["severity"], "warning",
+            "SC-PARSE01 must honor the configured severity, not the hardcoded default:\n{report}"
+        );
+    }
+
+    /// Same regression, for `SC-PARSE02` -- an analysis, not a parse,
+    /// failure. `SELECT * FROM users WHERE name = 42` parses fine but fails
+    /// analysis: `name` is `text`, `42` is not.
+    #[test]
+    fn run_check_sc_parse02_severity_follows_lint_config() {
+        let dir = tempfile::tempdir().unwrap();
+
+        std::fs::write(
+            dir.path().join("schema.sql"),
+            "CREATE TABLE users (id bigint PRIMARY KEY, name text NOT NULL);\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("queries.sql"),
+            "-- @name GetUsers\n-- @returns :many\nSELECT * FROM users WHERE name = 42;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("scythe.toml"),
+            concat!(
+                "[scythe]\nversion = \"1\"\n\n",
+                "[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n",
+                "schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n",
+                "[[sql.gen]]\nbackend = \"rust-sqlx\"\noutput = \"generated\"\n\n",
+                "[lint.rules]\n\"SC-PARSE02\" = \"warn\"\n",
+            ),
+        )
+        .unwrap();
+
+        let report_path = dir.path().join("report.json");
+        let result = run_check(RunCheckOpts {
+            config_path: dir.path().join("scythe.toml").to_string_lossy().into_owned(),
+            database_url: None,
+            format: "json".to_string(),
+            output: Some(report_path.to_string_lossy().into_owned()),
+            exit_zero: false,
+        });
+
+        assert!(
+            result.is_ok(),
+            "a downgraded SC-PARSE02 must leave no error-severity finding behind to exit(2) over: {result:?}"
+        );
+
+        let report = std::fs::read_to_string(&report_path).expect("a report file must have been written");
+        let findings: serde_json::Value = serde_json::from_str(&report).expect("report must be valid JSON");
+        let sc_parse02 = findings
+            .as_array()
+            .expect("json reporter emits an array")
+            .iter()
+            .find(|f| f["rule_id"] == "SC-PARSE02")
+            .unwrap_or_else(|| panic!("SC-PARSE02 must still be reported at a downgraded severity:\n{report}"));
+        assert_eq!(
+            sc_parse02["severity"], "warning",
+            "SC-PARSE02 must honor the configured severity, not the hardcoded default:\n{report}"
+        );
+    }
+
     /// #209, item 1: without `--exit-zero`, an unconstructable `[[sql.gen]]`
     /// target must move `check`'s exit code -- previously it was invisible
     /// to the exit code entirely (only a `Warn`-severity SC-PRV07), so
@@ -5398,6 +5750,7 @@ backend = \"rust-sqlx\"
                 type_overrides: None,
             },
             std::path::Path::new("."),
+            scythe_lint::Severity::Error,
         );
 
         assert_eq!(
@@ -5441,6 +5794,7 @@ backend = \"rust-sqlx\"
                 type_overrides: None,
             },
             std::path::Path::new("proj"),
+            scythe_lint::Severity::Error,
         );
 
         assert_eq!(

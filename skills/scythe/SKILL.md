@@ -86,14 +86,15 @@ scythe migrate [sqlc_config]                   # Convert sqlc project
 | `--diff` | fmt | Show unified diff of changes |
 | `--dialect` | lint, fmt, audit, inspect | SQL dialect: `postgres`, `mysql`, `sqlite`, `mssql`, `oracle`, `snowflake` |
 | `--database-url` | check | Verify types and detect schema drift against a live database (PostgreSQL only) |
-| `--format` | check, audit, inspect | `human` (default), `sarif`, `json` |
-| `-o, --output` | check, audit, inspect | Write findings to a file instead of stdout |
+| `--database-url` | lint | Also run the live-database `inspect` checks as part of `lint` (PostgreSQL or MySQL/MariaDB) |
+| `--format` | check, lint, audit, inspect | `human` (default), `sarif`, `json` |
+| `-o, --output` | check, lint, audit, inspect | Write findings to a file instead of stdout |
 | `--severity` | audit, inspect | Drop findings below `off`, `warn`, or `error` |
-| `--exit-zero` | check, audit, inspect | Exit 0 even when error-severity findings are present |
+| `--exit-zero` | check, lint, audit, inspect | Exit 0 even when error-severity findings are present |
 | `files...` | lint, fmt, audit | Specific SQL files (if empty, uses config) |
 
-**Exit codes:** 0 clean, **2** on error-severity findings from `check`, `audit`
-or `inspect`, 1 on operational failure (unreadable config, unparseable SQL, I/O
+**Exit codes:** 0 clean, **2** on error-severity findings from `check`, `lint`,
+`audit` or `inspect`, 1 on operational failure (unreadable config, unparseable SQL, I/O
 error). `--exit-zero` collapses 2 to 0 and leaves 1 alone. Findings failures and
 "scythe could not run" are deliberately distinguishable, so CI never mistakes a
 crashed run for a clean one.
@@ -271,6 +272,7 @@ structs_only = "true"
 | `elixir-ecto` | Elixir | Ecto |
 | `ruby-pg` | Ruby | pg |
 | `php-pdo` | PHP | PDO |
+| `php-amphp` | PHP | AMPHP |
 
 ### MySQL
 
@@ -287,7 +289,9 @@ structs_only = "true"
 | `csharp-mysqlconnector` | C# | MySqlConnector |
 | `elixir-myxql` | Elixir | MyXQL |
 | `ruby-mysql2` | Ruby | mysql2 |
+| `ruby-trilogy` | Ruby | Trilogy |
 | `php-pdo` | PHP | PDO |
+| `php-amphp` | PHP | AMPHP |
 
 ### SQLite
 
@@ -325,7 +329,7 @@ structs_only = "true"
 ### CockroachDB
 
 CockroachDB uses PostgreSQL backends with `engine = "cockroachdb"`:
-`rust-sqlx`, `python-psycopg3`, `typescript-pg`, `go-pgx`, `java-jdbc`, `kotlin-jdbc`, `csharp-npgsql`, `ruby-pg`, `php-pdo`, `elixir-postgrex`.
+`rust-sqlx`, `python-psycopg3`, `typescript-pg`, `go-pgx`, `java-jdbc`, `kotlin-jdbc`, `csharp-npgsql`, `ruby-pg`, `php-pdo`, `php-amphp`, `elixir-postgrex`.
 
 ### MSSQL
 
@@ -366,7 +370,7 @@ CockroachDB uses PostgreSQL backends with `engine = "cockroachdb"`:
 ### MariaDB
 
 MariaDB uses MySQL drivers with MariaDB-specific type resolution:
-`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `typescript-kysely`, `javascript-mysql2`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `php-pdo`.
+`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `typescript-kysely`, `javascript-mysql2`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `ruby-trilogy`, `php-pdo`, `php-amphp`.
 
 ### Redshift
 
@@ -436,7 +440,7 @@ Common PostgreSQL extension mappings:
 
 23 built-in scythe lint rules + 35 audit rules = 58 built-in, plus sqruff's 69 style rules via integration.
 
-The 8 `SC-PRV*` provenance rules and the 7 `SC-DRF*` schema drift rules are not part of the 58. They
+The 11 `SC-PRV*` provenance rules and the 7 `SC-DRF*` schema drift rules are not part of the 58. They
 run only from `scythe check` and never appear in `scythe lint` or `scythe audit --list-rules` output.
 
 ### Rule categories
@@ -489,6 +493,8 @@ repos:
     hooks:
       - id: scythe-fmt       # Format SQL files
       - id: scythe-lint      # Lint SQL with auto-fix
+      - id: scythe-audit     # Security scan
+      - id: scythe-inspect   # Live-database operational checks
       - id: scythe-generate  # Regenerate code on SQL changes
       - id: scythe-check     # Validate SQL without generating
 ```

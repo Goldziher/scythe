@@ -9,8 +9,8 @@ from -- also carries the 35 `scythe audit` rules (`SC-SEC*`, `SC-RLS*`, `SC-MIG*
 58 rules run under `scythe lint` too. See the [audit guide](/scythe/guide/audit/) for the audit-only
 catalog.
 
-Two further families ship in their own registries and are **not** counted in that 58: the 8 `SC-PRV*`
-[provenance rules](#provenance-rules-8) and the 7 `SC-DRF*` [schema drift rules](#schema-drift-rules-7).
+Two further families ship in their own registries and are **not** counted in that 58: the 11 `SC-PRV*`
+[provenance rules](#provenance-rules-11) and the 7 `SC-DRF*` [schema drift rules](#schema-drift-rules-7).
 Both fire only from `scythe check`, never from `scythe lint` or `scythe audit --list-rules`, so adding
 them to the 58 would advertise rules those commands can never report. Every rule count elsewhere in
 these docs refers to the 58; the two check-time families are always stated separately.
@@ -89,13 +89,14 @@ Severity levels: `error`, `warn`, `off`.
 
 Priority: per-rule override > per-category override > default severity.
 
-## Provenance rules (8)
+## Provenance rules (11)
 
 `SC-PRV*` rules compare an already-generated artifact's [provenance header](/scythe/guide/cli-reference/#provenance-verification)
-against the current schema, queries, engine, backend, and scythe version. They run only from `scythe check`
-(no flag required) and are excluded from `scythe lint` and `scythe audit --list-rules` -- neither
-command reads generated files, so neither can ever produce one of these findings. They are not part
-of the 23 scythe rules or the 58 built-in total quoted above.
+against the current schema, queries, engine, backend, and scythe version -- plus, for `SC-PRV09` and
+`SC-PRV10`, whether the config `scythe generate` would need is even constructible. They run only from
+`scythe check` (no flag required) and are excluded from `scythe lint` and `scythe audit --list-rules` --
+neither command reads generated files, so neither can ever produce one of these findings. They are not
+part of the 23 scythe rules or the 58 built-in total quoted above.
 
 | Code | Name | Description | Default |
 |------|------|-------------|---------|
@@ -107,10 +108,13 @@ of the 23 scythe rules or the 58 built-in total quoted above.
 | `SC-PRV06` | `malformed-provenance-header` | Generated artifact's provenance header is missing one or more required fields | Warn |
 | `SC-PRV07` | `unverifiable-provenance` | Generation target could not be verified: backend construction or artifact read failed | Warn |
 | `SC-PRV08` | `query-drift` | Generated artifact's embedded query fingerprint differs from the current query set | Error |
+| `SC-PRV09` | `gen-target-invalid` | A `[[sql.gen]]` target could not be constructed -- unresolvable target, backend/engine that will not build, manifest override or options that fail to apply, or an output path escaping the project root | Error |
+| `SC-PRV10` | `empty-query-file` | A query file has content but produced zero `-- name:` / `-- @name` query blocks -- nothing in it was checked | Error |
+| `SC-PRV11` | `options-drift` | Generated artifact was produced with different `[[sql.gen]]` options (derive list, serde flag, `row_type`, naming case, ...) or manifest overlay contents than this target now configures | Error |
 
-`SC-PRV*` rules are ordinary registry rules: `scythe check` applies the same `[lint]` table to the
-provenance registry that it applies to the SQL rules, so severities are overridable and the whole
-family is disableable.
+All eleven `SC-PRV*` rules are ordinary registry rules: `scythe check` applies the same `[lint]` table
+to the provenance registry that it applies to the SQL rules, so every severity is overridable and the
+whole family is disableable.
 
 ```toml
 [lint.rules]

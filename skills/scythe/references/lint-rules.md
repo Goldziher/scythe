@@ -2,8 +2,13 @@
 
 Scythe has 23 built-in lint rules and 35 audit rules (58 built-in), plus sqruff's 69 style rules via integration.
 
-The 8 `SC-PRV*` provenance rules and the 7 `SC-DRF*` schema drift rules are not counted in the 58. They
+The 11 `SC-PRV*` provenance rules and the 7 `SC-DRF*` schema drift rules are not counted in the 58. They
 run only from `scythe check` and never appear in `scythe lint` or `scythe audit --list-rules` output.
+
+`SC-PARSE01` (query fails to parse) and `SC-PARSE02` (query fails analysis) are also not counted in the
+58: they fire from `check`, `lint` and `audit` alike rather than through `check_query`/`check_catalog`,
+so they live in their own `parse_registry()` (category `parse`) instead of the default one. They are
+configurable via `[lint.rules]` and `[lint.categories]`, exactly like `SC-PRV01`-`SC-PRV11`.
 
 ## Scythe Rules
 
@@ -79,6 +84,9 @@ backend and scythe version. Runs on every `scythe check`, no flag required.
 | `SC-PRV06` | warn | Generated artifact's provenance header is missing one or more required fields |
 | `SC-PRV07` | warn | Generation target could not be verified: backend construction or artifact read failed |
 | `SC-PRV08` | error | Generated artifact's embedded query fingerprint differs from the current query set |
+| `SC-PRV09` | error | A `[[sql.gen]]` target could not be constructed -- unresolvable target, backend/engine that will not build, manifest override or options that fail to apply, or an output path escaping the project root |
+| `SC-PRV10` | error | A query file has content but produced zero `-- name:` / `-- @name` query blocks -- nothing in it was checked |
+| `SC-PRV11` | error | Generated artifact was produced with different `[[sql.gen]]` options (derive list, serde flag, `row_type`, naming case, ...) or manifest overlay contents than this target now configures |
 
 ### Schema drift (SC-DRF)
 

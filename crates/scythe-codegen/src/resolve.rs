@@ -133,12 +133,11 @@ pub fn resolve_params(
 /// `LIKE` pattern, literal comparison: `source_relation: None`) contributes nothing, which is
 /// exactly what a qualified `column` override can never legitimately target either.
 ///
-/// Not wired into the CLI's unmatched-override preflight
-/// ([`crate::overrides::unmatched_column_overrides`]) by this change -- that call site
-/// (`scythe-cli`'s `check_type_overrides_resolve`) needs to chain this alongside
-/// `column_references` into the `known` set it already builds; this function is the
-/// primitive that closing gap needs, reusing the existing diagnostic rather than adding a
-/// second one (#189's remainder).
+/// Wired into the CLI's unmatched-override preflight
+/// ([`crate::overrides::unmatched_column_overrides`]) via `scythe-cli`'s
+/// `check_type_overrides_resolve`, which chains this alongside `column_references` into the
+/// `known` set it builds -- reusing the existing diagnostic rather than adding a second one
+/// (#189's remainder).
 pub fn param_references<'a>(params: impl Iterator<Item = &'a AnalyzedParam>) -> ahash::AHashSet<String> {
     params
         .filter_map(|param| {

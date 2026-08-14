@@ -22,7 +22,7 @@ use scythe_lint::{
     register_user_rules,
 };
 
-use super::shared::{config_dir, resolve_globs};
+use super::shared::{ParseSeverities, config_dir, resolve_globs};
 
 const TOOL_NAME: &str = "scythe-audit";
 const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -215,6 +215,29 @@ fn load_registry(config_path: &str) -> Result<RuleRegistry, Box<dyn std::error::
         }
     }
     Ok(registry)
+}
+
+/// Resolve `SC-PARSE01`'s effective severity from
+/// [`scythe_lint::parse_registry`] after applying `config_path`'s `[lint]`
+/// table -- the same table [`load_registry`] applies to the audit rule
+/// registry, so `[lint.rules] "SC-PARSE01" = "warn"` reaches an unparseable
+/// statement exactly like any other rule. Falls back to `parse_registry`'s
+/// own default (unmodified) when `config_path` does not exist, mirroring
+/// `load_registry`'s tolerance for explicit-file mode running with no
+/// config at all.
+fn load_parse_severity(config_path: &str) -> Result<Severity, Box<dyn std::error::Error>> {
+    let mut registry = scythe_lint::parse_registry();
+    if !Path::new(config_path).exists() {
+        return Ok(ParseSeverities::from_registry(&registry).unparseable);
+    }
+    let config_str = std::fs::read_to_string(config_path)?;
+    let parsed: toml::Value = toml::from_str(&config_str)?;
+    if let Some(lint_section) = parsed.get("lint")
+        && let Ok(lint_config) = lint_section.clone().try_into::<scythe_lint::types::LintConfig>()
+    {
+        registry.apply_config(&lint_config);
+    }
+    Ok(ParseSeverities::from_registry(&registry).unparseable)
 }
 
 /// Print the rule catalog, grouped by category, in a fixed-width table.
@@ -425,6 +448,15 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
         registry.apply_config(lint_config);
     }
 
+    // Same `[lint]` table applied to `SC-PARSE01`'s own registry -- see
+    // `load_parse_severity` for why an unparseable statement cannot pick up
+    // its severity through `registry` above.
+    let mut parse_rules = scythe_lint::parse_registry();
+    if let Some(ref lint_config) = config.lint {
+        parse_rules.apply_config(lint_config);
+    }
+    let parse_severity = ParseSeverities::from_registry(&parse_rules).unparseable;
+
     let base_dir = config_dir(config_path);
     let matcher_registry = MatcherRegistry::canonical();
 
@@ -490,6 +522,7 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
                 &catalog,
                 &rules,
                 ignore_suppressions,
+                parse_severity,
             ));
         }
 
@@ -504,6 +537,7 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
                 &catalog,
                 &rules,
                 ignore_suppressions,
+                parse_severity,
             ));
         }
 
@@ -545,6 +579,7 @@ pub(crate) fn audit_explicit_files(
     let registry = load_registry(config_path)?;
     let all_active = registry.active_rules();
     let (rules, no_rules_finding) = prepare_audit_rules(&all_active, sql_dialect, engine);
+    let parse_severity = load_parse_severity(config_path)?;
 
     let mut findings = Vec::new();
     if let Some(finding) = no_rules_finding {
@@ -559,6 +594,7 @@ pub(crate) fn audit_explicit_files(
             &catalog,
             &rules,
             ignore_suppressions,
+            parse_severity,
         ));
     }
     Ok(findings)
@@ -651,9 +687,12 @@ fn parse_statements_lenient(
 ///
 /// Uses [`parse_statements_lenient`], not
 /// [`sqlparser::parser::Parser::parse_sql`]: a statement that fails to parse
-/// is skipped (and reported as its own `SC-PARSE01` error finding, naming
-/// the line and the parser's message) rather than discarding every
-/// statement already parsed. See #208.
+/// is skipped (and reported as its own `SC-PARSE01` finding, at
+/// `parse_severity`, naming the line and the parser's message) rather than
+/// discarding every statement already parsed. See #208. `parse_severity` is
+/// resolved by the caller from [`scythe_lint::parse_registry`] (see
+/// [`load_parse_severity`]) rather than hardcoded here, so `[lint.rules]
+/// "SC-PARSE01" = "warn"` reaches this finding too.
 ///
 /// # Rule set
 ///
@@ -687,6 +726,7 @@ pub(crate) fn run_security_rules_over_sql(
     catalog: &Catalog,
     rules: &[(&dyn scythe_lint::LintRule, Severity)],
     ignore_suppressions: bool,
+    parse_severity: Severity,
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
 
@@ -711,7 +751,7 @@ pub(crate) fn run_security_rules_over_sql(
                  silently disable auditing for part of a file."
                     .to_string(),
             ),
-            severity: Severity::Error,
+            severity: parse_severity,
             message: format!(
                 "failed to parse statement at line {}: {}",
                 failure.line, failure.message

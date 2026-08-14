@@ -375,9 +375,75 @@ pub fn resolve_globs(
     Ok(paths)
 }
 
+/// Effective severity of `SC-PARSE01` (query fails to parse) and
+/// `SC-PARSE02` (query fails to analyze), resolved once from
+/// [`scythe_lint::parse_registry`] after applying `scythe.toml`'s `[lint]`
+/// table.
+///
+/// Both findings are produced outside the `LintRule::check_*` path -- a
+/// query that fails to parse never becomes an `AnalyzedQuery`, so there is
+/// no `LintContext` to run a rule against -- so they cannot pick up their
+/// severity by being iterated out of a [`scythe_lint::RuleRegistry`]'s
+/// `active_rules`, the way a SQL rule does. Resolving them here through
+/// [`scythe_lint::RuleRegistry::effective_severity`] -- the same call every
+/// other rule's severity goes through -- is what keeps them configurable
+/// anyway: `check`, `lint`, and `audit` each build this from their own
+/// parsed `[lint]` table, so `[lint.rules] "SC-PARSE01" = "warn"` reaches
+/// all three commands identically. Before this existed, each command
+/// hardcoded `Severity::Error` at the point its own ad hoc finding was
+/// constructed, so `[lint]` had no effect on either id anywhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseSeverities {
+    pub unparseable: scythe_lint::types::Severity,
+    pub unanalyzable: scythe_lint::types::Severity,
+}
+
+impl ParseSeverities {
+    /// Resolve both parse-failure severities against `registry`.
+    pub fn from_registry(registry: &scythe_lint::RuleRegistry) -> Self {
+        use scythe_lint::rules::parse;
+
+        Self {
+            unparseable: registry.effective_severity(&parse::UnparseableQuery),
+            unanalyzable: registry.effective_severity(&parse::UnanalyzableQuery),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Unconfigured, `ParseSeverities` must reflect `parse_registry`'s own
+    /// defaults (both `Error`) rather than a second, hand-written copy of
+    /// them -- a change to either rule's `default_severity()` must show up
+    /// here automatically.
+    #[test]
+    fn parse_severities_default_to_error() {
+        let severities = ParseSeverities::from_registry(&scythe_lint::parse_registry());
+        assert_eq!(severities.unparseable, scythe_lint::types::Severity::Error);
+        assert_eq!(severities.unanalyzable, scythe_lint::types::Severity::Error);
+    }
+
+    /// The behaviour this struct exists for: `[lint.rules]` overrides
+    /// applied to `parse_registry()` before `from_registry` runs must be
+    /// visible in the resolved severities.
+    #[test]
+    fn parse_severities_follow_lint_config_overrides() {
+        let mut registry = scythe_lint::parse_registry();
+        let mut config = scythe_lint::types::LintConfig::default();
+        config
+            .rules
+            .insert("SC-PARSE01".to_string(), scythe_lint::types::Severity::Warn);
+        config
+            .rules
+            .insert("SC-PARSE02".to_string(), scythe_lint::types::Severity::Off);
+        registry.apply_config(&config);
+
+        let severities = ParseSeverities::from_registry(&registry);
+        assert_eq!(severities.unparseable, scythe_lint::types::Severity::Warn);
+        assert_eq!(severities.unanalyzable, scythe_lint::types::Severity::Off);
+    }
 
     #[test]
     fn redact_url_password_masks_password_only() {

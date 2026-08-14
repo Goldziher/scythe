@@ -72,6 +72,46 @@ fn audit_reports_the_unparseable_statement_as_its_own_finding() {
     );
 }
 
+/// `SC-PARSE01` joined `parse_registry` so `[lint.rules]` could reach it.
+/// Before that, `run_security_rules_over_sql` hardcoded `Severity::Error` at
+/// the point this finding was constructed, so a `"SC-PARSE01" = "warn"`
+/// entry in `scythe.toml` had no effect: the finding stayed an `error`-level
+/// SARIF/JSON result regardless of what `--config` pointed at.
+#[test]
+fn audit_unparseable_statement_honours_configured_severity() {
+    let dir = TempDir::new().unwrap();
+    let sql_path = dir.path().join("bad.sql");
+    std::fs::write(&sql_path, MIXED_SQL).unwrap();
+    let config_path = dir.path().join("scythe.toml");
+    std::fs::write(&config_path, "[lint.rules]\n\"SC-PARSE01\" = \"warn\"\n").unwrap();
+
+    let output = scythe_bin()
+        .args([
+            "audit",
+            sql_path.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("run scythe audit");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+    let sc_parse01 = parsed
+        .as_array()
+        .expect("array")
+        .iter()
+        .find(|f| f["rule_id"] == "SC-PARSE01")
+        .unwrap_or_else(|| panic!("SC-PARSE01 must still be reported; stdout: {stdout}"));
+
+    assert_eq!(
+        sc_parse01["severity"], "warning",
+        "the configured severity must win: {stdout}"
+    );
+}
+
 /// Negative control: a file with no parse failures at all must behave
 /// exactly as before -- every statement's findings reported, exit non-zero
 /// on a real finding.

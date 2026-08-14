@@ -269,6 +269,27 @@ fn merge_replace_only(
     Ok(())
 }
 
+/// Reject a `[naming]` overlay value that is not one of
+/// [`crate::naming::VALID_CASE_NAMES`].
+///
+/// `apply_case` (the function that ultimately consumes `struct_case` / `fn_case` /
+/// `enum_variant_case`) treats any name it does not recognize as a silent no-op: it returns
+/// the input unchanged rather than erroring, because every compiled-in manifest's case
+/// values are trusted by construction. An overlay is the one path a case name can reach it
+/// from outside that trust boundary, so this is where a typo (`"PascalCse"`, `"Pascalcase"`)
+/// must be caught -- without it, the override installs silently and every struct/function
+/// name this manifest resolves comes out uncased instead of failing at generate time.
+fn validate_case_name(field: &str, value: &str) -> Result<(), BackendError> {
+    if crate::naming::VALID_CASE_NAMES.contains(&value) {
+        Ok(())
+    } else {
+        Err(BackendError::ManifestError(format!(
+            "[naming] {field} = \"{value}\" is not a recognized case convention (expected one of: {})",
+            crate::naming::VALID_CASE_NAMES.join(", ")
+        )))
+    }
+}
+
 impl BackendManifest {
     /// Merge a partial [`ManifestOverlay`] into this manifest in place.
     ///
@@ -300,12 +321,15 @@ impl BackendManifest {
 
         if let Some(ref naming) = overlay.naming {
             if let Some(ref value) = naming.struct_case {
+                validate_case_name("struct_case", value)?;
                 self.naming.struct_case = value.clone();
             }
             if let Some(ref value) = naming.fn_case {
+                validate_case_name("fn_case", value)?;
                 self.naming.fn_case = value.clone();
             }
             if let Some(ref value) = naming.enum_variant_case {
+                validate_case_name("enum_variant_case", value)?;
                 self.naming.enum_variant_case = value.clone();
             }
             if let Some(ref value) = naming.row_suffix {
@@ -468,6 +492,59 @@ mod tests {
             manifest.naming.struct_case, "PascalCase",
             "an omitted naming field must inherit"
         );
+    }
+
+    /// Must fail before the fix: `apply_overlay` wrote `struct_case` straight through with
+    /// no validation, and `apply_case`'s `_` arm treats an unrecognized case name as a
+    /// silent no-op rather than an error -- so a typo'd override (`"PascalCse"`) installed
+    /// cleanly and then quietly emitted every struct name uncased instead of failing at
+    /// generate time.
+    #[test]
+    fn apply_overlay_rejects_an_unrecognized_struct_case() {
+        let mut manifest = base_manifest();
+        let overlay: ManifestOverlay = toml::from_str("[naming]\nstruct_case = \"PascalCse\"\n").unwrap();
+
+        let error = manifest.apply_overlay(&overlay).unwrap_err();
+
+        let message = error.to_string();
+        assert!(message.contains("struct_case"), "{message}");
+        assert!(message.contains("PascalCse"), "{message}");
+        assert_eq!(
+            manifest.naming.struct_case, "PascalCase",
+            "a rejected overlay value must not have been written in"
+        );
+    }
+
+    /// Same check, `fn_case` and `enum_variant_case` -- proves the validation is not
+    /// hand-coded onto `struct_case` alone.
+    #[test]
+    fn apply_overlay_rejects_an_unrecognized_fn_case_and_enum_variant_case() {
+        let mut manifest = base_manifest();
+
+        let fn_case_overlay: ManifestOverlay = toml::from_str("[naming]\nfn_case = \"kebab-case\"\n").unwrap();
+        let fn_case_error = manifest.apply_overlay(&fn_case_overlay).unwrap_err();
+        assert!(fn_case_error.to_string().contains("fn_case"), "{fn_case_error}");
+
+        let enum_overlay: ManifestOverlay = toml::from_str("[naming]\nenum_variant_case = \"kebab-case\"\n").unwrap();
+        let enum_error = manifest.apply_overlay(&enum_overlay).unwrap_err();
+        assert!(enum_error.to_string().contains("enum_variant_case"), "{enum_error}");
+    }
+
+    /// The companion case: every one of the four real case names must still be accepted --
+    /// pinning that the validation only rejects genuinely unrecognized values. Iterates
+    /// [`crate::naming::VALID_CASE_NAMES`] itself (the same list `validate_case_name`
+    /// checks against) rather than a hand-copied duplicate that could silently drift from
+    /// it.
+    #[test]
+    fn apply_overlay_accepts_every_valid_case_name() {
+        for &case in crate::naming::VALID_CASE_NAMES {
+            let mut manifest = base_manifest();
+            let overlay: ManifestOverlay = toml::from_str(&format!("[naming]\nstruct_case = \"{case}\"\n")).unwrap();
+            manifest
+                .apply_overlay(&overlay)
+                .unwrap_or_else(|e| panic!("{case} must be accepted: {e}"));
+            assert_eq!(manifest.naming.struct_case, case);
+        }
     }
 
     /// `[imports.rules]` is merge-and-add: its keys are prefixes of the

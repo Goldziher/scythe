@@ -16,7 +16,7 @@
 //! - Out of the default registry, because everything that consumes it —
 //!   `scythe lint`, and `scythe audit --list-rules` via
 //!   `load_registry_for_discovery` — evaluates rules through `check_query` /
-//!   `check_catalog`. Listing nine rules there that neither command can
+//!   `check_catalog`. Listing eleven rules there that neither command can
 //!   ever emit would advertise a capability that does not exist, and would
 //!   move the documented "58 built-in rules" figure that appears across the
 //!   README, the website, and the skills bundle.
@@ -261,6 +261,71 @@ impl LintRule for QueryDrift {
     }
 }
 
+/// `SC-PRV09` — a `[[sql.gen]]` target in this block could not be
+/// constructed: an unresolvable target, a backend/engine pair that will not
+/// build, a manifest override or options that fail to apply, or an output
+/// path that would escape the project root.
+///
+/// `Error` by default: a target `scythe generate` refuses to build cannot
+/// have produced the artifact on disk, so there is nothing here for
+/// provenance verification to compare against -- this rule reports the
+/// misconfiguration itself, not drift.
+///
+/// Distinct from [`UnverifiableProvenance`] (`SC-PRV07`), which fires when
+/// verification of an otherwise-valid target fails for a different reason
+/// (e.g. the artifact file cannot be read). `SC-PRV09` fires earlier, before
+/// there is a target to verify at all -- see `validate_gen_targets_constructible`
+/// in `scythe-cli`, which mirrors `scythe generate`'s own construction steps
+/// so `scythe check` reports precisely what `generate` would refuse.
+pub struct GenTargetInvalid;
+
+impl LintRule for GenTargetInvalid {
+    fn id(&self) -> &'static str {
+        "SC-PRV09"
+    }
+    fn name(&self) -> &'static str {
+        "gen-target-invalid"
+    }
+    fn category(&self) -> RuleCategory {
+        RuleCategory::Provenance
+    }
+    fn default_severity(&self) -> Severity {
+        Severity::Error
+    }
+    fn description(&self) -> &'static str {
+        "A [[sql.gen]] target could not be constructed: unresolvable target, backend/engine that will not build, \
+         manifest override or options that fail to apply, or an output path escaping the project root"
+    }
+}
+
+/// `SC-PRV10` — a query file has content but produced zero `-- name:` /
+/// `-- @name` query blocks, so nothing in it was checked.
+///
+/// `Error` by default: a mistyped annotation (`--name:` with no leading
+/// space, a query commented out by hand, or a file whose annotations were
+/// simply never recognised) silently drops every statement in the file from
+/// generation, linting, and auditing alike, with no other signal that
+/// anything was skipped.
+pub struct EmptyQueryFile;
+
+impl LintRule for EmptyQueryFile {
+    fn id(&self) -> &'static str {
+        "SC-PRV10"
+    }
+    fn name(&self) -> &'static str {
+        "empty-query-file"
+    }
+    fn category(&self) -> RuleCategory {
+        RuleCategory::Provenance
+    }
+    fn default_severity(&self) -> Severity {
+        Severity::Error
+    }
+    fn description(&self) -> &'static str {
+        "Query file has content but produced zero `-- name:` / `-- @name` query blocks; nothing in it was checked"
+    }
+}
+
 /// `SC-PRV11` — the artifact was generated with different `[[sql.gen]]`
 /// options (derive list, serde flag, `row_type`, naming case, ...), or a
 /// different manifest overlay's *contents*, than this target now configures.
@@ -279,12 +344,6 @@ impl LintRule for QueryDrift {
 /// [`EngineDrift`]/[`QueryDrift`]: the file on disk is not what the current
 /// config would produce, and it is always fixable by running `scythe
 /// generate`.
-///
-/// `SC-PRV09` (gen-target validity) and `SC-PRV10` (a comment-only query
-/// file) are not registered `LintRule`s in this module -- both are ad hoc
-/// `QueryViolation`s `scythe-cli` constructs directly for findings that are
-/// not artifact-header drift, so `SC-PRV11` is the next id free for a rule
-/// that *is*.
 pub struct OptionsDrift;
 
 impl LintRule for OptionsDrift {
@@ -310,7 +369,7 @@ impl LintRule for OptionsDrift {
 mod tests {
     use super::*;
 
-    /// The nine provenance rules, in id order, as `&dyn LintRule`.
+    /// The eleven provenance rules, in id order, as `&dyn LintRule`.
     fn all_rules() -> Vec<&'static dyn LintRule> {
         vec![
             &SchemaDrift as &dyn LintRule,
@@ -321,16 +380,13 @@ mod tests {
             &MalformedProvenanceHeader,
             &UnverifiableProvenance,
             &QueryDrift,
+            &GenTargetInvalid,
+            &EmptyQueryFile,
             &OptionsDrift,
         ]
     }
 
-    /// Unique, and in the fixed order this module declares them -- `SC-PRV09`
-    /// and `SC-PRV10` are deliberately absent from this list (see
-    /// [`OptionsDrift`]'s doc comment): they are `scythe-cli`-side ad hoc
-    /// findings with no `LintRule` here to skip over, so `SC-PRV11` sits
-    /// right after `SC-PRV08` in this registry despite not being numerically
-    /// adjacent to it.
+    /// Unique, and in the fixed order this module declares them.
     #[test]
     fn ids_are_unique_and_in_declared_order() {
         let ids: Vec<&str> = all_rules().iter().map(|r| r.id()).collect();
@@ -338,7 +394,7 @@ mod tests {
             ids,
             vec![
                 "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07", "SC-PRV08",
-                "SC-PRV11"
+                "SC-PRV09", "SC-PRV10", "SC-PRV11"
             ]
         );
     }
@@ -351,15 +407,18 @@ mod tests {
     }
 
     /// Pins the default severities the rest of the toolchain reasons about:
-    /// the three drift rules fail a build, and everything that only reports
-    /// "this could not be checked" (plus the scythe-version mismatch, see
-    /// [`ScytheVersionDrift`]) warns.
+    /// the drift rules (plus the two misconfiguration rules, which are
+    /// equally always-fixable) fail a build, and everything that only
+    /// reports "this could not be checked" (plus the scythe-version
+    /// mismatch, see [`ScytheVersionDrift`]) warns.
     #[test]
     fn default_severities_are_error_only_for_real_drift() {
         assert_eq!(SchemaDrift.default_severity(), Severity::Error);
         assert_eq!(BackendDrift.default_severity(), Severity::Error);
         assert_eq!(EngineDrift.default_severity(), Severity::Error);
         assert_eq!(QueryDrift.default_severity(), Severity::Error);
+        assert_eq!(GenTargetInvalid.default_severity(), Severity::Error);
+        assert_eq!(EmptyQueryFile.default_severity(), Severity::Error);
         assert_eq!(OptionsDrift.default_severity(), Severity::Error);
 
         assert_eq!(

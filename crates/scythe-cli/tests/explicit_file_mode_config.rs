@@ -145,6 +145,50 @@ fn fmt_rejects_the_same_invalid_lint_sqruff_config_lint_does() {
     );
 }
 
+/// Must fail before the fix: `scythe lint <file>` (explicit-file mode) built its sqruff
+/// linter with `None` in place of `[lint.sqruff]`, unconditionally -- the same gap #206
+/// fixed for `fmt` (`fmt_rejects_the_same_invalid_lint_sqruff_config_lint_does`, above),
+/// left open in `lint`. A `[lint.sqruff.rules]` table naming a rule code sqruff does not
+/// have must be rejected whether the files come from `scythe.toml`'s `queries` glob or
+/// from an explicit argument.
+///
+/// `LT0` is an unknown *code*, which reaches `SqruffLinter::new`'s probe lint -- a
+/// different rejection path from the fmt test above, whose `LT02 = "warn"` is an
+/// unsupported *value* caught earlier in `make_config`. Either one proves the config was
+/// read; this one additionally covers the path only a constructed linter can reach.
+///
+/// Mutation-tested: with `SqruffLinter::new(dialect, None)` restored, this exits 0 with
+/// "No lint violations found."
+#[test]
+fn lint_explicit_file_rejects_the_same_invalid_lint_sqruff_config_config_mode_does() {
+    let dir = TempDir::new().unwrap();
+    let sql_path = dir.path().join("t.sql");
+    std::fs::write(&sql_path, "SELECT 1;\n").unwrap();
+
+    let config = "[scythe]\nversion = \"1\"\n\n\
+        [[sql]]\nname = \"main\"\nengine = \"postgresql\"\nschema = []\nqueries = []\n\n\
+        [lint.sqruff.rules]\nLT0 = \"off\"\n";
+    let config_path = dir.path().join("scythe.toml");
+    std::fs::write(&config_path, config).unwrap();
+
+    let output = scythe_bin()
+        .args([
+            "lint",
+            "--config",
+            config_path.to_str().unwrap(),
+            sql_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run scythe lint");
+
+    assert!(
+        !output.status.success(),
+        "explicit-file mode must reject the same invalid [lint.sqruff] config-mode lint \
+         rejects, instead of silently ignoring it; stderr: {}",
+        stderr(&output)
+    );
+}
+
 /// #130: `fmt` builds its sqruff linter **once for the whole run**, before it
 /// reads any file, and that is directly observable.
 ///

@@ -99,6 +99,19 @@ pub enum RuleCategory {
     /// silently disable drift reporting the first time they pass
     /// `--database-url`.
     Drift,
+    // ~keep `Parse` differs from Provenance/Drift above in one way: its two
+    // rules fire from `scythe check`, `scythe lint`, *and* `scythe audit`,
+    // not from a single check-time command. It still belongs outside
+    // `default_registry()` for the same reason those two do -- no command
+    // reaches it through `check_query`/`check_catalog`, because a query that
+    // fails to parse or analyze never becomes the `LintContext` any rule
+    // needs. Appended last for the same reason as Provenance/Drift: `scythe
+    // audit --list-rules` groups by `category as u8`, so a variant inserted
+    // anywhere else would reorder the printed catalog.
+    /// A query could not become an `AnalyzedQuery` at all -- it failed to
+    /// parse, or parsed but failed semantic analysis -- so no other rule had
+    /// anything to examine.
+    Parse,
 }
 
 impl std::fmt::Display for RuleCategory {
@@ -114,6 +127,7 @@ impl std::fmt::Display for RuleCategory {
             RuleCategory::Migration => write!(f, "migration"),
             RuleCategory::Provenance => write!(f, "provenance"),
             RuleCategory::Drift => write!(f, "drift"),
+            RuleCategory::Parse => write!(f, "parse"),
         }
     }
 }

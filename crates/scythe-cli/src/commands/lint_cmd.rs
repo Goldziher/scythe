@@ -8,7 +8,9 @@ use scythe_lint::types::Severity;
 use scythe_lint::{SuppressionSet, emit_findings};
 
 use super::inspect::{build_driver_with_config, build_registry};
-use super::shared::{config_dir, engine_to_sqruff_dialect, resolve_globs, split_query_file, validate_dialect};
+use super::shared::{
+    ParseSeverities, config_dir, engine_to_sqruff_dialect, resolve_globs, split_query_file, validate_dialect,
+};
 
 /// A combined lint violation that can come from either scythe rules, sqruff,
 /// or live-DB inspect checks.
@@ -121,6 +123,10 @@ struct NativeLintContext {
     engine: scythe_lint::LintEngine,
     catalog: scythe_core::catalog::Catalog,
     sql_dialect: scythe_core::dialect::SqlDialect,
+    /// Effective `SC-PARSE01`/`SC-PARSE02` severities for this run, resolved
+    /// from the same `[lint]` table applied to `engine`'s registry -- see
+    /// [`ParseSeverities`].
+    parse_severities: ParseSeverities,
 }
 
 /// Build a [`NativeLintContext`] from `scythe.toml` at `config_path`, when
@@ -204,11 +210,50 @@ fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContex
     }
     let engine = LintEngine::new(registry);
 
+    // Same `[lint]` table, applied to `SC-PARSE01`/`SC-PARSE02`'s own
+    // registry -- see `ParseSeverities` for why a query that fails to parse
+    // or analyze cannot pick up severity through `registry` above.
+    let mut parse_rules = scythe_lint::parse_registry();
+    if let Some(ref lint_config) = config.lint {
+        parse_rules.apply_config(lint_config);
+    }
+    let parse_severities = ParseSeverities::from_registry(&parse_rules);
+
     Ok(Some(NativeLintContext {
         engine,
         catalog,
         sql_dialect,
+        parse_severities,
     }))
+}
+
+/// Read `[lint.sqruff]` out of `scythe.toml` for explicit-file lint mode, when a
+/// config file is present.
+///
+/// Mirrors `fmt.rs`'s function of the same name and for the same reason (#206):
+/// returns `Ok(None)` -- not an error -- when `config_path` does not exist, since
+/// `scythe lint some/file.sql` with no `scythe.toml` at all is a valid, unaffected
+/// mode. Only the top-level `[lint]` table is required; unlike
+/// [`load_native_lint_context`], this has no need of `[[sql]]` or a schema, since
+/// `[lint.sqruff]` is not scoped to a block.
+fn sqruff_config_from_config(config_path: &str) -> Result<Option<scythe_lint::types::SqruffConfig>, String> {
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct MinConfig {
+        #[serde(default)]
+        lint: Option<scythe_lint::types::LintConfig>,
+    }
+
+    let config_str = match std::fs::read_to_string(config_path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("failed to read config '{config_path}': {e}")),
+    };
+    let config: MinConfig =
+        toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{config_path}': {e}"))?;
+
+    Ok(config.lint.and_then(|lc| lc.sqruff))
 }
 
 /// Lint specific files using sqruff, plus scythe-native rules when
@@ -235,10 +280,13 @@ fn lint_files(
 
     // One linter for the whole file list, not one per file: building it
     // compiles the dialect's lexer, which is what a multi-file run actually
-    // spends its time on (#130). No `[lint.sqruff]` is passed here, exactly
-    // as the per-file calls this replaces passed `None` -- explicit-file
-    // mode has never applied the config's rule table.
-    let linter = sqruff_adapter::SqruffLinter::new(dialect, None)
+    // spends its time on (#130). `sqruff_config_from_config` mirrors
+    // `fmt.rs`'s own fix for the same gap: explicit-file mode used to always
+    // pass `None` here, silently dropping a user's `[lint.sqruff]` rule
+    // table whenever files were named directly on the command line instead
+    // of resolved from `scythe.toml`.
+    let sqruff_config = sqruff_config_from_config(config_path)?;
+    let linter = sqruff_adapter::SqruffLinter::new(dialect, sqruff_config.as_ref())
         .map_err(|e| format!("sqruff rejected dialect '{}': {}", dialect, e))?;
 
     // scythe-native rules, run alongside sqruff when a schema is available
@@ -350,7 +398,7 @@ fn lint_files(
                                 file: path.clone(),
                                 query_name: Some(name.clone()),
                                 rule_id: Cow::Borrowed("SC-PARSE02"),
-                                severity: Severity::Error,
+                                severity: ctx.parse_severities.unanalyzable,
                                 message: format!(
                                     "failed to analyze query '{name}': {e} — no lint rule could examine it"
                                 ),
@@ -366,7 +414,7 @@ fn lint_files(
                             file: path.clone(),
                             query_name: None,
                             rule_id: Cow::Borrowed("SC-PARSE01"),
-                            severity: Severity::Error,
+                            severity: ctx.parse_severities.unparseable,
                             message: format!("failed to parse query: {e} — no lint rule could examine it"),
                             line_no: None,
                             line_pos: None,
@@ -497,6 +545,15 @@ fn lint_from_config(
         std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
     let config: ScytheConfig =
         toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
+
+    // Same `[lint]` table applied to `SC-PARSE01`/`SC-PARSE02`'s own
+    // registry below -- see `ParseSeverities` for why these two cannot pick
+    // up severity through `registry` the way a SQL rule does.
+    let mut parse_rules = scythe_lint::parse_registry();
+    if let Some(ref lint_config) = config.lint {
+        parse_rules.apply_config(lint_config);
+    }
+    let parse_severities = ParseSeverities::from_registry(&parse_rules);
 
     let mut registry = default_registry();
     if let Some(ref lint_config) = config.lint {
@@ -738,7 +795,7 @@ fn lint_from_config(
                             file: query_file.clone(),
                             query_name: None,
                             rule_id: Cow::Borrowed("SC-PARSE01"),
-                            severity: Severity::Error,
+                            severity: parse_severities.unparseable,
                             message: format!("failed to parse query: {e} — no lint rule could examine it"),
                             line_no: None,
                             line_pos: None,
@@ -756,7 +813,7 @@ fn lint_from_config(
                             file: query_file.clone(),
                             query_name: Some(name.clone()),
                             rule_id: Cow::Borrowed("SC-PARSE02"),
-                            severity: Severity::Error,
+                            severity: parse_severities.unanalyzable,
                             message: format!("failed to analyze query '{name}': {e} — no lint rule could examine it"),
                             line_no: None,
                             line_pos: None,

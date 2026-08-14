@@ -2,6 +2,7 @@ pub mod antipattern;
 pub mod codegen;
 pub mod drift;
 pub mod naming;
+pub mod parse;
 pub mod performance;
 pub mod provenance;
 pub mod safety;

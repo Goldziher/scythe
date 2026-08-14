@@ -14,12 +14,14 @@ scythe <command> [options]
 Generate code from SQL schema and queries.
 
 ```bash
-scythe generate [--config <path>]
+scythe generate [--config <path>] [--allow-output-escape] [--validate-output]
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-c, --config` | `scythe.toml` | Path to config file |
+| `--allow-output-escape` | false | Allow a `[[sql.gen]]` `output` directory to resolve outside the project root (via `../` traversal or an absolute path). Without it, such a path is rejected before anything is written |
+| `--validate-output` | false | Validate each target's generated output with the real compiler/linter for its language (`poly`, `tsc`, `javac`, `kotlinc`, `gofmt`, `ruby`, ...), reporting per target whether it was validated, skipped (no validator for that language, or the tool it needs is not installed), or failed. Exits 2, not 1, if any target fails. Off by default because it shells out to external toolchains that may not be installed |
 
 Reads the config, parses schema and queries, runs type inference, and writes generated code to the configured output directory. If `scythe.toml` is not found, the command exits with an error.
 
@@ -102,6 +104,9 @@ file is next regenerated.
 | `SC-PRV06` | Warn | A provenance header is present but is missing one or more fields (hand-edited or truncated write) |
 | `SC-PRV07` | Warn | The target could not be verified: its backend/engine pair does not construct, or its artifact could not be read for a reason other than not existing |
 | `SC-PRV08` | Error | The artifact's embedded query fingerprint differs from the current query set |
+| `SC-PRV09` | Error | A `[[sql.gen]]` target could not be constructed -- the same checks `scythe generate` performs before writing anything (unresolvable target, backend/engine that will not build, manifest override or options that fail to apply, output path escaping the project root) |
+| `SC-PRV10` | Error | A query file has content but produced zero `-- name:` / `-- @name` query blocks -- nothing in it was checked |
+| `SC-PRV11` | Error | The artifact was generated with different `[[sql.gen]]` options (derive list, serde flag, `row_type`, naming case, ...) or manifest overlay contents than this target now configures |
 
 `SC-PRV02` defaults to `Warn`, not `Error`: a scythe release is not a defect in your project, and
 defaulting it to `Error` would fail every consumer's CI the day they bump scythe, before they have
