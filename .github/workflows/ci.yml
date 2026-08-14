@@ -331,11 +331,11 @@ jobs:
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
-      - name: Install Kotlin
-        run: |
-          curl -sL https://github.com/JetBrains/kotlin/releases/download/v2.1.20/kotlin-compiler-2.1.20.zip -o kotlin.zip
-          unzip -q kotlin.zip -d /opt/kotlin
-          echo "/opt/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
+      # No standalone kotlinc here any more: generated Kotlin is checked by a
+      # real `gradle compileKotlin` against each project, which resolves the
+      # Kotlin compiler through the project's own plugin. See the Kotlin note
+      # in scripts/check-generated-syntax.sh for why the bare-compiler check
+      # had to go. `gradle` comes from the runner image, like `javac`.
       - name: Install TypeScript
         run: npm install -g typescript
       # `rbs parse` is the RBS-signature syntax checker (script comment has
@@ -350,7 +350,7 @@ jobs:
         run: |
           set -euo pipefail
           missing=""
-          for tool in php ruby python3 gofmt kotlinc rbs pnpm dotnet cargo mvn mix; do
+          for tool in php ruby python3 gofmt gradle rbs pnpm dotnet cargo mvn mix; do
             if command -v "$tool" >/dev/null 2>&1; then
               echo "ok      $tool"
             else

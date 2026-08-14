@@ -55,9 +55,9 @@
 # only the four scaffolding checks that predate this script's extension to
 # cover generated/ query code. It exists for the `generated-freshness` CI job
 # (.github/workflows/ci.yml), which installs only the toolchains those four
-# checks need; the query-code checks need javac/kotlinc/dotnet/rbs/pnpm/
-# elixirc too, which is what the "Validate: Generated Query Code" job
-# installs before running this script without the flag.
+# checks need; the query-code checks need mvn/gradle/dotnet/rbs/pnpm/mix too,
+# which is what the "Validate: Generated Query Code" job installs before
+# running this script without the flag.
 #
 # Usage: scripts/check-generated-syntax.sh [--strict] [--harness-only]
 set -uo pipefail
@@ -165,20 +165,6 @@ check_project() {
 	fi
 }
 
-# Compiles a single .kt file against the JDK only, discarding class output to
-# a scratch directory. Generated Kotlin only ever references java.sql/
-# java.math/java.time (JDK-only), so unlike Java's javax.annotation this is
-# already a real compile, not just a parse -- there is no third-party
-# classpath entry a real Gradle build would add that bare kotlinc would miss.
-kotlinc_check() {
-	local file=$1 tmp
-	tmp=$(mktemp -d) || return 1
-	kotlinc -d "$tmp/out.jar" "$file"
-	local status=$?
-	rm -rf "$tmp"
-	return $status
-}
-
 # Lock files are committed in this repo by policy (uv.lock, pnpm-lock.yaml,
 # go.sum, composer.lock, Gemfile.lock, Cargo.lock alike) -- but 5 of the 10
 # rust-* integration projects had no committed Cargo.lock, undetected,
@@ -222,9 +208,8 @@ if [ "$harness_only" -eq 0 ]; then
 	check "RBS (generated)" 'integration_tests/*/generated/*.rbs' rbs rbs parse
 	check "Python (generated)" 'integration_tests/*/generated/*.py' python3 python3 -m py_compile
 	check "Go (generated)" 'integration_tests/*/generated/*.go' gofmt gofmt -e -l
-	check "Kotlin (generated)" 'integration_tests/*/src/main/kotlin/generated/queries.kt' kotlinc kotlinc_check
 
-	# TypeScript, C#, Rust, Java and Elixir generated code needs its
+	# TypeScript, C#, Rust, Java, Kotlin and Elixir generated code needs its
 	# project's own dependencies resolved to mean anything, so these run one
 	# real project build each instead of a per-file check.
 	#
@@ -237,6 +222,19 @@ if [ "$harness_only" -eq 0 ]; then
 	# for MyXQL/Tds, which is exactly what every committed elixir-*
 	# project's `mix deps.get` provides. A real build tool run against the
 	# real project reports what CI's `task test:*` would actually hit.
+	#
+	# Kotlin joined them for the same reason, one backend later. It ran
+	# through a bare `kotlinc` per-file check justified by "generated Kotlin
+	# only ever references java.sql/java.math/java.time (JDK-only) ... there
+	# is no third-party classpath entry a real Gradle build would add that
+	# bare kotlinc would miss". kotlin-r2dbc falsified that: its generated
+	# code imports reactor.core.publisher.Mono, io.r2dbc.spi.Row and
+	# kotlinx.coroutines.reactive, none of them JDK. Worse than a plain
+	# miss, the failures were misleading -- with no io.r2dbc.spi.Row on the
+	# classpath, `row.get("id", Int::class.javaObjectType)` resolved against
+	# Kotlin stdlib's MatchGroupCollection.get and reported "actual type is
+	# 'MatchGroup?'" on code that compiles cleanly under Gradle. A reason
+	# that is true of every backend today is not true of the next one.
 	check_project "TypeScript (generated)" 'integration_tests/*/generated/*.ts' pnpm 2 \
 		sh -c 'pnpm install --frozen-lockfile --silent && pnpm run --silent typecheck'
 	check_project "C# (generated)" 'integration_tests/*/generated/*.cs' dotnet 2 \
@@ -245,6 +243,8 @@ if [ "$harness_only" -eq 0 ]; then
 		cargo check --locked --quiet
 	check_project "Java (generated)" 'integration_tests/*/src/main/java/generated/Queries.java' mvn 5 \
 		mvn -q compile
+	check_project "Kotlin (generated)" 'integration_tests/*/src/main/kotlin/generated/queries.kt' gradle 5 \
+		gradle compileKotlin --quiet
 	check_project "Elixir (generated)" 'integration_tests/*/generated/*.ex' mix 2 \
 		sh -c 'mix deps.get --force && mix compile --force'
 fi
