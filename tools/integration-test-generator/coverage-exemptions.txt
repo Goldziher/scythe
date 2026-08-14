@@ -46,22 +46,47 @@ kotlin-r2dbc|sqlite : needs a reactive (Publisher/Mono) harness branch in kotlin
 # Exposed is a DSL, not a driver: the harness reads results through Exposed's
 # own column types rather than java.sql, so it needs its own kotlin.kt.jinja
 # branch and its own Gradle dependency set.
-kotlin-exposed|postgresql : needs an Exposed-DSL harness branch in kotlin.kt.jinja plus a CI job
+#
+# board #213 follow-up: this is not blocked on codegen. #214 already fixed
+# generate_model_struct (kotlin_exposed.rs:455-475) to emit both the Exposed
+# `object XTable : IntIdTable(...)` and the row `data class` a caller reads --
+# KNOWN_DIVERGENT_BACKENDS in crates/scythe-codegen/src/lib.rs (:2353) is empty,
+# kotlin-exposed included. generate_query_fn (kotlin_exposed.rs:477) already
+# emits a full, callable function body per query (`:one` throws
+# NoSuchElementException on a missing row like every other backend, `:many`
+# collects into the row list, enums/composites round-trip). The real
+# difference from kotlin-jdbc is call shape, not missing codegen: an Exposed
+# query function takes no `Connection` parameter at all -- it opens its own
+# `transaction { }` against Exposed's ambient default `Database`, so the
+# harness must call `Database.connect(...)` once and then call generated
+# functions bare (`createUser("Alice", ...)`, not `createUser(conn, "Alice",
+# ...)`), which is exactly what makes this a new kotlin.kt.jinja branch rather
+# than a driver swap inside the existing `engine == "postgresql"` one. A
+# proposed branch and the matching build.gradle.kts.jinja Exposed dependency
+# set were drafted (see the board #213 handoff) but not applied: another
+# agent owns kotlin.kt.jinja and build.gradle.kts.jinja in a separate
+# worktree right now, so editing them here would conflict on merge.
+kotlin-exposed|postgresql : harness branch and Gradle deps are drafted (not codegen-blocked -- #214 already fixed the row-struct gap) but not applied, pending the kotlin.kt.jinja/build.gradle.kts.jinja worktree owner; no CI job either
 
-# php-amphp ships a PostgreSQL project only. The MySQL variant needs the
-# amphp/mysql package in composer.json.jinja and its own connect/query calls in
-# php.php.jinja -- amphp's two drivers do not share an API surface.
-php-amphp|mysql : needs an amphp/mysql harness branch in php.php.jinja plus composer.json.jinja deps and a CI job
-
-# php-pdo on Oracle needs the pdo_oci extension, which shivammathur/setup-php
-# does not install from a package: it requires the Oracle Instant Client to be
-# fetched and the extension built against it in the CI job.
-php-pdo|oracle : needs pdo_oci (Oracle Instant Client) built into the Oracle CI job
-
-# typescript-kysely on Redshift needs the redshift enum-vs-varchar branches that
-# typescript.ts.jinja already has for the `pg` driver added to its kysely-pg
-# harness body, plus a step in the integration-redshift job.
-typescript-kysely|redshift : needs redshift branches in typescript.ts.jinja's kysely-pg harness plus a step in integration-redshift
+# php-pdo on Oracle is blocked before the CI-infrastructure question even
+# comes up. crates/scythe-codegen/src/backends/php_pdo.rs::PhpPdoBackend::new
+# (php_pdo.rs:31-45) has no "oracle" match arm -- constructing the backend
+# for engine "oracle" fails with InvalidConfig, and supported_engines()
+# (php_pdo.rs:217-227) omits "oracle" too. crates/scythe-codegen/manifests/
+# php-pdo.oracle.toml ships on disk but is deliberately unwired (see
+# crates/scythe-codegen/tests/php_array_type_regression.rs). Wiring the
+# manifest in is not enough on its own, either: for the Oracle dialect,
+# crates/scythe-core/src/parser/mod.rs's preprocess_oracle_sql (mod.rs:567-595,
+# invoked at mod.rs:329-331) strips a `RETURNING col1, col2 INTO :4, :5` clause
+# down to a bare `RETURNING col1, col2` via strip_returning_into (mod.rs:747-758)
+# before analysis, and that bare form is invalid Oracle syntax on its own
+# (ORA-00925, missing INTO). Every Oracle backend that works today detects this
+# stripped RETURNING and reconstructs a proper INTO/output-bind clause itself --
+# see ruby_oci8.rs:207-253 and the identical pattern in python_oracledb.rs,
+# csharp_oracle.rs, go_godror.rs. php_pdo.rs has no such logic. The pdo_oci
+# (Oracle Instant Client) CI gap is real, but it is the second blocker, not
+# the first.
+php-pdo|oracle : blocked in crates/scythe-codegen/src/backends/php_pdo.rs (php_pdo.rs:31-45) -- no "oracle" engine arm and no RETURNING-INTO reconstruction like ruby_oci8.rs/python_oracledb.rs have; the pdo_oci CI extension gap is real but secondary
 
 [taskfile-targets]
 # Integration projects with no `test:<project>` target in

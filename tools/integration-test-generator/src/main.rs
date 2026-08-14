@@ -555,6 +555,15 @@ fn backend_variants() -> Vec<BackendConfig> {
             options: HashMap::new(),
         },
         BackendConfig {
+            name: "php-amphp-mysql".into(),
+            language: "php".into(),
+            engine: "mysql".into(),
+            driver: "amphp".into(),
+            connection_env: "DATABASE_URL".into(),
+            backend: "php-amphp".into(),
+            options: HashMap::new(),
+        },
+        BackendConfig {
             name: "rust-sqlx".into(),
             language: "rust".into(),
             engine: "postgresql".into(),
@@ -993,6 +1002,15 @@ fn backend_variants() -> Vec<BackendConfig> {
             driver: "postgres".into(),
             connection_env: "REDSHIFT_URL".into(),
             backend: "typescript-postgres".into(),
+            options: HashMap::new(),
+        },
+        BackendConfig {
+            name: "typescript-kysely-redshift".into(),
+            language: "typescript".into(),
+            engine: "redshift".into(),
+            driver: "kysely-pg".into(),
+            connection_env: "REDSHIFT_URL".into(),
+            backend: "typescript-kysely".into(),
             options: HashMap::new(),
         },
         BackendConfig {

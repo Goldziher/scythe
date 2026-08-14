@@ -448,6 +448,13 @@ tasks:
     cmds:
       - php test_integration.php
 
+  test:php-amphp-mysql:
+    desc: Run php-amphp-mysql integration test
+    dir: php-amphp-mysql
+    cmds:
+      - composer install --quiet
+      - php test_integration.php
+
   # --- MariaDB backends ---
   test:rust-sqlx-mariadb:
     desc: Run rust-sqlx-mariadb integration test
@@ -844,6 +851,14 @@ tasks:
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
+  test:typescript-kysely-redshift:
+    desc: Run typescript-kysely-redshift integration test (PG-compat substitute)
+    dir: typescript-kysely-redshift
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
+      - pnpm exec tsx test.ts
+
   test:java-jdbc-redshift:
     desc: Run java-jdbc-redshift integration test (PG-compat substitute)
     dir: java-jdbc-redshift
@@ -978,6 +993,7 @@ tasks:
       - task: test:ruby-mysql2
       - task: test:ruby-trilogy
       - task: test:php-pdo-mysql
+      - task: test:php-amphp-mysql
       # MariaDB
       - task: test:rust-sqlx-mariadb
       - task: test:go-database-sql-mariadb
@@ -1049,6 +1065,7 @@ tasks:
       - task: test:go-pgx-redshift
       - task: test:typescript-pg-redshift
       - task: test:typescript-postgres-redshift
+      - task: test:typescript-kysely-redshift
       - task: test:java-jdbc-redshift
       - task: test:kotlin-jdbc-redshift
       - task: test:csharp-npgsql-redshift

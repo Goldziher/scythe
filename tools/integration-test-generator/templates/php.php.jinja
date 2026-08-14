@@ -216,10 +216,25 @@ function create_pdo(string $url): PDO
 }
 {%- elif driver == "amphp" %}
 
+{#- MysqlConfig has no fromArray(); fromString() wants amphp's own
+    `host=..;db=..` key syntax rather than a URL, so the constructor is the
+    direct route from parse_database_url's output.
+
+    A single connection, NOT a MysqlConnectionPool -- unlike the postgresql
+    branch above, which can pool safely because it reads generated ids back
+    through RETURNING. MySQL's GetLastInsertUser resolves LAST_INSERT_ID(),
+    which is scoped to the connection that ran the INSERT, so a pool hands
+    the follow-up SELECT a different connection and it finds no row. #}
 function create_connection(string $url): \Amp\Mysql\MysqlConnection
 {
     $params = parse_database_url($url);
-    $config = \Amp\Mysql\MysqlConfig::fromArray($params);
+    $config = new \Amp\Mysql\MysqlConfig(
+        host: $params['host'],
+        port: (int) $params['port'],
+        user: $params['user'],
+        password: $params['password'],
+        database: $params['dbname'],
+    );
     return \Amp\Mysql\connect($config);
 }
 {%- endif %}
@@ -373,17 +388,17 @@ function setup_schema({% if driver == "pdo" %}PDO {% endif %}$pdo): void
 {%- elif engine == "mysql" -%}
 function setup_schema({% if driver == "pdo-mysql" %}PDO {% endif %}$pdo): void
 {
-    $pdo->exec("DROP TABLE IF EXISTS user_tags");
-    $pdo->exec("DROP TABLE IF EXISTS tags");
-    $pdo->exec("DROP TABLE IF EXISTS orders");
-    $pdo->exec("DROP TABLE IF EXISTS users");
+    $pdo->{% if driver == "amphp" %}query{% else %}exec{% endif %}("DROP TABLE IF EXISTS user_tags");
+    $pdo->{% if driver == "amphp" %}query{% else %}exec{% endif %}("DROP TABLE IF EXISTS tags");
+    $pdo->{% if driver == "amphp" %}query{% else %}exec{% endif %}("DROP TABLE IF EXISTS orders");
+    $pdo->{% if driver == "amphp" %}query{% else %}exec{% endif %}("DROP TABLE IF EXISTS users");
     $schema_path = __DIR__ . '/../sql/mysql/schema.sql';
     $schema_sql = file_get_contents($schema_path);
     if ($schema_sql === false) {
         throw new RuntimeException("Failed to read schema file: {$schema_path}");
     }
     foreach (split_sql_statements($schema_sql) as $stmt) {
-        $pdo->exec($stmt);
+        $pdo->{% if driver == "amphp" %}query{% else %}exec{% endif %}($stmt);
     }
 }
 {%- elif engine == "mariadb" -%}

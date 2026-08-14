@@ -453,6 +453,12 @@ jobs:
         working-directory: integration_tests/php-pdo-mysql
         run: php test_integration.php
 
+      - name: Test php-amphp-mysql
+        working-directory: integration_tests/php-amphp-mysql
+        run: |
+          composer install --quiet
+          php test_integration.php
+
   integration-mariadb:
     name: MariaDB Integration Tests
     runs-on: ubuntu-latest
@@ -1194,6 +1200,13 @@ jobs:
 
       - name: Test typescript-postgres-redshift
         working-directory: integration_tests/typescript-postgres-redshift
+        run: |
+          pnpm install
+          pnpm exec tsc --noEmit
+          pnpm exec tsx test.ts
+
+      - name: Test typescript-kysely-redshift
+        working-directory: integration_tests/typescript-kysely-redshift
         run: |
           pnpm install
           pnpm exec tsc --noEmit

@@ -1,0 +1,3 @@
+{ "name": "scythe/integration-php-amphp-mysql", "description": "Scythe integration tests for php-amphp backend",
+"type": "project", "require": { "php": ">=8.2", "amphp/mysql": "^3.0"
+} }

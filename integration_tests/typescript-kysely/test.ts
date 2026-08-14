@@ -8,10 +8,10 @@ import {
 	getOrdersByUser,
 	getOrderTotal,
 	updateUserEmail,
+	searchUsers,
 	getUserOrders,
 	countUsersByStatus,
 	getUserWithTags,
-	searchUsers,
 	deleteOrdersByUser,
 	deleteUser,
 	getUserProfile,
@@ -255,7 +255,6 @@ async function main(): Promise<void> {
 			`expected updated email, got ${updated!.email}`,
 		);
 		pass("UpdateUserEmail");
-
 		// Test: GetUserOrders (LEFT JOIN)
 		const bob = await createUser(db, "Bob", "bob@example.com", UserStatusValues.Active);
 		const bobId = bob!.id;
@@ -311,7 +310,6 @@ async function main(): Promise<void> {
 			"expected Alice among search results",
 		);
 		pass("SearchUsers");
-
 		// Test: GetUserProfile (board #197/#204) -- a nullable enum and a
 		// nullable composite column, each observed both present and as SQL
 		// NULL, plus a composite field containing a double quote and a comma
@@ -387,7 +385,6 @@ async function main(): Promise<void> {
 		await deleteUser(db, presentId);
 		await deleteUser(db, absentId);
 		await deleteUser(db, quotedId);
-
 		await sql`DELETE FROM user_tags WHERE user_id = ${userId}`.execute(db);
 		await deleteUser(db, bobId);
 

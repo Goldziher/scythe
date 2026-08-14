@@ -30,6 +30,14 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Added
 
+- **`php-amphp` on MySQL and `typescript-kysely` on Redshift now have integration projects that
+  actually run in CI.** Both manifests shipped with nothing exercising them. `php-amphp-mysql`
+  immediately found two real defects — the harness's `MysqlConfig::fromArray()` does not exist, and
+  the generated pool type made `LAST_INSERT_ID()` unreliable (see **Fixed**) — which is the whole
+  point of the exemption list these two came off. `typescript-kysely-redshift` gates the queries
+  Redshift's fixture does not define and reads `status` as a varchar rather than an enum, matching
+  what the `pg` and `postgres` drivers already did for that engine.
+
 - **`rust-tokio-postgres` can read and write range columns.** The manifest previously declared no
   `range` mapping at all, because `postgres-types` ships no `Range<T>` with a `FromSql`/`ToSql`
   impl the way `sqlx-postgres` does, and the mapping it used to carry (`String`) could not decode:

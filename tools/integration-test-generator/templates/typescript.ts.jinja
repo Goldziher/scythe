@@ -123,17 +123,19 @@ import {
 {%- if driver == "kysely-pg" %}
 	getOrderTotal,
 	updateUserEmail,
+	searchUsers,
+{%- if engine == "postgresql" %}
 	getUserOrders,
 	countUsersByStatus,
 	getUserWithTags,
-	searchUsers,
+{%- endif %}
 {%- endif %}
 	deleteOrdersByUser,
 	deleteUser,
-{%- if engine == "postgresql" and engine != "redshift" and (driver == "pg" or driver == "kysely-pg" or driver == "postgres") %}
+{%- if engine == "postgresql" and (driver == "pg" or driver == "kysely-pg" or driver == "postgres") %}
 	getUserProfile,
 {%- endif %}
-{%- if engine == "postgresql" and engine != "redshift" %}
+{%- if engine == "postgresql" %}
 {%- if (driver == "pg" or driver == "kysely-pg") and options.row_type != "zod" %}
 	UserStatusValues,
 {%- else %}
@@ -411,7 +413,7 @@ async function main(): Promise<void> {
 			client,
 			"Alice",
 			"alice@example.com",
-{%- if engine == "postgresql" and engine != "redshift" %}
+{%- if engine == "postgresql" %}
 			{% if driver == "pg" and options.row_type != "zod" %}UserStatusValues{% else %}UserStatus{% endif %}.Active,
 {%- elif engine == "redshift" %}
 			"active",
@@ -464,7 +466,7 @@ async function main(): Promise<void> {
 		pass("GetUserById");
 
 		// Test: ListActiveUsers
-		const activeUsers = await listActiveUsers(client{% if engine == "postgresql" and engine != "redshift" %}, {% if driver == "pg" and options.row_type != "zod" %}UserStatusValues{% else %}UserStatus{% endif %}.Active{% elif engine == "redshift" %}, "active"{% endif %});
+		const activeUsers = await listActiveUsers(client{% if engine == "postgresql" %}, {% if driver == "pg" and options.row_type != "zod" %}UserStatusValues{% else %}UserStatus{% endif %}.Active{% elif engine == "redshift" %}, "active"{% endif %});
 		assert(
 			activeUsers.length > 0,
 			"ListActiveUsers",
@@ -547,7 +549,7 @@ async function main(): Promise<void> {
 		);
 {%- endif %}
 		pass("GetOrdersByUser");
-{%- if engine == "postgresql" and engine != "redshift" %}
+{%- if engine == "postgresql" %}
 
 		// Test: GetUserProfile (board #197/#204) -- a nullable enum and a
 		// nullable composite column, each observed both present and as SQL
@@ -713,6 +715,7 @@ async function main(): Promise<void> {
 {%- elif driver == "kysely-pg" %}
 	try {
 		// Clean slate
+{%- if engine == "postgresql" %}
 		await sql`DROP TABLE IF EXISTS user_tags CASCADE`.execute(db);
 		await sql`DROP TABLE IF EXISTS tags CASCADE`.execute(db);
 		await sql`DROP TABLE IF EXISTS orders CASCADE`.execute(db);
@@ -754,13 +757,18 @@ async function main(): Promise<void> {
       tag_id INT NOT NULL REFERENCES tags (id),
       PRIMARY KEY (user_id, tag_id)
     )`.execute(db);
+{%- endif %}
 
 		// Test: CreateUser
 		const user = await createUser(
 			db,
 			"Alice",
 			"alice@example.com",
+{%- if engine == "postgresql" %}
 			UserStatusValues.Active,
+{%- elif engine == "redshift" %}
+			"active",
+{%- endif %}
 		);
 		assert(user !== null, "CreateUser", "user should not be null");
 		assert(
@@ -784,7 +792,7 @@ async function main(): Promise<void> {
 		pass("GetUserById");
 
 		// Test: ListActiveUsers
-		const activeUsers = await listActiveUsers(db, UserStatusValues.Active);
+		const activeUsers = await listActiveUsers(db{% if engine == "postgresql" %}, UserStatusValues.Active{% elif engine == "redshift" %}, "active"{% endif %});
 		assert(
 			activeUsers.length > 0,
 			"ListActiveUsers",
@@ -851,6 +859,7 @@ async function main(): Promise<void> {
 		);
 		pass("UpdateUserEmail");
 
+{%- if engine == "postgresql" %}
 		// Test: GetUserOrders (LEFT JOIN)
 		const bob = await createUser(db, "Bob", "bob@example.com", UserStatusValues.Active);
 		const bobId = bob!.id;
@@ -897,9 +906,19 @@ async function main(): Promise<void> {
 			`expected tag_name vip, got ${userTags[0]!.tag_name}`,
 		);
 		pass("GetUserWithTags");
+{%- endif %}
 
 		// Test: SearchUsers
+{%- if engine == "postgresql" %}
 		const searchResults = await searchUsers(db, "Ali%");
+{%- elif engine == "redshift" %}
+		{#- Redshift's SearchUsers query has no LIKE-pattern fixture the way
+		    postgresql's does: it filters on the `status` column ($1 is an
+		    exact match, not a pattern), so the call and the parameter both
+		    diverge from the postgresql branch above rather than merely
+		    dropping a clause. #}
+		const searchResults = await searchUsers(db, "active");
+{%- endif %}
 		assert(
 			searchResults.some((row) => row.name === "Alice"),
 			"SearchUsers",
@@ -907,6 +926,7 @@ async function main(): Promise<void> {
 		);
 		pass("SearchUsers");
 
+{%- if engine == "postgresql" %}
 		// Test: GetUserProfile (board #197/#204) -- a nullable enum and a
 		// nullable composite column, each observed both present and as SQL
 		// NULL, plus a composite field containing a double quote and a comma
@@ -982,9 +1002,12 @@ async function main(): Promise<void> {
 		await deleteUser(db, presentId);
 		await deleteUser(db, absentId);
 		await deleteUser(db, quotedId);
+{%- endif %}
 
+{%- if engine == "postgresql" %}
 		await sql`DELETE FROM user_tags WHERE user_id = ${userId}`.execute(db);
 		await deleteUser(db, bobId);
+{%- endif %}
 
 		// Test: DeleteUser
 		const deletedOrders = await deleteOrdersByUser(db, userId);
@@ -1091,7 +1114,7 @@ async function main(): Promise<void> {
 		pass("GetUserById");
 
 		// Test: ListActiveUsers
-		const activeUsers = await listActiveUsers(sql{% if engine == "postgresql" and engine != "redshift" %}, UserStatus.Active{% elif engine == "redshift" %}, "active"{% endif %});
+		const activeUsers = await listActiveUsers(sql{% if engine == "postgresql" %}, UserStatus.Active{% elif engine == "redshift" %}, "active"{% endif %});
 		assert(
 			activeUsers.length > 0,
 			"ListActiveUsers",
@@ -1137,7 +1160,7 @@ async function main(): Promise<void> {
 			`expected total 99.95`,
 		);
 		pass("GetOrdersByUser");
-{%- if engine == "postgresql" and engine != "redshift" %}
+{%- if engine == "postgresql" %}
 
 		// Test: GetUserProfile (board #197/#204) -- a nullable enum and a
 		// nullable composite column, each observed both present and as SQL
