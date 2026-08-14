@@ -5,6 +5,9 @@ require 'oci8'
 
 module Queries
   class RecordNotFound < StandardError; end
+  def self.read_lob(value)
+    value.nil? ? nil : value.read
+  end
 
   CreateAttachmentRow = Data.define(:id, :order_id, :filename)
 
@@ -30,7 +33,7 @@ module Queries
     cursor = conn.exec("SELECT id, order_id, filename, payload, description FROM attachments WHERE order_id = :1 ORDER BY id", order_id)
     results = []
     while (row = cursor.fetch)
-      results << GetAttachmentsByOrderRow.new(id: row[0], order_id: row[1], filename: row[2], payload: row[3], description: row[4])
+      results << GetAttachmentsByOrderRow.new(id: row[0], order_id: row[1], filename: row[2], payload: read_lob(row[3]), description: read_lob(row[4]))
     end
     results
   end
@@ -42,7 +45,7 @@ module Queries
     cursor = conn.exec("SELECT id, order_id, filename, payload, description FROM attachments WHERE id = :1", id)
     row = cursor.fetch
     return nil if row.nil?
-    GetAttachmentByIdRow.new(id: row[0], order_id: row[1], filename: row[2], payload: row[3], description: row[4])
+    GetAttachmentByIdRow.new(id: row[0], order_id: row[1], filename: row[2], payload: read_lob(row[3]), description: read_lob(row[4]))
   end
 
   def self.delete_attachments_by_order(conn, order_id)
@@ -65,7 +68,7 @@ module Queries
     cursor.bind_param(8, nil, Time)
     rows_affected = cursor.exec
     raise RecordNotFound, "create_order: no row found" if rows_affected.zero?
-    CreateOrderRow.new(id: cursor[4], user_id: cursor[5], total: cursor[6], notes: cursor[7], created_at: cursor[8])
+    CreateOrderRow.new(id: cursor[4], user_id: cursor[5], total: cursor[6], notes: read_lob(cursor[7]), created_at: cursor[8])
   end
 
   GetOrdersByUserRow = Data.define(:id, :total, :notes, :created_at)
@@ -75,7 +78,7 @@ module Queries
     cursor = conn.exec("SELECT id, total, notes, created_at FROM orders WHERE user_id = :1 ORDER BY created_at DESC", user_id)
     results = []
     while (row = cursor.fetch)
-      results << GetOrdersByUserRow.new(id: row[0], total: row[1], notes: row[2], created_at: row[3])
+      results << GetOrdersByUserRow.new(id: row[0], total: row[1], notes: read_lob(row[2]), created_at: row[3])
     end
     results
   end
