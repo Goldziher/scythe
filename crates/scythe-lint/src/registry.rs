@@ -194,6 +194,7 @@ pub fn provenance_registry() -> RuleRegistry {
     reg.register(Box::new(rules::provenance::MalformedProvenanceHeader));
     reg.register(Box::new(rules::provenance::UnverifiableProvenance));
     reg.register(Box::new(rules::provenance::QueryDrift));
+    reg.register(Box::new(rules::provenance::OptionsDrift));
 
     reg
 }
@@ -341,8 +342,8 @@ mod tests {
     /// consumer of the default registry evaluates rules through
     /// `check_query` / `check_catalog`, which no provenance rule implements
     /// — so listing them via `scythe audit --list-rules` or running them
-    /// through `scythe lint` would advertise eight rules that can never
-    /// produce a finding from those commands.
+    /// through `scythe lint` would advertise rules that can never produce a
+    /// finding from those commands.
     #[test]
     fn default_registry_excludes_provenance_rules() {
         let reg = default_registry();
@@ -362,13 +363,14 @@ mod tests {
     }
 
     #[test]
-    fn provenance_registry_has_the_eight_prv_rules() {
+    fn provenance_registry_has_every_registered_prv_rule() {
         let reg = provenance_registry();
         let ids: Vec<&str> = reg.rules.iter().map(|r| r.id()).collect();
         assert_eq!(
             ids,
             vec![
-                "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07", "SC-PRV08"
+                "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07", "SC-PRV08",
+                "SC-PRV11"
             ]
         );
     }

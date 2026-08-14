@@ -1,4 +1,4 @@
-// scythe:provenance v=0.14.0 backend=rust-sqlx engine=mariadb schema=sch1:262bec5a0954c973 queries=q1:2f37bd0f0a685c79
+// scythe:provenance v=0.14.0 backend=rust-sqlx engine=mariadb schema=sch1:262bec5a0954c973 queries=q1:2f37bd0f0a685c79 options=opt1:57af1d7acc85e6c7
 #![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]

@@ -16,7 +16,7 @@
 //! - Out of the default registry, because everything that consumes it —
 //!   `scythe lint`, and `scythe audit --list-rules` via
 //!   `load_registry_for_discovery` — evaluates rules through `check_query` /
-//!   `check_catalog`. Listing eight rules there that neither command can
+//!   `check_catalog`. Listing nine rules there that neither command can
 //!   ever emit would advertise a capability that does not exist, and would
 //!   move the documented "58 built-in rules" figure that appears across the
 //!   README, the website, and the skills bundle.
@@ -261,11 +261,56 @@ impl LintRule for QueryDrift {
     }
 }
 
+/// `SC-PRV11` — the artifact was generated with different `[[sql.gen]]`
+/// options (derive list, serde flag, `row_type`, naming case, ...), or a
+/// different manifest overlay's *contents*, than this target now configures.
+///
+/// A distinct finding from [`BackendDrift`]/[`EngineDrift`] for the same
+/// reason [`QueryDrift`] is distinct from [`SchemaDrift`]: the schema,
+/// engine and backend can all still match while an *option* -- which
+/// changes the generated code's derives, serde attributes, row type, or
+/// naming convention just as much as a schema or engine change would --
+/// silently drifted, and before this rule existed nothing detected that
+/// (GH #155). See `scythe_codegen::provenance::options_fingerprint`
+/// for what participates in the comparison and how it stays stable across
+/// machines and runs.
+///
+/// `Error` by default, matching [`SchemaDrift`]/[`BackendDrift`]/
+/// [`EngineDrift`]/[`QueryDrift`]: the file on disk is not what the current
+/// config would produce, and it is always fixable by running `scythe
+/// generate`.
+///
+/// `SC-PRV09` (gen-target validity) and `SC-PRV10` (a comment-only query
+/// file) are not registered `LintRule`s in this module -- both are ad hoc
+/// `QueryViolation`s `scythe-cli` constructs directly for findings that are
+/// not artifact-header drift, so `SC-PRV11` is the next id free for a rule
+/// that *is*.
+pub struct OptionsDrift;
+
+impl LintRule for OptionsDrift {
+    fn id(&self) -> &'static str {
+        "SC-PRV11"
+    }
+    fn name(&self) -> &'static str {
+        "options-drift"
+    }
+    fn category(&self) -> RuleCategory {
+        RuleCategory::Provenance
+    }
+    fn default_severity(&self) -> Severity {
+        Severity::Error
+    }
+    fn description(&self) -> &'static str {
+        "Generated artifact was produced with different [[sql.gen]] options (or manifest overlay contents) than \
+         this target now configures"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The eight provenance rules, in id order, as `&dyn LintRule`.
+    /// The nine provenance rules, in id order, as `&dyn LintRule`.
     fn all_rules() -> Vec<&'static dyn LintRule> {
         vec![
             &SchemaDrift as &dyn LintRule,
@@ -276,16 +321,24 @@ mod tests {
             &MalformedProvenanceHeader,
             &UnverifiableProvenance,
             &QueryDrift,
+            &OptionsDrift,
         ]
     }
 
+    /// Unique, and in the fixed order this module declares them -- `SC-PRV09`
+    /// and `SC-PRV10` are deliberately absent from this list (see
+    /// [`OptionsDrift`]'s doc comment): they are `scythe-cli`-side ad hoc
+    /// findings with no `LintRule` here to skip over, so `SC-PRV11` sits
+    /// right after `SC-PRV08` in this registry despite not being numerically
+    /// adjacent to it.
     #[test]
-    fn ids_are_sequential_and_unique() {
+    fn ids_are_unique_and_in_declared_order() {
         let ids: Vec<&str> = all_rules().iter().map(|r| r.id()).collect();
         assert_eq!(
             ids,
             vec![
-                "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07", "SC-PRV08"
+                "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07", "SC-PRV08",
+                "SC-PRV11"
             ]
         );
     }
@@ -307,6 +360,7 @@ mod tests {
         assert_eq!(BackendDrift.default_severity(), Severity::Error);
         assert_eq!(EngineDrift.default_severity(), Severity::Error);
         assert_eq!(QueryDrift.default_severity(), Severity::Error);
+        assert_eq!(OptionsDrift.default_severity(), Severity::Error);
 
         assert_eq!(
             ScytheVersionDrift.default_severity(),

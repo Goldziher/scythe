@@ -1,4 +1,4 @@
-// scythe:provenance v=0.14.0 backend=java-jdbc engine=redshift schema=sch1:f882401b5f0b3b0a queries=q1:1d594d539783fc08
+// scythe:provenance v=0.14.0 backend=java-jdbc engine=redshift schema=sch1:f882401b5f0b3b0a queries=q1:1d594d539783fc08 options=opt1:cbf29ce484222325
 package generated;
 
 import java.math.BigDecimal;

@@ -1,4 +1,4 @@
-// scythe:provenance v=0.14.0 backend=typescript-postgres engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046
+// scythe:provenance v=0.14.0 backend=typescript-postgres engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046 options=opt1:cbf29ce484222325
 import type { Sql } from "postgres";
 
 

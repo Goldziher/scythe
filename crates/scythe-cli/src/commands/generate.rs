@@ -620,7 +620,8 @@ fn run_generate_inner(
             }
         }
 
-        for (_target, backend, output_dir) in &resolved {
+        for (target, backend, output_dir) in &resolved {
+            let options_fingerprint = resolve_options_fingerprint(target, base_dir)?;
             let target_validation_failed = generate_for_backend(
                 &sql_config.name,
                 backend.as_ref(),
@@ -631,6 +632,7 @@ fn run_generate_inner(
                     engine: &sql_config.engine,
                     schema: &schema_fingerprint,
                     queries: &queries_fingerprint,
+                    options: &options_fingerprint,
                 },
                 validate_output,
             )?;
@@ -702,6 +704,71 @@ fn apply_manifest_override(
         .map_err(|e| format!("backend '{backend_name}': invalid manifest override '{display_path}': {e}"))?;
 
     Ok(())
+}
+
+/// Compute the `opt1:<16 hex>` fingerprint [`provenance_header_line`] embeds
+/// as `target`'s `options=` field: a deterministic fingerprint over its
+/// resolved `[[sql.gen]]` options and, when one is configured, its manifest
+/// overlay's file *contents* (GH #155). Before this field existed,
+/// changing an option (a `derive` list, `serde = true`, `row_type`, a
+/// naming-case override) or swapping in a different `manifest = "..."`
+/// overlay left the header byte-identical, so `scythe check` reported the
+/// stale artifact as fresh.
+///
+/// Deliberately independent of [`apply_manifest_override`] mutating a real
+/// backend, even though both read the same file: this is called both when
+/// *writing* the header (`run_generate_inner`, alongside a full
+/// `apply_manifest_override` + `apply_options` on a constructed backend) and
+/// when *verifying* it (`verify_provenance`, which never constructs a
+/// fully-configured backend at all -- it only needs `backend.name()` for the
+/// finding's label). Reading the overlay file fresh here, rather than
+/// threading `apply_manifest_override`'s already-read content through to the
+/// verifier, is what keeps the write and verify paths from being able to
+/// silently disagree about what an overlay's content was after some future,
+/// partial refactor of either one.
+///
+/// # Stability
+///
+/// Delegates the actual hashing to
+/// [`scythe_codegen::provenance::options_fingerprint`], which documents the
+/// order-, machine-, and run-independence guarantees in full. The two things
+/// this function itself is responsible for keeping stable:
+///
+/// - The overlay is hashed by *content* (the bytes `std::fs::read_to_string`
+///   returns), never by `resolved` or `display_path` -- both are absolute
+///   paths that depend on where the project happens to be checked out, and
+///   embedding either would make the fingerprint differ between two
+///   otherwise-identical checkouts of the same project.
+/// - `target.options` is a `HashMap<String, String>`, whose iteration order
+///   here is left entirely to `options_fingerprint` to normalize (it sorts
+///   by key) -- this function passes the pairs through in whatever order
+///   `.iter()` happens to yield them.
+fn resolve_options_fingerprint(target: &ResolvedGenTarget, base_dir: &Path) -> Result<String, String> {
+    let manifest_overlay_content = match &target.manifest_override {
+        Some(manifest_path) => {
+            let resolved = base_dir.join(manifest_path);
+            let display_path = std::path::absolute(&resolved).unwrap_or_else(|_| resolved.clone());
+            let content = std::fs::read_to_string(&resolved).map_err(|e| {
+                format!(
+                    "backend '{}': failed to read manifest override '{}' while fingerprinting options: {e}",
+                    target.backend,
+                    display_path.display()
+                )
+            })?;
+            Some(content)
+        }
+        None => None,
+    };
+
+    let options: Vec<(&str, &str)> = target
+        .options
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .collect();
+    Ok(scythe_codegen::provenance::options_fingerprint(
+        options,
+        manifest_overlay_content.as_deref(),
+    ))
 }
 
 /// Validate that every `[[sql.gen]]` target in `sql_config` would actually
@@ -839,15 +906,33 @@ struct QueryResult {
 /// Build the provenance header line assembly prepends to every generated
 /// file, pinning the embedded `v=` field to *this binary's* version.
 ///
-/// The construction itself lives in [`scythe_codegen::provenance::header_line`]
-/// so that `scythe-codegen`'s `tool_validation` harness can assemble the same
-/// bytes and hand them to `php -l` / `ruby -c` / `gofmt`; see that module's
-/// doc comment. This wrapper exists only to supply the version, which is not
+/// The construction itself lives in
+/// [`scythe_codegen::provenance::header_line_with_options`] so that
+/// `scythe-codegen`'s `tool_validation` harness can assemble the same bytes
+/// and hand them to `php -l` / `ruby -c` / `gofmt`; see that module's doc
+/// comment. This wrapper exists only to supply the version, which is not
 /// `scythe-codegen`'s to decide: the number that belongs in the header is the
 /// version of the `scythe` binary that wrote the file, because that is
 /// exactly what [`verify_artifact`]'s SC-PRV02 check compares against.
-fn provenance_header_line(backend: &dyn CodegenBackend, engine: &str, schema: &str, queries: &str) -> String {
-    scythe_codegen::provenance::header_line(backend, env!("CARGO_PKG_VERSION"), engine, schema, queries)
+///
+/// `options` is the `opt1:<16 hex>` fingerprint from
+/// [`resolve_options_fingerprint`] (GH #155) -- the `options=`
+/// counterpart to `schema`'s `sch1:` and `queries`'s `q1:` fields.
+fn provenance_header_line(
+    backend: &dyn CodegenBackend,
+    engine: &str,
+    schema: &str,
+    queries: &str,
+    options: &str,
+) -> String {
+    scythe_codegen::provenance::header_line_with_options(
+        backend,
+        env!("CARGO_PKG_VERSION"),
+        engine,
+        schema,
+        queries,
+        options,
+    )
 }
 
 /// Assemble a backend's complete generated file: preamble (text that must
@@ -871,10 +956,11 @@ fn assemble_output(
     engine: &str,
     schema: &str,
     queries: &str,
+    options: &str,
 ) -> String {
     scythe_codegen::provenance::assemble_file(
         &backend.file_preamble(),
-        &provenance_header_line(backend, engine, schema, queries),
+        &provenance_header_line(backend, engine, schema, queries, options),
         &assemble_body(backend, results),
     )
 }
@@ -944,10 +1030,28 @@ fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult]) -> Strin
         output_parts.push(def.clone());
     }
 
+    // `model_struct` carries a table's `SELECT *` model and/or the composite
+    // type declarations reachable from this query, rendered as one text blob
+    // per query (see `generate_with_backend_and_overrides` in
+    // `scythe-codegen`). Two queries that select the same composite column,
+    // or that both `SELECT *` from the same table with the same projection,
+    // render byte-identical text -- `generate_composite_def` /
+    // `generate_model_struct` are pure functions of the composite/table
+    // shape, not of which query asked for them. Unlike `enum_def` and
+    // `nested_struct_defs` above, there is no per-item name to key a dedup
+    // on here, only the assembled text; deduping on that text is exact
+    // (never merges two declarations that happen to differ) and is what
+    // stops a language whose compiler rejects a redeclared type -- Java's
+    // `record ... is already defined`, Kotlin's `redeclaration:`, plus Rust,
+    // Go, C#, and PHP, which reject a duplicate struct/type/record/class the
+    // same way -- from ever seeing this file (board #166).
+    let mut seen_model_structs: AHashSet<&str> = AHashSet::new();
     let class_header = backend.query_class_header();
     if class_header.is_empty() {
         for result in results {
-            if let Some(ref s) = result.code.model_struct {
+            if let Some(ref s) = result.code.model_struct
+                && seen_model_structs.insert(s.as_str())
+            {
                 output_parts.push(s.clone());
             }
             if let Some(ref s) = result.code.row_struct {
@@ -959,7 +1063,9 @@ fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult]) -> Strin
         }
     } else {
         for result in results {
-            if let Some(ref s) = result.code.model_struct {
+            if let Some(ref s) = result.code.model_struct
+                && seen_model_structs.insert(s.as_str())
+            {
                 output_parts.push(s.clone());
             }
             if let Some(ref s) = result.code.row_struct {
@@ -1027,8 +1133,8 @@ fn backend_emits_rbs(backend: &dyn CodegenBackend) -> bool {
     backend.generate_rbs_file(&empty_context).is_some()
 }
 
-/// The three provenance-header fields that are derived once per `[[sql]]`
-/// block and then travel together down every generation path.
+/// The provenance-header fields that are derived once per `[[sql.gen]]`
+/// target and then travel together down every generation path.
 ///
 /// They are grouped rather than passed individually because they are only
 /// ever read as a set — by [`provenance_header_line`], and by nothing else —
@@ -1048,6 +1154,14 @@ struct ProvenanceFields<'a> {
     /// analyzed query set — see that method's doc comment for what
     /// participates.
     queries: &'a str,
+    /// The `opt1:<16 hex>` fingerprint from [`resolve_options_fingerprint`]
+    /// (GH #155) over this *target's* resolved `[[sql.gen]]` options
+    /// and manifest overlay contents -- unlike `engine`/`schema`/`queries`,
+    /// which are shared by every target under one `[[sql]]` block, this one
+    /// is per-target (two targets in the same block can configure different
+    /// options), which is why it is computed alongside the other three
+    /// inside the per-target loop rather than once per block.
+    options: &'a str,
 }
 
 /// Generate output for a single backend target.
@@ -1070,6 +1184,7 @@ fn generate_for_backend(
         engine,
         schema,
         queries,
+        options,
     } = provenance;
     // ~keep Nested struct names are deduplicated by (name, shape) only *within*
     // one analyze() call, so two queries in the same file can each derive
@@ -1141,7 +1256,7 @@ fn generate_for_backend(
         });
     }
 
-    let mut output_content = assemble_output(backend, &results, engine, schema, queries);
+    let mut output_content = assemble_output(backend, &results, engine, schema, queries, options);
 
     let filename = output_filename(backend);
 
@@ -1299,6 +1414,7 @@ fn generate_rbs_if_supported(
         engine,
         schema,
         queries,
+        options,
     } = provenance;
 
     let manifest = backend.manifest();
@@ -1431,7 +1547,7 @@ fn generate_rbs_if_supported(
         // language (`ruby` -> `#`), which is also RBS's comment syntax.
         let rbs_content = scythe_codegen::provenance::assemble_file(
             "",
-            &provenance_header_line(backend, engine, schema, queries),
+            &provenance_header_line(backend, engine, schema, queries, options),
             &rbs_content,
         );
 
@@ -1959,14 +2075,18 @@ const PROVENANCE_SCAN_LINES: usize = 20;
 
 /// Fields parsed from a generated file's provenance header line.
 ///
-/// `queries` is deliberately excluded from [`missing_fields`](Self::missing_fields)
-/// and therefore from [`is_complete`](Self::is_complete) -- those two stay
-/// the *original* four-field completeness contract from #68. A header
-/// written by scythe 0.14.0 or earlier has no `queries=` field at all, and
-/// that must read as "query drift is not covered for this artifact", not as
-/// SC-PRV06 malformed-header. See [`verify_artifact`]'s SC-PRV08 check for
-/// where `queries` actually gets used, and why it is compared only when
-/// present.
+/// `queries` and `options` are deliberately excluded from
+/// [`missing_fields`](Self::missing_fields) and therefore from
+/// [`is_complete`](Self::is_complete) -- those two stay the *original*
+/// four-field completeness contract from #68. A header written before a
+/// given field existed (0.14.0 for `queries`, and every version before GH #155
+/// for `options`) has no such field at all, and that must read as "drift for
+/// this field is not covered for this artifact", not as SC-PRV06
+/// malformed-header -- otherwise every artifact already committed before
+/// the #155 fix shipped would flag SC-PRV06 the next time `scythe check` ran, with
+/// no code change of its own to explain it. See [`verify_artifact`]'s
+/// SC-PRV08 and SC-PRV11 checks for where `queries` and `options` actually
+/// get used, and why each is compared only when present.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ProvenanceHeader {
     version: Option<String>,
@@ -1979,13 +2099,21 @@ struct ProvenanceHeader {
     /// both are handled the same way by [`verify_artifact`]'s SC-PRV08
     /// check: skipped, not reported as drift.
     queries: Option<String>,
+    /// `opt1:<16 hex>` fingerprint of the `[[sql.gen]]` target's resolved
+    /// options and manifest overlay contents (GH #155). `None` for
+    /// both "no such field" (an artifact generated before this field
+    /// existed) and "no header at all" -- both skipped by
+    /// [`verify_artifact`]'s SC-PRV11 check the same way `queries` is
+    /// skipped by SC-PRV08, and for the same backward-compatibility reason.
+    options: Option<String>,
 }
 
 impl ProvenanceHeader {
     /// Names of fields the header is missing, in a stable order, for the
     /// SC-PRV06 "malformed header" message.
     ///
-    /// `queries` never appears here -- see the struct doc comment.
+    /// Neither `queries` nor `options` ever appears here -- see the struct
+    /// doc comment.
     fn missing_fields(&self) -> Vec<&'static str> {
         [
             (self.version.is_none(), "v"),
@@ -2032,6 +2160,7 @@ fn parse_provenance_header(content: &str) -> Option<ProvenanceHeader> {
             "engine" => header.engine = Some(value.to_string()),
             "schema" => header.schema = Some(value.to_string()),
             "queries" => header.queries = Some(value.to_string()),
+            "options" => header.options = Some(value.to_string()),
             // Forward-compatible: the header format may grow fields later.
             // An older verifier ignoring keys it does not recognize (rather
             // than erroring) is what lets the header format and this
@@ -2052,7 +2181,7 @@ fn parse_provenance_header(content: &str) -> Option<ProvenanceHeader> {
 /// their severity the way a SQL rule does, by being iterated out of
 /// [`scythe_lint::RuleRegistry::active_rules`]. That is also why they are
 /// kept out of `default_registry`: `scythe lint` and `scythe audit
-/// --list-rules` would otherwise advertise eight rules neither can emit.
+/// --list-rules` would otherwise advertise nine rules neither can emit.
 /// Resolving them here through
 /// [`scythe_lint::RuleRegistry::effective_severity`] -- the same call every
 /// SQL rule's severity goes through, against a registry the same `[lint]`
@@ -2065,7 +2194,7 @@ fn parse_provenance_header(content: &str) -> Option<ProvenanceHeader> {
 ///
 /// Snapshotted into a `Copy` struct rather than holding a `&RuleRegistry` so
 /// the registry does not have to outlive the whole check run just to answer
-/// eight fixed questions.
+/// nine fixed questions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ProvenanceSeverities {
     schema_drift: Severity,
@@ -2076,6 +2205,7 @@ struct ProvenanceSeverities {
     malformed_header: Severity,
     unverifiable: Severity,
     query_drift: Severity,
+    options_drift: Severity,
 }
 
 impl ProvenanceSeverities {
@@ -2099,6 +2229,7 @@ impl ProvenanceSeverities {
             malformed_header: registry.effective_severity(&rules::MalformedProvenanceHeader),
             unverifiable: registry.effective_severity(&rules::UnverifiableProvenance),
             query_drift: registry.effective_severity(&rules::QueryDrift),
+            options_drift: registry.effective_severity(&rules::OptionsDrift),
         }
     }
 }
@@ -2126,24 +2257,34 @@ struct ProvenanceExpectation<'a> {
     /// that comparison in [`verify_artifact`] for why it only fires when the
     /// header actually has one.
     queries: &'a str,
+    /// Current `opt1:<16 hex>` fingerprint of this *target's* resolved
+    /// `[[sql.gen]]` options and manifest overlay contents (see
+    /// [`resolve_options_fingerprint`]), compared against the header's
+    /// `options` field for SC-PRV11 -- see that comparison in
+    /// [`verify_artifact`] for why it only fires when the header actually
+    /// has one. Per-target, unlike `engine`/`schema`/`queries`: two targets
+    /// under one `[[sql]]` block can configure different options.
+    options: &'a str,
     version: &'a str,
     severities: ProvenanceSeverities,
 }
 
 /// Compare each of `sql_config`'s resolved generation targets' on-disk
-/// artifacts against `catalog`, the current analyzed query set, and the
-/// current scythe build, reporting provenance drift as `SC-PRV01`-`SC-PRV08`
-/// violations.
+/// artifacts against `catalog`, the current analyzed query set, the current
+/// resolved `[[sql.gen]]` options, and the current scythe build, reporting
+/// provenance drift as `SC-PRV01`-`SC-PRV08` and `SC-PRV11` violations.
 ///
 /// # Scope
 ///
-/// This answers "was this file generated from the *current schema*?" and,
-/// as of #94, "was this file generated from the *current queries*?" --
-/// nothing more. The second question (SC-PRV08) is answered only when the
-/// artifact's header actually carries a `queries=` field: a header written
-/// by scythe 0.14.0 or earlier predates it, and that reads as "not covered
-/// for this artifact", not as drift -- see [`verify_artifact`]'s SC-PRV08
-/// check. Neither question is a substitute for actually regenerating: where
+/// This answers "was this file generated from the *current schema*?", as of
+/// #94 "was this file generated from the *current queries*?", and as of GH #155
+/// / GH #155 "was this file generated with the *current options* (and
+/// manifest overlay)?" -- nothing more. Each of the latter two questions
+/// (SC-PRV08, SC-PRV11) is answered only when the artifact's header actually
+/// carries the corresponding field: a header written before that field
+/// existed predates it, and that reads as "not covered for this artifact",
+/// not as drift -- see [`verify_artifact`]'s SC-PRV08 and SC-PRV11 checks.
+/// Neither question is a substitute for actually regenerating: where
 /// a full toolchain is available, `scythe generate` followed by `git status`
 /// answers both by actually regenerating and diffing byte-for-byte;
 /// provenance verification exists for the CI/review path where running the
@@ -2248,12 +2389,26 @@ fn verify_provenance(
             }
         };
 
+        let options_fingerprint = match resolve_options_fingerprint(&target, base_dir) {
+            Ok(fingerprint) => fingerprint,
+            Err(e) => {
+                violations.push(QueryViolation {
+                    query_name: target_label,
+                    rule_id: Cow::Borrowed("SC-PRV07"),
+                    severity: severities.unverifiable,
+                    message: format!("cannot verify provenance: {e} (run `scythe generate` for the full diagnosis)"),
+                });
+                continue;
+            }
+        };
+
         let expected = ProvenanceExpectation {
             target_label: &target_label,
             backend_name: backend.name(),
             engine: sanitized_engine.as_ref(),
             schema: &current_schema,
             queries: current_queries,
+            options: &options_fingerprint,
             version: env!("CARGO_PKG_VERSION"),
             severities,
         };
@@ -2376,6 +2531,33 @@ fn verify_artifact(artifact_path: &Path, expected: &ProvenanceExpectation<'_>) -
                 "{path_display}: query drift -- generated against queries {header_queries}, \
                  current queries are {} (run `scythe generate` to refresh)",
                 expected.queries
+            ),
+        });
+    }
+
+    // SC-PRV11 (GH #155) -- a distinct finding from SC-PRV01/03/04
+    // above: this compares the *options* fingerprint (derive list, serde
+    // flag, `row_type`, naming case, manifest overlay contents, ...), not
+    // schema/backend/engine, so changing an option no longer leaves the
+    // header byte-identical to a target whose config never changed.
+    //
+    // ~keep Gated on `header.options` being present, exactly like the SC-PRV08
+    // gate on `header.queries` immediately above and for the identical
+    // reason: `options` is not part of the four-field completeness contract
+    // (see [`ProvenanceHeader`]'s doc comment), so a header written before
+    // this field existed reads as "options drift is not covered for this
+    // artifact" rather than as SC-PRV06 malformed-header or SC-PRV11 drift.
+    if let Some(header_options) = header.options.as_deref()
+        && header_options != expected.options
+    {
+        violations.push(QueryViolation {
+            query_name: expected.target_label.to_string(),
+            rule_id: Cow::Borrowed("SC-PRV11"),
+            severity: expected.severities.options_drift,
+            message: format!(
+                "{path_display}: options drift -- generated with options {header_options}, current \
+                 [[sql.gen]] options are {} (run `scythe generate` to refresh)",
+                expected.options
             ),
         });
     }
@@ -2842,6 +3024,151 @@ backend = \"rust-sqlx\"
         );
     }
 
+    /// board #166: two queries whose `model_struct` renders the identical text --
+    /// exactly the shape two queries selecting the same composite column
+    /// produce, since `generate_composite_def` is a pure function of the
+    /// composite's shape, not of which query asked for it -- must not be
+    /// emitted twice. `enum_def` and `nested_struct_defs` above are already
+    /// deduped by name; before this fix `model_struct` was not deduped at
+    /// all.
+    ///
+    /// Before the fix, `assemble_body` pushed every result's `model_struct`
+    /// unconditionally, so this printed the declaration **twice**, back to
+    /// back -- the literal cause of javac's `record Address is already
+    /// defined` and kotlinc's `redeclaration:`. See
+    /// `assemble_body_dedupes_composite_declared_by_two_queries_across_all_ten_languages`
+    /// below for the same reproduction driven through real composite
+    /// generation, across every shipped language, rather than a hand-typed
+    /// stand-in for just one of them.
+    #[test]
+    fn assemble_body_dedupes_identical_model_struct_declared_by_two_queries() {
+        let backend = get_backend("java-jdbc", "postgresql").expect("java-jdbc should support postgresql");
+        let composite_decl = "public record Address(String street) {}";
+
+        let results = vec![
+            query_result(Some(composite_decl), Some("ROW_A"), Some("FN_A")),
+            query_result(Some(composite_decl), Some("ROW_B"), Some("FN_B")),
+        ];
+
+        let output = assemble_body(backend.as_ref(), &results);
+
+        let occurrences = output.matches(composite_decl).count();
+        assert_eq!(
+            occurrences, 1,
+            "the composite declaration must appear exactly once, got {occurrences}. Output:\n{output}"
+        );
+    }
+
+    /// board #166, established rather than assumed, and not scoped to the JVM:
+    /// the defect lives entirely in this CLI's `assemble_body` -- no
+    /// backend-specific branch decides whether `model_struct` gets deduped
+    /// -- so it is language-agnostic. Every one of the ten backends below
+    /// independently renders the identical composite declaration for two
+    /// queries that select the same composite column, and before the fix
+    /// every one of them printed it twice.
+    ///
+    /// Whether that duplication actually *breaks compilation* does vary by
+    /// language -- established here by inspecting each backend's
+    /// `generate_composite_def` source, not by running a compiler (this
+    /// crate has none available, so that half stays unverified):
+    ///
+    /// - Java, Kotlin, Rust, Go, C#, and PHP each declare the composite as a
+    ///   named `record`/`data class`/`struct`/`type ... struct`/`record`/
+    ///   `class`, and each of those languages rejects a redeclaration as a
+    ///   hard compile error (`record ... is already defined`,
+    ///   `redeclaration:`, Rust's E0428 duplicate-definition, Go's
+    ///   `... redeclared in this block`, C#'s CS0101, PHP's fatal
+    ///   `Cannot redeclare class`).
+    /// - TypeScript's composite is an `interface`, which the language
+    ///   *merges* rather than rejects when redeclared with an identical
+    ///   shape -- so this duplication would not have broken a `tsc` build,
+    ///   only bloated the output.
+    /// - Python's and Ruby's are a redefinition (a `class` statement, or a
+    ///   `Data.define(...)` constant reassignment) that silently shadows the
+    ///   first at runtime rather than raising a syntax error.
+    /// - Elixir's is a `defmodule` redefinition that only warns
+    ///   (`redefining module ...`) under the compiler's default settings.
+    ///
+    /// All ten still emit dead, duplicated code before this fix; only six of
+    /// them would have refused to build because of it.
+    #[test]
+    fn assemble_body_dedupes_composite_declared_by_two_queries_across_all_ten_languages() {
+        use scythe_core::analyzer::{AnalyzedColumn, CompositeFieldInfo, CompositeInfo};
+        use scythe_core::parser::QueryCommand;
+
+        let composite = CompositeInfo {
+            sql_name: "address".to_string(),
+            fields: vec![CompositeFieldInfo {
+                name: "street".to_string(),
+                neutral_type: "string".to_string(),
+            }],
+        };
+
+        let make_query = |name: &str| {
+            AnalyzedQuery::build(|q| {
+                q.name = name.to_string();
+                q.command = QueryCommand::One;
+                q.columns = vec![AnalyzedColumn {
+                    name: "addr".to_string(),
+                    neutral_type: "composite::address".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                }];
+                q.composites = vec![composite.clone()];
+            })
+        };
+
+        // (backend, the substring that opens the composite's declaration)
+        let cases: &[(&str, &str)] = &[
+            ("rust-sqlx", "pub struct Address {"),
+            ("python-psycopg3", "class Address:"),
+            ("typescript-pg", "export interface Address {"),
+            ("go-pgx", "type Address struct {"),
+            ("java-jdbc", "public record Address(String street) {}"),
+            ("kotlin-exposed", "data class Address("),
+            ("ruby-pg", "Address = Data.define("),
+            ("php-pdo", "readonly class Address {"),
+            ("csharp-npgsql", "public record Address("),
+            ("elixir-postgrex", "defmodule Address do"),
+        ];
+
+        for &(backend_name, marker) in cases {
+            let backend = get_backend(backend_name, "postgresql").unwrap_or_else(|e| panic!("{backend_name}: {e}"));
+
+            let code_a = scythe_codegen::generate_with_backend(&make_query("GetOneAddress"), backend.as_ref())
+                .unwrap_or_else(|e| panic!("{backend_name}: query_a failed to generate: {e}"));
+            let code_b = scythe_codegen::generate_with_backend(&make_query("GetAnotherAddress"), backend.as_ref())
+                .unwrap_or_else(|e| panic!("{backend_name}: query_b failed to generate: {e}"));
+
+            assert!(
+                code_a.model_struct.as_deref().is_some_and(|s| s.contains(marker)),
+                "{backend_name}: test premise, query_a must render the composite declaration; got: {:?}",
+                code_a.model_struct
+            );
+
+            let results = vec![
+                QueryResult {
+                    code: code_a,
+                    enums: Vec::new(),
+                    nested_enum_names: Vec::new(),
+                },
+                QueryResult {
+                    code: code_b,
+                    enums: Vec::new(),
+                    nested_enum_names: Vec::new(),
+                },
+            ];
+
+            let output = assemble_body(backend.as_ref(), &results);
+            let occurrences = output.matches(marker).count();
+            assert_eq!(
+                occurrences, 1,
+                "{backend_name}: the composite declaration must be emitted exactly once when two queries \
+                 select it; before the board #166 fix this printed 2 (one per query). Output:\n{output}"
+            );
+        }
+    }
+
     /// With no analyzed queries at all, there is nothing to write; the file
     /// must fall back to a placeholder comment rather than an empty string
     /// (an empty generated file reads as a build failure, not "no queries").
@@ -2936,13 +3263,14 @@ backend = \"rust-sqlx\"
     // -----------------------------------------------------------------------
 
     #[test]
-    fn provenance_header_line_contains_sentinel_and_all_five_fields() {
+    fn provenance_header_line_contains_sentinel_and_all_six_fields() {
         let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
         let line = provenance_header_line(
             backend.as_ref(),
             "postgresql",
             "sch1:0123456789abcdef",
             "q1:fedcba9876543210",
+            "opt1:0011223344556677",
         );
 
         assert!(line.starts_with("// scythe:provenance "), "got: {line:?}");
@@ -2951,13 +3279,20 @@ backend = \"rust-sqlx\"
         assert!(line.contains("engine=postgresql"));
         assert!(line.contains("schema=sch1:0123456789abcdef"));
         assert!(line.contains("queries=q1:fedcba9876543210"));
+        assert!(line.contains("options=opt1:0011223344556677"));
         assert!(line.ends_with('\n'));
     }
 
     #[test]
     fn provenance_header_line_uses_hash_comment_for_ruby() {
         let backend = get_backend("ruby-pg", "postgresql").expect("ruby-pg should support postgresql");
-        let line = provenance_header_line(backend.as_ref(), "postgresql", "sch1:aaaa", "q1:fedcba9876543210");
+        let line = provenance_header_line(
+            backend.as_ref(),
+            "postgresql",
+            "sch1:aaaa",
+            "q1:fedcba9876543210",
+            "opt1:aaaa",
+        );
         assert!(line.starts_with("# scythe:provenance "), "got: {line:?}");
     }
 
@@ -2977,7 +3312,13 @@ backend = \"rust-sqlx\"
         let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
         let malicious_engine = "postgresql\nfn evil() {}";
 
-        let line = provenance_header_line(backend.as_ref(), malicious_engine, "sch1:ffff", "q1:fedcba9876543210");
+        let line = provenance_header_line(
+            backend.as_ref(),
+            malicious_engine,
+            "sch1:ffff",
+            "q1:fedcba9876543210",
+            "opt1:ffff",
+        );
 
         assert_eq!(
             line.lines().count(),
@@ -2989,7 +3330,7 @@ backend = \"rust-sqlx\"
             format!(
                 "// scythe:provenance v={} backend=rust-sqlx \
                  engine=postgresql\\u{{a}}fn\\u{{20}}evil()\\u{{20}}{{}} schema=sch1:ffff \
-                 queries=q1:fedcba9876543210\n",
+                 queries=q1:fedcba9876543210 options=opt1:ffff\n",
                 env!("CARGO_PKG_VERSION")
             )
         );
@@ -3009,6 +3350,7 @@ backend = \"rust-sqlx\"
             malicious_engine,
             "sch1:ffff",
             "q1:fedcba9876543210",
+            "opt1:ffff",
         );
 
         let provenance_lines: Vec<&str> = output.lines().filter(|l| l.contains("scythe:provenance")).collect();
@@ -3045,6 +3387,7 @@ backend = \"rust-sqlx\"
             malicious_engine,
             "sch1:ffff",
             "q1:fedcba9876543210",
+            "opt1:ffff",
         );
         let header = parse_provenance_header(&output).expect("assembled output must carry a parseable header");
 
@@ -3081,6 +3424,7 @@ backend = \"rust-sqlx\"
             malicious_engine,
             "sch1:ffff",
             "q1:fedcba9876543210",
+            "opt1:ffff",
         );
         let header = parse_provenance_header(&output).expect("assembled output must carry a parseable header");
 
@@ -3107,7 +3451,13 @@ backend = \"rust-sqlx\"
             "canonical name backends must agree on"
         );
 
-        let line = provenance_header_line(alias_backend.as_ref(), "postgresql", "sch1:aaaa", "q1:fedcba9876543210");
+        let line = provenance_header_line(
+            alias_backend.as_ref(),
+            "postgresql",
+            "sch1:aaaa",
+            "q1:fedcba9876543210",
+            "opt1:aaaa",
+        );
         assert!(line.contains("backend=rust-sqlx"));
         assert!(!line.contains("backend=sqlx"));
     }
@@ -3129,6 +3479,7 @@ backend = \"rust-sqlx\"
             "postgresql",
             "sch1:fedcba9876543210",
             "q1:0123456789abcdef",
+            "opt1:0123456789abcdef",
         );
 
         let header = parse_provenance_header(&output).expect("assembled output must carry a parseable header");
@@ -3137,6 +3488,7 @@ backend = \"rust-sqlx\"
         assert_eq!(header.engine.as_deref(), Some("postgresql"));
         assert_eq!(header.schema.as_deref(), Some("sch1:fedcba9876543210"));
         assert_eq!(header.queries.as_deref(), Some("q1:0123456789abcdef"));
+        assert_eq!(header.options.as_deref(), Some("opt1:0123456789abcdef"));
     }
 
     /// `<?php` must be the literal first five bytes of the assembled file --
@@ -3147,7 +3499,14 @@ backend = \"rust-sqlx\"
     fn assemble_output_keeps_php_open_tag_as_the_first_bytes() {
         for backend_name in ["php-pdo", "php-amphp"] {
             let backend = get_backend(backend_name, "postgresql").unwrap_or_else(|e| panic!("{backend_name}: {e}"));
-            let output = assemble_output(backend.as_ref(), &[], "postgresql", "sch1:aaaa", "q1:fedcba9876543210");
+            let output = assemble_output(
+                backend.as_ref(),
+                &[],
+                "postgresql",
+                "sch1:aaaa",
+                "q1:fedcba9876543210",
+                "opt1:aaaa",
+            );
             assert!(
                 output.starts_with("<?php\n"),
                 "{backend_name}: expected output to start with '<?php\\n', got:\n{}",
@@ -3179,7 +3538,14 @@ backend = \"rust-sqlx\"
                 .or_else(|_| get_backend(backend_name, "mssql"))
                 .or_else(|_| get_backend(backend_name, "oracle"))
                 .unwrap_or_else(|e| panic!("{backend_name}: {e}"));
-            let output = assemble_output(backend.as_ref(), &[], "postgresql", "sch1:bbbb", "q1:fedcba9876543210");
+            let output = assemble_output(
+                backend.as_ref(),
+                &[],
+                "postgresql",
+                "sch1:bbbb",
+                "q1:fedcba9876543210",
+                "opt1:bbbb",
+            );
             let first_line = output.lines().next().unwrap_or_default();
             assert_eq!(
                 first_line,
@@ -3217,6 +3583,7 @@ backend = \"rust-sqlx\"
             "postgresql",
             "sch1:0123456789abcdef",
             "q1:fedcba9876543210",
+            "opt1:0123456789abcdef",
         );
 
         let first_line = output.lines().next().expect("output must have a first line");
@@ -3254,7 +3621,14 @@ backend = \"rust-sqlx\"
             "test assumes rust-sqlx has no preamble"
         );
 
-        let output = assemble_output(backend.as_ref(), &[], "postgresql", "sch1:cccc", "q1:fedcba9876543210");
+        let output = assemble_output(
+            backend.as_ref(),
+            &[],
+            "postgresql",
+            "sch1:cccc",
+            "q1:fedcba9876543210",
+            "opt1:cccc",
+        );
         assert!(
             output.starts_with("// scythe:provenance "),
             "got:\n{}",
@@ -3287,7 +3661,14 @@ backend = \"rust-sqlx\"
             .next()
             .expect("test assumes rust-sqlx's file_header is non-empty");
 
-        let output = assemble_output(backend.as_ref(), &[], "postgresql", "sch1:dddd", "q1:fedcba9876543210");
+        let output = assemble_output(
+            backend.as_ref(),
+            &[],
+            "postgresql",
+            "sch1:dddd",
+            "q1:fedcba9876543210",
+            "opt1:dddd",
+        );
         let mut lines = output.lines();
         let provenance_line = lines.next().expect("output must have a first line");
         assert!(
@@ -3322,7 +3703,14 @@ backend = \"rust-sqlx\"
             "test assumes php-pdo has a non-empty preamble"
         );
 
-        let output = assemble_output(backend.as_ref(), &[], "postgresql", "sch1:eeee", "q1:fedcba9876543210");
+        let output = assemble_output(
+            backend.as_ref(),
+            &[],
+            "postgresql",
+            "sch1:eeee",
+            "q1:fedcba9876543210",
+            "opt1:eeee",
+        );
         let mut lines = output.lines();
         let preamble_line = lines.next().expect("output must have a first line");
         assert_eq!(preamble_line, "<?php");
@@ -3463,6 +3851,54 @@ backend = \"rust-sqlx\"
         assert!(header.is_complete());
         assert_eq!(header.queries.as_deref(), Some("q1:fedcba9876543210"));
         assert_eq!(header.schema.as_deref(), Some("sch1:0123456789abcdef"));
+    }
+
+    /// GH #155: `parse_provenance_header` must read an `options=`
+    /// field when present.
+    #[test]
+    fn parse_provenance_header_reads_options_field() {
+        let content = "// scythe:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:eeee \
+                        queries=q1:fedcba9876543210 options=opt1:0011223344556677\n";
+        let header = parse_provenance_header(content).expect("header must be found");
+        assert_eq!(header.options.as_deref(), Some("opt1:0011223344556677"));
+    }
+
+    /// `options` is not one of the four fields `ProvenanceHeader::is_complete`
+    /// requires, exactly like `queries` above and for the identical
+    /// backward-compatibility reason: a header written before GH #155 has no
+    /// `options=` field at all and must still verify as complete -- that is
+    /// the contract `verify_artifact`'s SC-PRV11 gate depends on.
+    #[test]
+    fn parse_provenance_header_without_options_field_is_still_complete() {
+        let content = "// scythe:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:eeee \
+                        queries=q1:fedcba9876543210\n";
+        let header = parse_provenance_header(content).expect("header must be found");
+        assert_eq!(header.options, None);
+        assert!(
+            header.is_complete(),
+            "a pre-#155 header with no options= field must still be complete: {header:?}"
+        );
+    }
+
+    /// Round-trip through the real assembler: `header_line_with_options`
+    /// writes the `options=` field scythe generate now embeds, and
+    /// `parse_provenance_header` must read back the exact value handed to
+    /// it -- the same contract already pinned for `queries` above.
+    #[test]
+    fn options_field_round_trips_through_header_line_with_options_and_parse() {
+        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let line = scythe_codegen::provenance::header_line_with_options(
+            backend.as_ref(),
+            "0.15.0",
+            "postgresql",
+            "sch1:0123456789abcdef",
+            "q1:fedcba9876543210",
+            "opt1:0011223344556677",
+        );
+
+        let header = parse_provenance_header(&line).expect("header must be found");
+        assert!(header.is_complete());
+        assert_eq!(header.options.as_deref(), Some("opt1:0011223344556677"));
     }
 
     // -----------------------------------------------------------------------
@@ -3651,6 +4087,260 @@ backend = \"rust-sqlx\"
         );
         assert_eq!(violations[0].rule_id, "SC-PRV08");
         assert_eq!(violations[0].severity, scythe_lint::Severity::Error);
+    }
+
+    /// GH #155: a header with no `options=` field at all -- exactly
+    /// what every artifact written before this field existed carries -- must
+    /// verify clean, mirroring `verify_provenance_queries_less_header_verifies_clean`'s
+    /// backward-compatibility contract for `queries`. SC-PRV11 must never
+    /// fire, and SC-PRV06 (malformed header) must not fire either, since
+    /// `options` is not part of the four-field completeness contract.
+    #[test]
+    fn verify_provenance_options_less_header_verifies_clean() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = provenance_test_catalog();
+        let schema = catalog.fingerprint();
+        let sql_config = provenance_test_sql_config(dir.path());
+
+        // No `options=` field -- the pre-#155 header shape.
+        write_artifact(
+            dir.path(),
+            &format!(
+                "v={} backend=rust-sqlx engine=postgresql schema={} queries=q1:0000000000000000",
+                env!("CARGO_PKG_VERSION"),
+                schema
+            ),
+        );
+
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
+        assert!(violations.is_empty(), "expected no violations, got {violations:?}");
+    }
+
+    /// A header that *does* carry `options=` and matches the current
+    /// target's resolved options must produce no violations -- the
+    /// companion positive case to
+    /// `verify_provenance_detects_options_drift_as_error` below.
+    #[test]
+    fn verify_provenance_matching_options_header_produces_no_violations() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = provenance_test_catalog();
+        let schema = catalog.fingerprint();
+
+        let sql_config = SqlConfig {
+            name: "main".to_string(),
+            engine: "postgresql".to_string(),
+            schema: Vec::new(),
+            queries: Vec::new(),
+            output: None,
+            gen_config: Some(GenTargets::Array(vec![GenTarget {
+                backend: "rust-sqlx".to_string(),
+                output: dir.path().to_string_lossy().into_owned(),
+                manifest: None,
+                options: std::collections::HashMap::from([(
+                    "row_type".to_string(),
+                    toml::Value::String("pydantic".to_string()),
+                )]),
+            }])),
+            type_overrides: None,
+        };
+
+        // Computed through the real function, not hand-derived, so this test
+        // cannot be wrong about what "current" actually is.
+        let current_options = scythe_codegen::provenance::options_fingerprint([("row_type", "pydantic")], None);
+
+        write_artifact(
+            dir.path(),
+            &format!(
+                "v={} backend=rust-sqlx engine=postgresql schema={} queries=q1:0000000000000000 options={}",
+                env!("CARGO_PKG_VERSION"),
+                schema,
+                current_options
+            ),
+        );
+
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
+        assert!(violations.is_empty(), "expected no violations, got {violations:?}");
+    }
+
+    /// GH #155: a header whose `options=` field disagrees with the
+    /// current target's resolved options must be reported as SC-PRV11
+    /// drift, mirroring `verify_provenance_detects_query_drift_as_error`'s
+    /// shape for `queries`. The schema and query fingerprints both match, so
+    /// SC-PRV01 and SC-PRV08 must not fire alongside it.
+    #[test]
+    fn verify_provenance_detects_options_drift_as_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = provenance_test_catalog();
+        let schema = catalog.fingerprint();
+        let sql_config = provenance_test_sql_config(dir.path());
+
+        // `provenance_test_sql_config` resolves to the default `rust-sqlx`
+        // target with no `[[sql.gen]]` options at all. Computed through the
+        // real function (not hand-derived) purely to prove the premise below
+        // rather than to build the header -- the header intentionally
+        // embeds a different, wrong value.
+        let current_options = scythe_codegen::provenance::options_fingerprint(std::iter::empty(), None);
+        assert_ne!(
+            current_options, "opt1:0000000000000000",
+            "test premise: the header below must actually disagree with the current fingerprint"
+        );
+
+        write_artifact(
+            dir.path(),
+            &format!(
+                "v={} backend=rust-sqlx engine=postgresql schema={} queries=q1:0000000000000000 \
+                 options=opt1:0000000000000000",
+                env!("CARGO_PKG_VERSION"),
+                schema
+            ),
+        );
+
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
+        assert_eq!(
+            violations.len(),
+            1,
+            "expected exactly one violation, got {violations:?}"
+        );
+        assert_eq!(violations[0].rule_id, "SC-PRV11");
+        assert_eq!(violations[0].severity, scythe_lint::Severity::Error);
+    }
+
+    /// GH #155: a target configured with a manifest overlay whose
+    /// file *content* on disk no longer matches what the header's
+    /// `options=` fingerprint was computed from must be reported as
+    /// SC-PRV11 drift, even though `target.options` itself never changed --
+    /// the overlay is fingerprinted by content, not merely by "configured or
+    /// not" (see `scythe_codegen::provenance::options_fingerprint`'s doc
+    /// comment).
+    #[test]
+    fn verify_provenance_detects_manifest_overlay_content_drift_as_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = provenance_test_catalog();
+        let schema = catalog.fingerprint();
+
+        let overlay_path = dir.path().join("overlay.toml");
+        std::fs::write(&overlay_path, "[naming]\nstruct_case = \"PascalCase\"\n").unwrap();
+
+        let sql_config = SqlConfig {
+            name: "main".to_string(),
+            engine: "postgresql".to_string(),
+            schema: Vec::new(),
+            queries: Vec::new(),
+            output: None,
+            gen_config: Some(GenTargets::Array(vec![GenTarget {
+                backend: "rust-sqlx".to_string(),
+                output: dir.path().to_string_lossy().into_owned(),
+                manifest: Some("overlay.toml".to_string()),
+                options: std::collections::HashMap::new(),
+            }])),
+            type_overrides: None,
+        };
+
+        // The header was written when the overlay held its *original*
+        // content.
+        let original_options = scythe_codegen::provenance::options_fingerprint(
+            std::iter::empty(),
+            Some("[naming]\nstruct_case = \"PascalCase\"\n"),
+        );
+
+        write_artifact(
+            dir.path(),
+            &format!(
+                "v={} backend=rust-sqlx engine=postgresql schema={} queries=q1:0000000000000000 options={}",
+                env!("CARGO_PKG_VERSION"),
+                schema,
+                original_options
+            ),
+        );
+
+        // The overlay file is edited after the fact, with no regeneration --
+        // `target.options` (empty) never changes.
+        std::fs::write(&overlay_path, "[naming]\nstruct_case = \"snake_case\"\n").unwrap();
+
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            dir.path(),
+            default_severities(),
+        );
+        assert_eq!(
+            violations.len(),
+            1,
+            "expected exactly one violation, got {violations:?}"
+        );
+        assert_eq!(violations[0].rule_id, "SC-PRV11");
+    }
+
+    /// The stability half of GH #155: calling
+    /// `resolve_options_fingerprint` twice for the identical target and
+    /// `base_dir` -- nothing regenerated, nothing edited -- must produce the
+    /// identical fingerprint both times. A fingerprint that drifts on its
+    /// own between two runs of `scythe check` against an unchanged project
+    /// would report false drift on every single run, which is worse than
+    /// not fingerprinting options at all.
+    #[test]
+    fn resolve_options_fingerprint_is_stable_when_nothing_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("overlay.toml"),
+            "[naming]\nstruct_case = \"PascalCase\"\n",
+        )
+        .unwrap();
+
+        let target = ResolvedGenTarget {
+            backend: "rust-sqlx".to_string(),
+            output: "generated".to_string(),
+            manifest_override: Some("overlay.toml".to_string()),
+            options: std::collections::HashMap::from([("row_type".to_string(), "pydantic".to_string())]),
+        };
+
+        let first = resolve_options_fingerprint(&target, dir.path()).expect("fingerprint must resolve");
+        let second = resolve_options_fingerprint(&target, dir.path()).expect("fingerprint must resolve");
+
+        assert_eq!(
+            first, second,
+            "regenerating with nothing changed must produce a byte-identical fingerprint"
+        );
+    }
+
+    /// The companion sensitivity case: an option value changing must move
+    /// the fingerprint `resolve_options_fingerprint` returns, not just the
+    /// pure `options_fingerprint` it delegates to (already covered directly
+    /// in `scythe_codegen::provenance`'s own tests).
+    #[test]
+    fn resolve_options_fingerprint_changes_when_an_option_value_changes() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let make_target = |row_type: &str| ResolvedGenTarget {
+            backend: "rust-sqlx".to_string(),
+            output: "generated".to_string(),
+            manifest_override: None,
+            options: std::collections::HashMap::from([("row_type".to_string(), row_type.to_string())]),
+        };
+
+        let pydantic = resolve_options_fingerprint(&make_target("pydantic"), dir.path()).unwrap();
+        let dataclass = resolve_options_fingerprint(&make_target("dataclass"), dir.path()).unwrap();
+
+        assert_ne!(pydantic, dataclass);
     }
 
     #[test]
