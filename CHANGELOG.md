@@ -115,6 +115,14 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   noticed; python evaluates `@dataclass` annotations when the class body runs, so the generated module
   raised `NameError` on import. Definitions are now emitted in dependency order. (#204)
 
+- **Four integration projects had their generated output checked for freshness but never executed.**
+  `elixir-jamdb-oracle` and `ruby-oci8-oracle` now run in `integration-oracle`, `kotlin-jdbc-ext` and
+  `php-pdo-namespace` in `integration-pg`. Each already had a `test:*` Taskfile target and needed no
+  new infrastructure — only the missing workflow step. `php-pdo-snowflake` stays exempt, with its
+  reason corrected: `pdo_snowflake` ships as neither a PECL nor an apt package and must be built from
+  source against Snowflake's C driver, which is infrastructure work rather than a missing step. This
+  is the gap that let the csharp-snowflake parameter-binding bug survive from v0.6.0 to 0.14.0. (#118)
+
 - **Generated Ruby raised `LoadError` on Ruby 3.4+.** `bigdecimal` stopped shipping as a default gem
   in Ruby 3.4.0, and `ruby-pg`, `ruby-mysql2` and `ruby-trilogy` emit `require "bigdecimal/util"`
   whenever a query's generated code applies `.to_d` to a `decimal` column — so on 3.4 that `require`

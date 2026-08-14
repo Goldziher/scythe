@@ -257,6 +257,10 @@ jobs:
         working-directory: integration_tests/kotlin-jdbc
         run: gradle run --quiet
 
+      - name: Test kotlin-jdbc-ext
+        working-directory: integration_tests/kotlin-jdbc-ext
+        run: gradle run --quiet
+
       - name: Test csharp-npgsql
         working-directory: integration_tests/csharp-npgsql
         run: dotnet run
@@ -286,6 +290,18 @@ jobs:
       - name: Test php-pdo
         working-directory: integration_tests/php-pdo
         run: php test_integration.php
+
+      # php-pdo-namespace has no runtime harness -- it exists to prove the
+      # generator can target a custom PHP namespace, so the test is a lint of
+      # the emitted file rather than a DB-backed run. `php -l` only checks
+      # syntax; it cannot catch a wrong namespace *value* or any query-level
+      # regression, which is why the grep below asserts the actual namespace
+      # string, not just that the file parses.
+      - name: Test php-pdo-namespace
+        working-directory: integration_tests/php-pdo-namespace
+        run: |
+          php -l generated/queries.php
+          grep -qF 'namespace App\Database\Generated;' generated/queries.php
 
       - name: Test php-amphp
         working-directory: integration_tests/php-amphp
@@ -699,6 +715,24 @@ jobs:
       - name: Test csharp-oracle
         working-directory: integration_tests/csharp-oracle
         run: dotnet run
+
+      # jamdb_oracle is a pure Elixir/Erlang client speaking Oracle's wire
+      # protocol directly (no OCI/Instant Client dependency), so it needs
+      # nothing beyond the setup-beam step already in this job.
+      - name: Test elixir-jamdb-oracle
+        working-directory: integration_tests/elixir-jamdb-oracle
+        run: |
+          mix deps.get --quiet
+          mix run test/integration_test.exs
+
+      # ruby-oci8 links against the Oracle Instant Client this job already
+      # installs (basic + devel headers) for sqlplus above, so no extra
+      # infrastructure step is needed here -- only the test step itself.
+      - name: Test ruby-oci8-oracle
+        working-directory: integration_tests/ruby-oci8-oracle
+        run: |
+          bundle install
+          bundle exec ruby test_integration.rb
 
       - name: Test rust-sibyl-oracle
         working-directory: integration_tests/rust-sibyl-oracle
