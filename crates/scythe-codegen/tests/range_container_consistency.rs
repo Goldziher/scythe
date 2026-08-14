@@ -476,6 +476,13 @@ fn each_language_declares_one_range_spelling() {
 /// `resolve_type` and `file_header_for_results` and checks the code it
 /// actually emits, the same standard `e850c2b0` demanded of the six mappings
 /// it fixed.
+///
+/// This still only checks the emitted *text* -- a fixture string changing to
+/// contain the right substrings is not evidence it compiles. See
+/// `tokio_postgres_range_wrapper_compiles.rs` (board #203) for the
+/// compile-only check that feeds this same `file_header_for_results` output
+/// to a real `rustc`, and for why that check lives in its own throwaway
+/// crate rather than as a range column on a shared schema.
 #[test]
 fn rust_tokio_postgres_range_emits_a_working_pgrange_wrapper() {
     let backend = get_backend("rust-tokio-postgres", "postgresql").expect("rust-tokio-postgres/postgresql");
