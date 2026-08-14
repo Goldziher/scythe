@@ -358,5 +358,11 @@ rescue StandardError => e
   warn e.backtrace.first(5).join("\n")
   exit 1
 ensure
+{%- if driver == "oci8" %}
+  {# OCI8 disconnects with #logoff -- it has no #close, so `conn&.close` raised
+     NoMethodError in the ensure block and masked whatever the real failure was. #}
+  conn&.logoff
+{%- else %}
   conn&.close
+{%- endif %}
 end

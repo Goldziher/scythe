@@ -143,13 +143,29 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   source against Snowflake's C driver, which is infrastructure work rather than a missing step. This
   is the gap that let the csharp-snowflake parameter-binding bug survive from v0.6.0 to 0.14.0. (#118)
 
+- **A semicolon inside a SQL comment broke every harness that executes the shared schema.** Each
+  generated harness runs `sql/<engine>/schema.sql` by splitting it into single statements on the
+  semicolon character, and that split is not comment-aware — so a semicolon inside a `--` comment
+  ended the fragment there and left the rest of the comment line to be sent as bare SQL.
+  `elixir-postgrex` failed with `ERROR 42601 syntax error at or near "this"`. Only elixir surfaced
+  it, because the postgres job fails fast and the harnesses ahead of it happen not to split that
+  schema. The comment is rewritten and a `schema_sql_comments_contain_no_semicolon` generator test
+  now enforces the fixture side of the contract; the naive splitting itself is tracked separately.
+
+- **`ruby-oci8`'s teardown called a method that does not exist.** The generated harness ended with
+  `conn&.close`, but `OCI8` disconnects via `#logoff` — so the `ensure` block raised
+  `NoMethodError` and masked whatever the real failure had been.
+
 - **Generated Ruby raised `LoadError` on Ruby 3.4+.** `bigdecimal` stopped shipping as a default gem
   in Ruby 3.4.0, and `ruby-pg`, `ruby-mysql2` and `ruby-trilogy` emit `require "bigdecimal/util"`
   whenever a query's generated code applies `.to_d` to a `decimal` column — so on 3.4 that `require`
   failed unless something else in the bundle happened to depend on the gem. The generated `Gemfile`
-  for those three drivers now declares `bigdecimal` explicitly. `ruby-sqlite3`, `ruby-tiny-tds` and
-  `ruby-oci8` never emit that require and are unaffected. CI pinned Ruby 3.3 — a version predating the
-  change — so it structurally could not observe this; the integration workflow now pins 3.4.
+  for those three drivers now declares `bigdecimal` explicitly. `ruby-oci8` declares it too, for a
+  second and independent reason: ruby-oci8's own `lib/oci8/bindtype.rb` requires `bigdecimal` lazily
+  when it decodes an Oracle `NUMBER` column and does not declare that dependency in its gemspec, so
+  reading any numeric column raises `LoadError` regardless of what scythe emits. `ruby-sqlite3` and
+  `ruby-tiny-tds` need neither and are unaffected. CI pinned Ruby 3.3 — a version predating the
+  change — so it structurally could not observe any of this; the integration workflow now pins 3.4.
 
 - **An enum reachable only through an array column generated with no variants.** The analyzer's
   enum-discovery loop matched the bare `enum::x` neutral type, so a column typed `mood[]` — neutral

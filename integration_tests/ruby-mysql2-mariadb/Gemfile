@@ -4,12 +4,21 @@ source "https://rubygems.org"
 
 gem "mysql2"
 
-# bigdecimal stopped being a default gem in Ruby 3.4.0. The pg, mysql2, and
-# trilogy backends are the only ones that ever emit `require "bigdecimal/util"`
-# (crates/scythe-codegen/src/backends/ruby_rbs.rs,
-# ruby_generated_code_needs_bigdecimal_util), gated on whether a query's
-# generated code actually calls `.to_d`. That gate is per generated file, not
-# per project, so it cannot be mirrored here -- declare the dependency
-# whenever the driver is capable of emitting it, rather than trying to know in
-# advance whether this project's schema has a decimal column.
+# bigdecimal stopped being a default gem in Ruby 3.4.0, so anything that reaches
+# it now has to declare it. Two separate routes get there, and both matter:
+#
+# - pg, mysql2 and trilogy emit `require "bigdecimal/util"` in the *generated
+#   code* whenever a query applies `.to_d` to a decimal column
+#   (crates/scythe-codegen/src/backends/ruby_rbs.rs,
+#   ruby_generated_code_needs_bigdecimal_util). That gate is per generated file,
+#   not per project, so it cannot be mirrored here -- declare the dependency
+#   whenever the driver is capable of emitting it, rather than trying to know in
+#   advance whether this project's schema has a decimal column.
+#
+# - oci8 emits no such require, but the *driver itself* does: ruby-oci8's
+#   lib/oci8/bindtype.rb requires bigdecimal lazily when it decodes an Oracle
+#   NUMBER column, and does not declare the dependency in its gemspec. Reading
+#   any numeric column therefore raises LoadError on Ruby 3.4 with a bundle that
+#   has not declared it. Gating on "does scythe emit the require" missed this
+#   entirely -- the first CI run of ruby-oci8-oracle failed on exactly that.
 gem "bigdecimal"

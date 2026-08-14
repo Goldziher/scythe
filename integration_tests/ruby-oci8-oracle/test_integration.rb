@@ -160,5 +160,6 @@ rescue StandardError => e
   warn e.backtrace.first(5).join("\n")
   exit 1
 ensure
-  conn&.close
+  
+  conn&.logoff
 end

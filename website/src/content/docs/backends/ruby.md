@@ -28,7 +28,17 @@ gem "pg"        # or "mysql2", "trilogy"
 gem "bigdecimal"
 ```
 
-`ruby-sqlite3`, `ruby-tiny-tds`, and `ruby-oci8` never emit that `require` and are unaffected.
+`ruby-sqlite3`, `ruby-tiny-tds`, and `ruby-oci8` never emit that `require`. `ruby-oci8` still needs
+the gem, for a different reason: ruby-oci8's own `lib/oci8/bindtype.rb` requires `bigdecimal` lazily
+when it decodes an Oracle `NUMBER` column, and does not declare that dependency in its gemspec — so
+reading any numeric column raises `LoadError` on Ruby 3.4+ unless your bundle declares it:
+
+```ruby
+gem "ruby-oci8"
+gem "bigdecimal"
+```
+
+`ruby-sqlite3` and `ruby-tiny-tds` need neither and are genuinely unaffected.
 
 ## SQL input
 
