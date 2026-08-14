@@ -207,7 +207,7 @@ impl DbDriver for PostgresDriver {
         &self.catalog
     }
 
-    async fn run_all(&self) -> Result<Vec<Finding>, InspectError> {
+    async fn run_all(&mut self) -> Result<Vec<Finding>, InspectError> {
         let client = self
             .client
             .as_ref()
@@ -326,7 +326,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_all_without_connect_errors() {
-        let d = PostgresDriver::new();
+        let mut d = PostgresDriver::new();
         let err = d.run_all().await.unwrap_err();
         assert!(matches!(err, InspectError::NotConnected { engine: "postgres" }));
     }

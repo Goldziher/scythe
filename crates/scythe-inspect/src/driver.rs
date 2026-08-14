@@ -55,7 +55,12 @@ pub trait DbDriver: Send + Sync {
     /// Run every check in [`checks`](Self::checks) and return their findings.
     ///
     /// Returns [`InspectError::NotConnected`] if `connect` has not succeeded.
-    /// Per-check failures are returned as [`InspectError::Query`] and stop the
-    /// run — there's no partial-success mode at Phase 0.
-    async fn run_all(&self) -> Result<Vec<Finding>, InspectError>;
+    /// A per-check failure degrades to a single warning [`Finding`] naming the
+    /// check instead of stopping the run, so one bad query never loses the
+    /// rest of the report.
+    ///
+    /// `&mut self`, not `&self`: a live database connection (`mysql_async::Conn`
+    /// in particular) is an exclusively-owned stream, not a value queries can
+    /// share through a shared reference the way `tokio_postgres::Client` can.
+    async fn run_all(&mut self) -> Result<Vec<Finding>, InspectError>;
 }

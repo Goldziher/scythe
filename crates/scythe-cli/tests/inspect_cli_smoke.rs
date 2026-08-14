@@ -31,10 +31,19 @@ fn list_checks_prints_thirteen_rows() {
     }
 }
 
-/// `scythe inspect --list-checks --dialect mysql` — exits 0 and emits the
-/// "no checks available" message (MySQL checks are stubbed in Phase 1).
+/// `scythe inspect --list-checks --dialect mysql` lists MySQL's own checks
+/// and none of PostgreSQL's.
+///
+/// ~keep This asserted the opposite until MySQL got a real driver: it
+/// required "no checks" or empty output, which was true only because every
+/// non-PostgreSQL engine fell through to `UnsupportedDriver`. Left as it
+/// was, it would have failed the moment the gap it described was closed --
+/// it guarded the absence, not the behaviour. The postgres-only half is
+/// kept and made exact: `SC-INS01`..`SC-INS13` must not appear, which a
+/// bare `contains("SC-INS")` can no longer express now that MySQL's own ids
+/// are spelled `SC-INS-MY01`.
 #[test]
-fn list_checks_with_dialect_mysql_says_no_checks() {
+fn list_checks_with_dialect_mysql_lists_mysql_checks_and_no_postgres_ones() {
     let assert = scythe()
         .args(["inspect", "--list-checks", "--dialect", "mysql"])
         .assert()
@@ -42,15 +51,22 @@ fn list_checks_with_dialect_mysql_says_no_checks() {
 
     let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();
 
-    assert!(
-        stdout.contains("no checks") || stdout.trim().is_empty(),
-        "--list-checks --dialect mysql must say 'no checks' or produce empty output; got:\n{stdout}"
-    );
+    for id in ["SC-INS-MY01", "SC-INS-MY02", "SC-INS-MY03", "SC-INS-MY04"] {
+        assert!(
+            stdout.contains(id),
+            "--list-checks --dialect mysql must include {id}; stdout:\n{stdout}"
+        );
+    }
 
-    assert!(
-        !stdout.contains("SC-INS"),
-        "mysql dialect must not list postgres-only SC-INS checks; got:\n{stdout}"
-    );
+    for id in [
+        "SC-INS01", "SC-INS02", "SC-INS03", "SC-INS04", "SC-INS05", "SC-INS06", "SC-INS07", "SC-INS08", "SC-INS09",
+        "SC-INS10", "SC-INS11", "SC-INS12", "SC-INS13",
+    ] {
+        assert!(
+            !stdout.contains(id),
+            "mysql dialect must not list the postgres-only check {id}; stdout:\n{stdout}"
+        );
+    }
 }
 
 /// `scythe inspect --explain SC-INS04` must exit 0 and print the check name,

@@ -134,7 +134,8 @@ fn render_message(template: &str, bindings: &RowBindings, check_id: &str) -> Res
                 return Err(InspectError::UnrenderableBinding {
                     check_id: check_id.to_string(),
                     binding: var_name.to_string(),
-                    pg_type: bindings.unrenderable[var_name].clone(),
+                    engine: "postgres",
+                    type_name: bindings.unrenderable[var_name].clone(),
                 });
             }
             None => {
@@ -291,15 +292,17 @@ mod tests {
         let InspectError::UnrenderableBinding {
             check_id,
             binding,
-            pg_type,
+            engine,
+            type_name,
         } = &err
         else {
             panic!("expected UnrenderableBinding, got {err:?}");
         };
         assert_eq!(check_id, "USER-INS-001");
         assert_eq!(binding, "ratio");
-        assert_eq!(pg_type, "numeric");
-        assert!(err.to_string().contains("ratio::text AS ratio"), "{err}");
+        assert_eq!(*engine, "postgres");
+        assert_eq!(type_name, "numeric");
+        assert!(err.to_string().contains("re-alias it as `ratio`"), "{err}");
     }
 
     /// An undecodable column the message never mentions must not fail the

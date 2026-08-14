@@ -61,16 +61,16 @@ pub enum InspectError {
     /// reader looking for a defect that is not there.
     #[error(
         "engine `{engine}` is not supported by `scythe inspect` — live inspection, \
-         schema drift and the SC-INS checks are implemented for PostgreSQL only \
-         (`postgres`, `postgresql`)"
+         schema drift and the SC-INS checks are implemented for PostgreSQL \
+         (`postgres`, `postgresql`) and MySQL/MariaDB (`mysql`, `mariadb`) only"
     )]
     Unsupported {
         /// The engine name as the user spelled it (URL scheme or `--dialect`).
         engine: String,
     },
 
-    /// A message placeholder resolved to a column whose PostgreSQL type this
-    /// runner cannot render as text.
+    /// A message placeholder resolved to a column whose driver-reported type
+    /// this runner cannot render as text.
     ///
     /// Reported rather than rendered as an empty string: a blank in the middle
     /// of a finding message is indistinguishable from a genuinely empty value,
@@ -78,16 +78,18 @@ pub enum InspectError {
     /// looking like it worked.
     #[error(
         "check {check_id}: message placeholder '{{{binding}}}' is bound to column `{binding}` of \
-         PostgreSQL type `{pg_type}`, which cannot be rendered as text — cast it in the check's \
-         SQL, e.g. `{binding}::text AS {binding}`"
+         {engine} type `{type_name}`, which cannot be rendered as text — cast it to text in the \
+         check's SQL and re-alias it as `{binding}`"
     )]
     UnrenderableBinding {
         /// ID of the check whose message could not be rendered.
         check_id: String,
         /// The `{var}` name, which is also the projected column name.
         binding: String,
-        /// The PostgreSQL type name the server reported for that column.
-        pg_type: String,
+        /// Engine that reported the type (e.g. `"postgres"`, `"mysql"`).
+        engine: &'static str,
+        /// The driver-reported type name for that column.
+        type_name: String,
     },
 
     /// [`drift_findings`](crate::drift_findings) was called with nothing to
@@ -251,7 +253,13 @@ mod tests {
         };
         let rendered = error.to_string();
         assert!(rendered.starts_with("engine `sqlite` is not supported"), "{rendered}");
-        assert!(!rendered.contains("mysql"), "{rendered}");
+        // ~keep A bare `!contains("mysql")` used to stand in for this, and
+        // stopped meaning anything once MySQL became a supported engine the
+        // message legitimately lists. What must never happen is naming some
+        // other engine as the *subject* of the failure -- the original defect,
+        // where a SQLite user was told `engine "mysql" is not supported`.
+        assert!(!rendered.contains("engine `mysql`"), "{rendered}");
+        assert!(!rendered.contains("engine `postgres`"), "{rendered}");
     }
 
     #[test]
@@ -259,13 +267,27 @@ mod tests {
         let error = InspectError::UnrenderableBinding {
             check_id: "USER-INS-001".to_string(),
             binding: "ratio".to_string(),
-            pg_type: "numeric".to_string(),
+            engine: "postgres",
+            type_name: "numeric".to_string(),
         };
         assert_eq!(
             error.to_string(),
             "check USER-INS-001: message placeholder '{ratio}' is bound to column `ratio` of \
-             PostgreSQL type `numeric`, which cannot be rendered as text — cast it in the check's \
-             SQL, e.g. `ratio::text AS ratio`"
+             postgres type `numeric`, which cannot be rendered as text — cast it to text in the \
+             check's SQL and re-alias it as `ratio`"
         );
+    }
+
+    /// The variant is shared across drivers — a MySQL check's error must name
+    /// `mysql`, not carry over PostgreSQL's label.
+    #[test]
+    fn should_name_the_engine_that_reported_an_unrenderable_type() {
+        let error = InspectError::UnrenderableBinding {
+            check_id: "SC-INS-MY03".to_string(),
+            binding: "max_value".to_string(),
+            engine: "mysql",
+            type_name: "decimal".to_string(),
+        };
+        assert!(error.to_string().contains("mysql type `decimal`"), "{error}");
     }
 }

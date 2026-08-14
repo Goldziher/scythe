@@ -30,6 +30,18 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Added
 
+- **`scythe inspect` now has a real MySQL/MariaDB driver.** Live inspection was PostgreSQL-only;
+  every other engine fell through to a stub that reported itself as `mysql` regardless of what the
+  user asked for. `MySqlDriver` (backed by `mysql_async`) ships four checks driven by its own
+  `mysql/checks.toml`, merged into the canonical registry alongside PostgreSQL's: `SC-INS-MY01`
+  (no primary key), `SC-INS-MY02` (duplicate index), `SC-INS-MY03` (`AUTO_INCREMENT` past 70% of its
+  type range), `SC-INS-MY04` (`MEMORY` storage engine). The two check sets are deliberately not
+  symmetric — PostgreSQL's row-level-security, extension and `SECURITY DEFINER` search-path checks
+  have no MySQL equivalent and are not approximated — and `verify_queries` stays PostgreSQL-only
+  because it depends on the extended-query protocol's describe response. SQLite, MSSQL, Oracle,
+  Snowflake and Redshift still get `UnsupportedDriver`, which names the engine the user actually
+  asked for and refuses rather than returning an empty finding set. (#131, partial)
+
 - **`scythe generate --validate-output`** runs the generated code through the real compiler or linter
   for its language and reports, per target, whether it was `VALIDATED`, `SKIPPED`, or `FAILED`.
   `validate_generated_code` previously had no production caller at all — every call site outside

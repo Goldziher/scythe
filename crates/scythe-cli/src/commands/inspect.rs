@@ -16,8 +16,8 @@ use std::io::Write;
 use std::path::Path;
 
 use scythe_inspect::{
-    CheckRegistry, DbDriver, InspectConfig, InspectError, PostgresDriver, SuppressionEngine, UnsupportedDriver,
-    parse_inspect_section,
+    CheckRegistry, DbDriver, InspectConfig, InspectError, MySqlDriver, PostgresDriver, SuppressionEngine,
+    UnsupportedDriver, parse_inspect_section,
 };
 use scythe_lint::reporters::{Finding, Format};
 use scythe_lint::{Severity, emit_findings};
@@ -166,12 +166,29 @@ pub(crate) fn build_driver_with_config(
 
             Box::new(driver)
         }
-        // Every other engine — MySQL, MariaDB, or a URL scheme that got this
-        // far — has no `scythe inspect` implementation. It used to fall through
-        // to a MySQL stub, so a SQLite user was told `engine "mysql" is not
-        // supported`: an engine they never mentioned, which reads as a scythe
-        // bug rather than an unsupported-engine notice. `UnsupportedDriver`
-        // carries the engine that was actually requested.
+        // ~keep MariaDB shares this driver deliberately, not by omission:
+        // `SqlDialect::from_str` already folds both spellings onto one
+        // `SqlDialect::MySQL` with no separate MariaDB variant, and every
+        // `information_schema` view these checks read — COLUMNS, TABLES,
+        // STATISTICS, TABLE_CONSTRAINTS — carries the same column set on both.
+        "mysql" | "mariadb" => {
+            let mut driver = MySqlDriver::with_registry(registry);
+
+            if let Some(cfg) = inspect_config
+                && !cfg.suppression.is_empty()
+            {
+                driver.set_suppression(SuppressionEngine::new(cfg.suppression.clone()));
+            }
+
+            Box::new(driver)
+        }
+        // Every remaining engine — SQLite, MSSQL, Oracle, Snowflake, Redshift,
+        // or a URL scheme that got this far — has no `scythe inspect`
+        // implementation. It used to fall through to a MySQL stub, so a SQLite
+        // user was told `engine "mysql" is not supported`: an engine they never
+        // mentioned, which reads as a scythe bug rather than an
+        // unsupported-engine notice. `UnsupportedDriver` carries the engine
+        // that was actually requested.
         other => Box::new(UnsupportedDriver::new(other)),
     }
 }
@@ -571,8 +588,36 @@ mod tests {
         let pg2 = build_driver_with_config("postgresql", registry2, &None);
         assert_eq!(pg2.engine(), "postgres");
 
+        // ~keep `engine()` alone cannot tell a real driver from
+        // `UnsupportedDriver`, which reports back the engine it was handed --
+        // so this assertion passed identically before MySQL was wired up at
+        // all. A non-empty catalog is what actually distinguishes them:
+        // `UnsupportedDriver::checks` returns `&[]` by definition.
         let registry3 = CheckRegistry::canonical();
         let my = build_driver_with_config("mysql", registry3, &None);
         assert_eq!(my.engine(), "mysql");
+        assert!(
+            !my.checks().is_empty(),
+            "mysql must dispatch to MySqlDriver, not UnsupportedDriver -- an empty catalog means \
+             this test is passing on the unsupported fallback"
+        );
+
+        let registry4 = CheckRegistry::canonical();
+        let maria = build_driver_with_config("mariadb", registry4, &None);
+        assert_eq!(maria.engine(), "mysql");
+        assert!(
+            !maria.checks().is_empty(),
+            "mariadb shares the MySQL driver deliberately"
+        );
+
+        // The other direction: an engine with no driver must still land on
+        // `UnsupportedDriver`, or the check above proves nothing.
+        let registry5 = CheckRegistry::canonical();
+        let sqlite = build_driver_with_config("sqlite", registry5, &None);
+        assert_eq!(sqlite.engine(), "sqlite");
+        assert!(
+            sqlite.checks().is_empty(),
+            "sqlite has no inspect driver; it must fall through to UnsupportedDriver"
+        );
     }
 }

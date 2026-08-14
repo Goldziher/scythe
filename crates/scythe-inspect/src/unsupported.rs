@@ -1,9 +1,10 @@
 //! The driver used for every engine `scythe inspect` does not implement.
 //!
-//! Live inspection is PostgreSQL-only: the SC-INS checks are `pg_catalog`
-//! queries and schema drift reads `pg_attribute` directly, neither of which has
-//! an equivalent this crate implements for another engine. That gap is real and
-//! is tracked separately; what this module fixes is the *diagnostic*.
+//! Live inspection now covers PostgreSQL and MySQL/MariaDB (see
+//! [`crate::postgres::PostgresDriver`] and [`crate::mysql::MySqlDriver`]); every
+//! other engine — SQLite, MSSQL, Oracle, Snowflake, Redshift — has no `SC-INS`
+//! checks and no equivalent this crate implements. That gap is real and is
+//! tracked separately; what this module fixes is the *diagnostic*.
 //!
 //! Before this, the dispatch fell through to a MySQL stub for every
 //! unimplemented engine, so a SQLite user was told `engine "mysql" is not yet
@@ -56,7 +57,7 @@ impl DbDriver for UnsupportedDriver {
         &[]
     }
 
-    async fn run_all(&self) -> Result<Vec<Finding>, InspectError> {
+    async fn run_all(&mut self) -> Result<Vec<Finding>, InspectError> {
         Err(self.unsupported())
     }
 }
@@ -82,15 +83,24 @@ mod tests {
             panic!("expected Unsupported, got {error:?}");
         };
         assert_eq!(engine, "sqlite");
+        // ~keep Checks the *subject* of the message, not bare substring
+        // presence: MySQL is now a supported engine the message names in its
+        // list, so `!contains("mysql")` would fail for a message that is
+        // entirely correct.
+        let rendered = error.to_string();
         assert!(
-            !error.to_string().contains("mysql"),
-            "the message must not name an engine the user never asked for: {error}"
+            rendered.starts_with("engine `sqlite` is not supported"),
+            "the message must name the engine the user actually asked for: {rendered}"
+        );
+        assert!(
+            !rendered.contains("engine `mysql`"),
+            "the message must not name an engine the user never asked for: {rendered}"
         );
     }
 
     #[tokio::test]
     async fn should_fail_run_all_naming_the_engine_when_never_connected() {
-        let driver = UnsupportedDriver::new("snowflake");
+        let mut driver = UnsupportedDriver::new("snowflake");
         let error = driver.run_all().await.unwrap_err();
         assert!(matches!(&error, InspectError::Unsupported { engine } if engine == "snowflake"));
     }

@@ -1,12 +1,23 @@
-//! MySQL/MariaDB catalog introspection — reads a live database's schema into
-//! the neutral [`SchemaDescription`](crate::schema_diff::SchemaDescription)
-//! catalog shape via [`SchemaCatalogDriver`].
+//! MySQL/MariaDB support: catalog introspection for schema drift
+//! ([`MySqlCatalogSource`], via [`SchemaCatalogDriver`]) and the `SC-INS`
+//! live health checks ([`MySqlDriver`], via [`DbDriver`]).
 //!
 //! Both engines share one wire protocol and one `mysql_async` client, so one
 //! implementation serves both — matching how
 //! `scythe_core::dialect::SqlDialect::from_str` already normalises `"mysql"`
-//! and `"mariadb"` to the same dialect, and how [`crate::registry`]'s checks
-//! key on `"mysql"` for either.
+//! and `"mariadb"` to the same dialect (there is no separate `SqlDialect`
+//! variant for MariaDB at all), and how [`crate::registry`]'s checks key on
+//! `"mysql"` for either. [`MySqlDriver::engine`] always reports `"mysql"`,
+//! the same fixed identifier [`MySqlCatalogSource::engine`] already uses, for
+//! the same reason: a caller serving a MariaDB request is expected to pass
+//! that connection to this driver under the `"mysql"` key rather than expect
+//! a `"mariadb"`-specific one.
+//!
+//! `information_schema.COLUMNS`, `.TABLES`, `.STATISTICS` and
+//! `.TABLE_CONSTRAINTS` — the views both this module's catalog fetch and the
+//! `SC-INS-MY*` checks in `mysql/checks.toml` read — carry the same column
+//! set on MariaDB for every column this crate reads from them; nothing here
+//! needed a MariaDB-specific query.
 //!
 //! ## Scope
 //!
@@ -23,14 +34,20 @@
 //!
 //! ## What this does not do
 //!
-//! - No `SC-INS` health checks (see `crate::unsupported` and the crate root
-//!   docs) — those are hand-written per engine and out of scope here.
 //! - No enum modeling. MySQL's `ENUM(...)`/`SET(...)` are declared inline on
 //!   the column, with no separate named type the way PostgreSQL's `CREATE
 //!   TYPE ... AS ENUM` has; see [`types::neutral_type_for_mysql`] for why
 //!   both map to the neutral `string` type instead. `SchemaDescription::enums`
 //!   is always empty for this driver.
+//! - The `SC-INS-MY*` checks cover a deliberately narrow slice of MySQL's
+//!   operational surface (no primary key, duplicate indexes, an
+//!   `AUTO_INCREMENT` column nearing its type's range, and a table left on
+//!   the `MEMORY` engine) — the checks PostgreSQL's canonical set has no
+//!   MySQL equivalent for (row-level security, extensions, `SECURITY
+//!   DEFINER` search-path pinning) were deliberately left unimplemented
+//!   rather than guessed at.
 
+pub mod runner;
 pub mod types;
 
 use std::collections::HashMap;
@@ -38,10 +55,16 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use mysql_async::prelude::Queryable;
 use mysql_async::{Conn, Opts, Row, Value};
+use scythe_lint::reporters::Finding;
+use scythe_lint::types::Severity;
 
+use crate::driver::{CheckCatalogEntry, DbDriver};
 use crate::error::InspectError;
+use crate::registry::CheckRegistry;
 use crate::schema_diff::model::{ColumnDescription, SchemaDescription, TableDescription, object_key};
 use crate::schema_diff::source::SchemaCatalogDriver;
+use crate::spec::CheckSpec;
+use crate::suppression::SuppressionEngine;
 
 use types::neutral_type_for_mysql;
 
@@ -256,6 +279,164 @@ async fn fetch_tables(
     Ok(())
 }
 
+/// Build the [`Finding`] reported when a check's SQL cannot be executed.
+///
+/// Mirrors `postgres::check_failure_finding`: a check may fail for reasons
+/// unrelated to the schema under inspection (a permission the connection
+/// lacks, a bug in the check's own SQL), and degrading to a warning keeps the
+/// remaining checks useful instead of losing the whole run to one bad query.
+fn check_failure_finding(spec: &CheckSpec, error: &InspectError) -> Finding {
+    let detail = crate::error::error_chain(error);
+
+    Finding {
+        file: String::new(),
+        query_name: None,
+        rule_id: spec.id.clone(),
+        rule_name: Some(format!("{}-check-failed", spec.name)),
+        rule_description: Some(spec.description.clone()),
+        severity: Severity::Warn,
+        message: format!("check `{}` could not be executed: {detail}", spec.id),
+        line: None,
+        column: None,
+        cwe: Vec::new(),
+        source: Some("inspect".to_string()),
+    }
+}
+
+/// MySQL/MariaDB driver for the `SC-INS-MY*` live health checks. Holds a
+/// `mysql_async::Conn` after [`connect`](DbDriver::connect) succeeds; methods
+/// that need it return [`InspectError::NotConnected`] otherwise.
+///
+/// [`engine`](DbDriver::engine) always reports `"mysql"` — see this module's
+/// doc comment for why a MariaDB connection is served under that identifier
+/// rather than a `"mariadb"`-specific one.
+///
+/// The check registry is built once at construction time from the embedded
+/// canonical TOML; it is stored on the driver so `checks()` can return a
+/// borrowed slice backed by the registry, matching [`crate::postgres::PostgresDriver`].
+pub struct MySqlDriver {
+    conn: Option<Conn>,
+    /// Canonical check registry, built at `new()`.
+    registry: CheckRegistry,
+    /// Catalog entries derived from `registry` at construction, stored so
+    /// `checks()` can return a `&[CheckCatalogEntry]` without lifetime
+    /// gymnastics.
+    catalog: Vec<CheckCatalogEntry>,
+    /// Suppression engine built from `[[inspect.suppression]]` rules.
+    ///
+    /// `None` means no suppression rules are configured.
+    suppression: Option<SuppressionEngine>,
+}
+
+impl MySqlDriver {
+    /// Construct an unconnected driver and load the canonical check registry.
+    /// Call [`DbDriver::connect`] before [`DbDriver::run_all`].
+    pub fn new() -> Self {
+        let registry = CheckRegistry::canonical();
+        let catalog = registry
+            .for_engine("mysql")
+            .map(|spec| CheckCatalogEntry {
+                id: spec.id.clone(),
+                name: spec.name.clone(),
+                severity: spec.severity,
+                description: spec.description.clone(),
+            })
+            .collect();
+        Self {
+            conn: None,
+            registry,
+            catalog,
+            suppression: None,
+        }
+    }
+
+    /// Build a driver with a pre-configured registry (e.g. after applying
+    /// severity overrides and user checks from `[inspect]` config).
+    ///
+    /// The catalog is derived from the provided registry.
+    pub fn with_registry(registry: CheckRegistry) -> Self {
+        let catalog = registry
+            .for_engine("mysql")
+            .map(|spec| CheckCatalogEntry {
+                id: spec.id.clone(),
+                name: spec.name.clone(),
+                severity: spec.severity,
+                description: spec.description.clone(),
+            })
+            .collect();
+        Self {
+            conn: None,
+            registry,
+            catalog,
+            suppression: None,
+        }
+    }
+
+    /// Set the suppression engine. Call before `connect()` / `run_all()`.
+    pub fn set_suppression(&mut self, mut engine: SuppressionEngine) {
+        engine.bind_to_registry(&self.registry);
+        self.suppression = Some(engine);
+    }
+}
+
+impl Default for MySqlDriver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl DbDriver for MySqlDriver {
+    fn engine(&self) -> &str {
+        "mysql"
+    }
+
+    async fn connect(&mut self, url: &str) -> Result<(), InspectError> {
+        let opts = Opts::from_url(url).map_err(|e| InspectError::Connect {
+            engine: "mysql",
+            source: Box::new(mysql_async::Error::from(e)),
+        })?;
+        let conn = Conn::new(opts).await.map_err(|e| InspectError::Connect {
+            engine: "mysql",
+            source: Box::new(e),
+        })?;
+        self.conn = Some(conn);
+        Ok(())
+    }
+
+    fn checks(&self) -> &[CheckCatalogEntry] {
+        &self.catalog
+    }
+
+    async fn run_all(&mut self) -> Result<Vec<Finding>, InspectError> {
+        let conn = self
+            .conn
+            .as_mut()
+            .ok_or(InspectError::NotConnected { engine: "mysql" })?;
+
+        let mut all_pairs = Vec::new();
+
+        for spec in self.registry.for_engine("mysql") {
+            let pairs = match runner::run_check_with_bindings(conn, spec).await {
+                Ok(pairs) => pairs,
+                Err(error) => {
+                    all_pairs.push((check_failure_finding(spec, &error), HashMap::new()));
+                    continue;
+                }
+            };
+            all_pairs.extend(pairs);
+        }
+
+        let findings = if let Some(sup) = &self.suppression {
+            sup.filter(all_pairs)
+        } else {
+            all_pairs.into_iter().map(|(f, _)| f).collect()
+        };
+
+        Ok(findings)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,5 +457,43 @@ mod tests {
     fn quote_literal_doubles_an_embedded_quote() {
         assert_eq!(quote_literal("app"), "'app'");
         assert_eq!(quote_literal("weird'db"), "'weird''db'");
+    }
+
+    #[test]
+    fn driver_engine_name_is_mysql() {
+        assert_eq!(MySqlDriver::new().engine(), "mysql");
+    }
+
+    #[test]
+    fn driver_catalog_lists_the_four_canonical_mysql_checks() {
+        let d = MySqlDriver::new();
+        let catalog = d.checks();
+        assert_eq!(catalog.len(), 4);
+        assert_eq!(catalog[0].id, "SC-INS-MY01");
+        assert_eq!(catalog[1].id, "SC-INS-MY02");
+        assert_eq!(catalog[2].id, "SC-INS-MY03");
+        assert_eq!(catalog[3].id, "SC-INS-MY04");
+    }
+
+    /// The canonical registry carries both engines; `checks()` must only
+    /// surface the MySQL slice, not PostgreSQL's SC-INS01..13 alongside it.
+    #[test]
+    fn driver_catalog_excludes_postgres_checks() {
+        let d = MySqlDriver::new();
+        assert!(d.checks().iter().all(|c| c.id.starts_with("SC-INS-MY")));
+    }
+
+    #[tokio::test]
+    async fn run_all_without_connect_errors() {
+        let mut d = MySqlDriver::new();
+        let err = d.run_all().await.unwrap_err();
+        assert!(matches!(err, InspectError::NotConnected { engine: "mysql" }));
+    }
+
+    #[test]
+    fn with_registry_builds_catalog_correctly() {
+        let reg = CheckRegistry::canonical();
+        let d = MySqlDriver::with_registry(reg);
+        assert_eq!(d.checks().len(), 4);
     }
 }

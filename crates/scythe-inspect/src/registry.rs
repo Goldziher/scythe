@@ -21,17 +21,24 @@ pub struct CheckRegistry {
 }
 
 impl CheckRegistry {
-    /// Build the canonical registry from the embedded `postgres/checks.toml`.
+    /// Build the canonical registry from the embedded `postgres/checks.toml`
+    /// and `mysql/checks.toml`.
     ///
     /// Panics on parse or binding-validation failure — a broken canonical TOML
     /// is a programming error that must be fixed before shipping, so a panic
     /// at startup is the correct signal.
     pub fn canonical() -> Self {
-        const CANONICAL_SRC: &str = include_str!("postgres/checks.toml");
-        const CANONICAL_LABEL: &str = "<built-in postgres/checks.toml>";
+        const POSTGRES_SRC: &str = include_str!("postgres/checks.toml");
+        const POSTGRES_LABEL: &str = "<built-in postgres/checks.toml>";
+        const MYSQL_SRC: &str = include_str!("mysql/checks.toml");
+        const MYSQL_LABEL: &str = "<built-in mysql/checks.toml>";
 
-        let checks = crate::spec::parse_check_file(CANONICAL_SRC, CANONICAL_LABEL)
-            .expect("canonical checks.toml must parse correctly");
+        let mut checks = crate::spec::parse_check_file(POSTGRES_SRC, POSTGRES_LABEL)
+            .expect("canonical postgres/checks.toml must parse correctly");
+        checks.extend(
+            crate::spec::parse_check_file(MYSQL_SRC, MYSQL_LABEL)
+                .expect("canonical mysql/checks.toml must parse correctly"),
+        );
 
         for spec in &checks {
             validate_message_bindings(spec)
@@ -162,12 +169,17 @@ mod tests {
     fn for_engine_filters_by_engine() {
         use crate::spec::CANONICAL_CHECK_IDS;
         let mut reg = CheckRegistry::canonical();
+        // ~keep "duckdb" rather than "mysql": the canonical registry now carries
+        // its own MySQL checks, so asserting an exact `for_engine("mysql")`
+        // count here would couple this test to how many ship, not to whether
+        // filtering itself works. An engine with no canonical checks isolates
+        // that.
         reg.checks.push(CheckSpec {
-            id: "USER-INS-MYSQL-01".to_string(),
-            name: "mysql-only".to_string(),
+            id: "USER-INS-DUCKDB-01".to_string(),
+            name: "duckdb-only".to_string(),
             category: crate::spec::CheckCategory::Schema,
             severity: scythe_lint::types::Severity::Warn,
-            engines: vec!["mysql".to_string()],
+            engines: vec!["duckdb".to_string()],
             description: "test".to_string(),
             message: "test".to_string(),
             sql: "SELECT 1 AS x".to_string(),
@@ -180,7 +192,17 @@ mod tests {
         });
 
         assert_eq!(reg.for_engine("postgres").count(), CANONICAL_CHECK_IDS.len());
-        assert_eq!(reg.for_engine("mysql").count(), 1);
+        assert_eq!(reg.for_engine("duckdb").count(), 1);
+    }
+
+    /// The canonical registry now bootstraps from two TOML files; both must
+    /// actually be present in `for_engine`'s output, not just parse cleanly.
+    #[test]
+    fn canonical_registry_has_canonical_mysql_checks() {
+        let reg = CheckRegistry::canonical();
+        let mysql_checks: Vec<_> = reg.for_engine("mysql").collect();
+        assert_eq!(mysql_checks.len(), 4);
+        assert!(mysql_checks.iter().all(|c| c.id.starts_with("SC-INS-MY")));
     }
 
     #[test]

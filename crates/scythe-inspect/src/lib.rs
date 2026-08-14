@@ -7,19 +7,24 @@
 //!
 //! ## Engines
 //!
-//! **The `SC-INS` health checks are PostgreSQL only.** [`PostgresDriver`],
-//! backed by `tokio-postgres`, is the one driver implementing them: the
-//! checks are `pg_catalog` queries, query verification uses the
-//! extended-query protocol's describe response, and schema drift reads
-//! `pg_attribute.attnotnull`. None of those has an equivalent implemented
-//! here for another engine.
+//! **The `SC-INS` health checks are implemented for PostgreSQL and
+//! MySQL/MariaDB.** [`PostgresDriver`] (backed by `tokio-postgres`) and
+//! [`mysql::MySqlDriver`] (backed by `mysql_async`) are the two drivers
+//! implementing them, each from its own TOML-driven check registry
+//! (`postgres/checks.toml`, `mysql/checks.toml`) merged into one
+//! [`CheckRegistry`] by [`CheckRegistry::canonical`]. The two check sets are
+//! not symmetric: PostgreSQL's row-level-security, extension and
+//! `SECURITY DEFINER` search-path checks have no MySQL equivalent and are not
+//! approximated there, and query verification
+//! ([`verify_queries`]) uses PostgreSQL's extended-query protocol describe
+//! response, which MySQL has no equivalent driver call for.
 //!
-//! Every engine with no [`DbDriver`] implementation — MySQL, MariaDB, SQLite,
-//! MSSQL, Oracle, Snowflake, Redshift — gets [`UnsupportedDriver`], which
-//! refuses every operation with [`InspectError::Unsupported`] naming *that*
-//! engine. It deliberately does not pretend to connect and does not return an
-//! empty finding set: an inspection that reports nothing because it never ran
-//! is indistinguishable from a clean database.
+//! Every engine with no [`DbDriver`] implementation — SQLite, MSSQL, Oracle,
+//! Snowflake, Redshift — gets [`UnsupportedDriver`], which refuses every
+//! operation with [`InspectError::Unsupported`] naming *that* engine. It
+//! deliberately does not pretend to connect and does not return an empty
+//! finding set: an inspection that reports nothing because it never ran is
+//! indistinguishable from a clean database.
 //!
 //! **Catalog introspection — tables, columns, neutral types, nullability,
 //! primary keys — is a separate, narrower concern from the health checks
@@ -48,7 +53,7 @@ pub mod verify;
 pub use config::{InspectConfig, SuppressionRule, parse_inspect_section};
 pub use driver::{CheckCatalogEntry, DbDriver};
 pub use error::InspectError;
-pub use mysql::MySqlCatalogSource;
+pub use mysql::{MySqlCatalogSource, MySqlDriver};
 pub use neutral::normalize_neutral_type;
 pub use postgres::PostgresDriver;
 pub use registry::CheckRegistry;

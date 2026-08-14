@@ -1,0 +1,132 @@
+schema_version = 1
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+[[check]]
+id = "SC-INS-MY01"
+name = "no-primary-key"
+category = "reliability"
+severity = "warn"
+engines = ["mysql"]
+object_binding = "table_name"
+schema_binding = "schema_name"
+description = "ordinary tables without a PRIMARY KEY — harms replication, InnoDB clustering, and joinability"
+message = "`{schema_name}.{table_name}` has no PRIMARY KEY — add one for replication safety and InnoDB row clustering"
+explanation = "InnoDB clusters row storage by the primary key; without one it maintains a hidden, non-addressable 6-byte row ID instead, which cannot be referenced by any query or tool. Row-based and GTID replication identify rows by their full column set rather than a key, which is slower and can misbehave on duplicate rows. Online schema-change tools (pt-online-schema-change, gh-ost) refuse to operate on a table with no primary or unique key at all."
+remediation = "Add a surrogate key: `ALTER TABLE {schema_name}.{table_name} ADD COLUMN id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY FIRST;` or designate an existing unique NOT NULL column: `ALTER TABLE {schema_name}.{table_name} ADD PRIMARY KEY (column_name);`."
+sql = """
+SELECT t.TABLE_SCHEMA AS schema_name,
+       t.TABLE_NAME   AS table_name
+FROM information_schema.TABLES t
+WHERE t.TABLE_TYPE = 'BASE TABLE'
+  AND t.TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+  AND NOT EXISTS (
+        SELECT 1
+        FROM information_schema.TABLE_CONSTRAINTS tc
+        WHERE tc.TABLE_SCHEMA = t.TABLE_SCHEMA
+          AND tc.TABLE_NAME = t.TABLE_NAME
+          AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+      )
+ORDER BY t.TABLE_SCHEMA, t.TABLE_NAME
+"""
+
+[[check]]
+id = "SC-INS-MY02"
+name = "duplicate-index"
+category = "performance"
+severity = "warn"
+engines = ["mysql"]
+object_binding = "table_name"
+schema_binding = "schema_name"
+description = "two or more indexes on the same table cover the same columns in the same order — wasted writes and storage"
+message = "`{schema_name}.{table_name}` has duplicate indexes covering the same columns: {duplicate_indexes} — drop all but one"
+explanation = "When two indexes cover the same column set in the same order, MySQL maintains both on every INSERT, UPDATE and DELETE. The optimizer only ever needs one, so the duplicate adds write amplification and storage cost with no query benefit."
+remediation = "Identify which index name is referenced by a foreign key or application query (via `EXPLAIN`), keep that one, and `ALTER TABLE {schema_name}.{table_name} DROP INDEX <duplicate_name>` for the rest."
+sql = """
+SELECT schema_name,
+       table_name,
+       GROUP_CONCAT(index_name) AS duplicate_indexes
+FROM (
+    SELECT s.TABLE_SCHEMA AS schema_name,
+           s.TABLE_NAME AS table_name,
+           s.INDEX_NAME AS index_name,
+           s.NON_UNIQUE AS non_unique,
+           GROUP_CONCAT(s.COLUMN_NAME ORDER BY s.SEQ_IN_INDEX) AS column_list
+    FROM information_schema.STATISTICS s
+    WHERE s.TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+    GROUP BY s.TABLE_SCHEMA, s.TABLE_NAME, s.INDEX_NAME, s.NON_UNIQUE
+) AS idx
+GROUP BY schema_name, table_name, non_unique, column_list
+HAVING COUNT(*) > 1
+ORDER BY schema_name, table_name
+"""
+
+[[check]]
+id = "SC-INS-MY03"
+name = "auto-increment-overflow-risk"
+category = "reliability"
+severity = "warn"
+engines = ["mysql"]
+object_binding = "column_name"
+schema_binding = "schema_name"
+description = "AUTO_INCREMENT column has consumed more than 70% of its declared type range — approaching overflow will break inserts"
+message = "AUTO_INCREMENT column `{schema_name}.{table_name}.{column_name}` is {percent_used}% consumed ({current_value}/{max_value}) — widen the column to a larger or UNSIGNED integer type, or reseed"
+explanation = "When an AUTO_INCREMENT column exhausts its declared type range, every subsequent INSERT fails with 'Duplicate entry' (once the value wraps to an existing row) or an out-of-range error. Integer columns on high-throughput tables can overflow within months, and the failure surfaces only in production once the range is nearly gone. The 70% threshold gives time to widen the type before it becomes an incident."
+remediation = "Widen the column and table default: `ALTER TABLE {schema_name}.{table_name} MODIFY {column_name} BIGINT UNSIGNED AUTO_INCREMENT;`. If the type is already the widest available, reseed only after confirming no live process depends on the vacated ID range."
+sql = """
+SELECT schema_name,
+       table_name,
+       column_name,
+       CAST(current_value AS CHAR) AS current_value,
+       CAST(max_value AS CHAR) AS max_value,
+       CAST(ROUND((current_value / max_value) * 100, 1) AS CHAR) AS percent_used
+FROM (
+    SELECT c.TABLE_SCHEMA AS schema_name,
+           c.TABLE_NAME AS table_name,
+           c.COLUMN_NAME AS column_name,
+           t.AUTO_INCREMENT AS current_value,
+           CASE
+               WHEN c.DATA_TYPE = 'tinyint' AND c.COLUMN_TYPE LIKE '%unsigned%' THEN 255
+               WHEN c.DATA_TYPE = 'tinyint' THEN 127
+               WHEN c.DATA_TYPE = 'smallint' AND c.COLUMN_TYPE LIKE '%unsigned%' THEN 65535
+               WHEN c.DATA_TYPE = 'smallint' THEN 32767
+               WHEN c.DATA_TYPE = 'mediumint' AND c.COLUMN_TYPE LIKE '%unsigned%' THEN 16777215
+               WHEN c.DATA_TYPE = 'mediumint' THEN 8388607
+               WHEN c.DATA_TYPE = 'int' AND c.COLUMN_TYPE LIKE '%unsigned%' THEN 4294967295
+               WHEN c.DATA_TYPE = 'int' THEN 2147483647
+               WHEN c.DATA_TYPE = 'bigint' AND c.COLUMN_TYPE LIKE '%unsigned%' THEN 18446744073709551615
+               WHEN c.DATA_TYPE = 'bigint' THEN 9223372036854775807
+               ELSE NULL
+           END AS max_value
+    FROM information_schema.COLUMNS c
+    JOIN information_schema.TABLES t
+      ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME
+    WHERE c.EXTRA LIKE '%auto_increment%'
+      AND t.AUTO_INCREMENT IS NOT NULL
+      AND c.TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+) AS ai
+WHERE max_value IS NOT NULL
+  AND current_value / max_value > 0.7
+ORDER BY current_value / max_value DESC
+"""
+
+[[check]]
+id = "SC-INS-MY04"
+name = "memory-engine-in-prod"
+category = "reliability"
+severity = "warn"
+engines = ["mysql"]
+object_binding = "table_name"
+schema_binding = "schema_name"
+description = "table uses the MEMORY storage engine — all data is discarded on server restart or crash"
+message = "`{schema_name}.{table_name}` uses the MEMORY storage engine — all data is lost on server restart or crash; convert to InnoDB unless the data is genuinely disposable"
+explanation = "The MEMORY engine keeps table contents in RAM only and never persists them to disk. A server restart, crash, or `FLUSH TABLES` empties every MEMORY table with no recovery path. It also has no row-level locking, no transaction support, and truncates VARCHAR/TEXT-like data to fixed-width storage. This is appropriate for genuinely ephemeral scratch data but catastrophic for anything user-facing."
+remediation = "Convert to a durable engine: `ALTER TABLE {schema_name}.{table_name} ENGINE=InnoDB`. If the data is genuinely ephemeral, keep MEMORY but document the intent so a future restart's data loss is expected rather than discovered."
+sql = """
+SELECT t.TABLE_SCHEMA AS schema_name,
+       t.TABLE_NAME   AS table_name
+FROM information_schema.TABLES t
+WHERE t.ENGINE = 'MEMORY'
+  AND t.TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+ORDER BY t.TABLE_SCHEMA, t.TABLE_NAME
+"""

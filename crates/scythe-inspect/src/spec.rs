@@ -11,7 +11,7 @@ use regex::Regex;
 use scythe_lint::types::Severity;
 use serde::Deserialize;
 use sqlparser::ast::Statement;
-use sqlparser::dialect::PostgreSqlDialect;
+use sqlparser::dialect::{Dialect, MySqlDialect, PostgreSqlDialect};
 use sqlparser::parser::Parser;
 
 /// Schema version used in TOML check files. Reject files with a higher
@@ -294,11 +294,16 @@ pub fn validate_suppression_bindings(
 /// as an empty one would reject every binding on a check whose SQL is merely
 /// shaped in a way this parser does not model.
 fn sql_projection(spec: &CheckSpec) -> Result<Option<Vec<String>>, SpecValidationError> {
-    let stmts =
-        Parser::parse_sql(&PostgreSqlDialect {}, &spec.sql).map_err(|e| SpecValidationError::SqlParseError {
-            check_id: spec.id.clone(),
-            reason: format!("{e}"),
-        })?;
+    let dialect: Box<dyn Dialect> = if spec.engines.iter().any(|e| e == "mysql") {
+        Box::new(MySqlDialect {})
+    } else {
+        Box::new(PostgreSqlDialect {})
+    };
+
+    let stmts = Parser::parse_sql(&*dialect, &spec.sql).map_err(|e| SpecValidationError::SqlParseError {
+        check_id: spec.id.clone(),
+        reason: format!("{e}"),
+    })?;
 
     let stmt = match stmts.into_iter().next() {
         Some(s) => s,
@@ -436,6 +441,15 @@ mod tests {
     }
 
     #[test]
+    fn canonical_mysql_checks_toml_parses() {
+        let content = include_str!("mysql/checks.toml");
+        let file: CheckFile = toml::from_str(content).expect("canonical mysql TOML parses");
+        assert_eq!(file.schema_version, SCHEMA_VERSION);
+        assert_eq!(file.checks.len(), 4);
+        assert!(file.checks.iter().all(|c| c.engines == vec!["mysql".to_string()]));
+    }
+
+    #[test]
     fn canonical_checks_count_matches_canonical_ids() {
         use crate::spec::CANONICAL_CHECK_IDS;
         let content = include_str!("postgres/checks.toml");
@@ -470,6 +484,22 @@ mod tests {
             "SELECT n.nspname AS schema_name, c.relname AS table_name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace",
         );
         validate_message_bindings(&spec).expect("all bindings present");
+    }
+
+    /// A check declaring `engines = ["mysql"]` must have its SQL parsed under
+    /// the MySQL dialect for binding validation, not PostgreSQL's default.
+    /// Backtick-quoted identifiers are valid MySQL syntax and invalid
+    /// PostgreSQL syntax, so this would fail to validate under the wrong
+    /// dialect even though the check is well-formed.
+    #[test]
+    fn validate_message_bindings_uses_mysql_dialect_for_a_mysql_check() {
+        let mut spec = make_spec(
+            "SC-INS-MY01",
+            "table {table_name}",
+            "SELECT `c`.`TABLE_NAME` AS table_name FROM `information_schema`.`TABLES` `c`",
+        );
+        spec.engines = vec!["mysql".to_string()];
+        validate_message_bindings(&spec).expect("backtick-quoted identifiers parse under the MySQL dialect");
     }
 
     /// A binding pointed at a column the SQL does not project cannot ever
