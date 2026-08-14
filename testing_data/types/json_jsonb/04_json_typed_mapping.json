@@ -17,7 +17,7 @@
   "expected": {
     "generated_code": {
       "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetEventsTypedRow {\n    pub id: i32,\n    pub data: sqlx::types::Json<EventData>,\n}"
+        "row_struct": "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct GetEventsTypedRow {\n    pub id: i32,\n    pub data: sqlx::types::Json<EventData>,\n}"
       }
     },
     "query": {

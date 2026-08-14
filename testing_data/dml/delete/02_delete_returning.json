@@ -10,7 +10,7 @@
   "expected": {
     "generated_code": {
       "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct DeleteUserReturningRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}"
+        "row_struct": "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct DeleteUserReturningRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}"
       }
     },
     "query": {

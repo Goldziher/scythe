@@ -6,6 +6,11 @@ use scythe_codegen as _codegen;
 #[allow(unused_imports)]
 use syn as _syn;
 
+#[allow(dead_code)]
+fn normalize_whitespace(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 #[test]
 fn test_mariadb_insert_returning() {
     // From: testing_data/engines/mariadb/dml/01_insert_returning.json
@@ -38,33 +43,30 @@ fn test_mariadb_insert_returning() {
     );
     assert!(!analyzed.columns[1].nullable, "column nullable for name");
 
-    // Codegen verification: all backends should produce valid output
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "mariadb";
     let all_backends = [
         "rust-sqlx",
-        "rust-tokio-postgres",
-        "python-psycopg3",
-        "python-asyncpg",
-        "typescript-postgres",
-        "typescript-pg",
         "typescript-kysely",
-        "go-pgx",
         "java-jdbc",
         "java-r2dbc",
-        "kotlin-exposed",
         "kotlin-jdbc",
         "kotlin-r2dbc",
-        "csharp-npgsql",
-        "elixir-postgrex",
-        "elixir-ecto",
-        "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
         "php-amphp",
     ];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
-            Err(_) => continue, // skip unregistered backends
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "mariadb_insert_returning", e
+            ),
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
@@ -101,7 +103,7 @@ fn test_mariadb_insert_returning() {
                 &scythe_codegen::provenance::header_line(
                     &*backend,
                     env!("CARGO_PKG_VERSION"),
-                    "postgresql",
+                    engine,
                     "sch1:0123456789abcdef",
                     "q1:fedcba9876543210",
                 ),
@@ -172,33 +174,30 @@ fn test_mariadb_uuid_type() {
     );
     assert!(!analyzed.columns[1].nullable, "column nullable for name");
 
-    // Codegen verification: all backends should produce valid output
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "mariadb";
     let all_backends = [
         "rust-sqlx",
-        "rust-tokio-postgres",
-        "python-psycopg3",
-        "python-asyncpg",
-        "typescript-postgres",
-        "typescript-pg",
         "typescript-kysely",
-        "go-pgx",
         "java-jdbc",
         "java-r2dbc",
-        "kotlin-exposed",
         "kotlin-jdbc",
         "kotlin-r2dbc",
-        "csharp-npgsql",
-        "elixir-postgrex",
-        "elixir-ecto",
-        "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
         "php-amphp",
     ];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
-            Err(_) => continue, // skip unregistered backends
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "mariadb_uuid_type", e
+            ),
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
@@ -235,7 +234,7 @@ fn test_mariadb_uuid_type() {
                 &scythe_codegen::provenance::header_line(
                     &*backend,
                     env!("CARGO_PKG_VERSION"),
-                    "postgresql",
+                    engine,
                     "sch1:0123456789abcdef",
                     "q1:fedcba9876543210",
                 ),
@@ -320,33 +319,20 @@ fn test_mssql_basic_types() {
     );
     assert!(analyzed.columns[3].nullable, "column nullable for external_id");
 
-    // Codegen verification: all backends should produce valid output
-    let all_backends = [
-        "rust-sqlx",
-        "rust-tokio-postgres",
-        "python-psycopg3",
-        "python-asyncpg",
-        "typescript-postgres",
-        "typescript-pg",
-        "typescript-kysely",
-        "go-pgx",
-        "java-jdbc",
-        "java-r2dbc",
-        "kotlin-exposed",
-        "kotlin-jdbc",
-        "kotlin-r2dbc",
-        "csharp-npgsql",
-        "elixir-postgrex",
-        "elixir-ecto",
-        "ruby-pg",
-        "ruby-trilogy",
-        "php-pdo",
-        "php-amphp",
-    ];
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "mssql";
+    let all_backends = ["typescript-kysely", "java-jdbc", "kotlin-jdbc", "php-pdo"];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
-            Err(_) => continue, // skip unregistered backends
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "mssql_basic_types", e
+            ),
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
@@ -383,7 +369,7 @@ fn test_mssql_basic_types() {
                 &scythe_codegen::provenance::header_line(
                     &*backend,
                     env!("CARGO_PKG_VERSION"),
-                    "postgresql",
+                    engine,
                     "sch1:0123456789abcdef",
                     "q1:fedcba9876543210",
                 ),
@@ -474,33 +460,20 @@ fn test_mssql_datetime_types() {
     );
     assert!(analyzed.columns[4].nullable, "column nullable for scheduled_at");
 
-    // Codegen verification: all backends should produce valid output
-    let all_backends = [
-        "rust-sqlx",
-        "rust-tokio-postgres",
-        "python-psycopg3",
-        "python-asyncpg",
-        "typescript-postgres",
-        "typescript-pg",
-        "typescript-kysely",
-        "go-pgx",
-        "java-jdbc",
-        "java-r2dbc",
-        "kotlin-exposed",
-        "kotlin-jdbc",
-        "kotlin-r2dbc",
-        "csharp-npgsql",
-        "elixir-postgrex",
-        "elixir-ecto",
-        "ruby-pg",
-        "ruby-trilogy",
-        "php-pdo",
-        "php-amphp",
-    ];
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "mssql";
+    let all_backends = ["typescript-kysely", "java-jdbc", "kotlin-jdbc", "php-pdo"];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
-            Err(_) => continue, // skip unregistered backends
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "mssql_datetime_types", e
+            ),
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
@@ -537,7 +510,7 @@ fn test_mssql_datetime_types() {
                 &scythe_codegen::provenance::header_line(
                     &*backend,
                     env!("CARGO_PKG_VERSION"),
-                    "postgresql",
+                    engine,
                     "sch1:0123456789abcdef",
                     "q1:fedcba9876543210",
                 ),
@@ -622,33 +595,20 @@ fn test_oracle_number_types() {
     );
     assert!(!analyzed.columns[3].nullable, "column nullable for price");
 
-    // Codegen verification: all backends should produce valid output
-    let all_backends = [
-        "rust-sqlx",
-        "rust-tokio-postgres",
-        "python-psycopg3",
-        "python-asyncpg",
-        "typescript-postgres",
-        "typescript-pg",
-        "typescript-kysely",
-        "go-pgx",
-        "java-jdbc",
-        "java-r2dbc",
-        "kotlin-exposed",
-        "kotlin-jdbc",
-        "kotlin-r2dbc",
-        "csharp-npgsql",
-        "elixir-postgrex",
-        "elixir-ecto",
-        "ruby-pg",
-        "ruby-trilogy",
-        "php-pdo",
-        "php-amphp",
-    ];
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "oracle";
+    let all_backends = ["java-jdbc", "kotlin-jdbc"];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
-            Err(_) => continue, // skip unregistered backends
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "oracle_number_types", e
+            ),
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
@@ -685,7 +645,7 @@ fn test_oracle_number_types() {
                 &scythe_codegen::provenance::header_line(
                     &*backend,
                     env!("CARGO_PKG_VERSION"),
-                    "postgresql",
+                    engine,
                     "sch1:0123456789abcdef",
                     "q1:fedcba9876543210",
                 ),
@@ -762,33 +722,20 @@ fn test_oracle_varchar2_clob() {
     );
     assert!(analyzed.columns[2].nullable, "column nullable for body");
 
-    // Codegen verification: all backends should produce valid output
-    let all_backends = [
-        "rust-sqlx",
-        "rust-tokio-postgres",
-        "python-psycopg3",
-        "python-asyncpg",
-        "typescript-postgres",
-        "typescript-pg",
-        "typescript-kysely",
-        "go-pgx",
-        "java-jdbc",
-        "java-r2dbc",
-        "kotlin-exposed",
-        "kotlin-jdbc",
-        "kotlin-r2dbc",
-        "csharp-npgsql",
-        "elixir-postgrex",
-        "elixir-ecto",
-        "ruby-pg",
-        "ruby-trilogy",
-        "php-pdo",
-        "php-amphp",
-    ];
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "oracle";
+    let all_backends = ["java-jdbc", "kotlin-jdbc"];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
-            Err(_) => continue, // skip unregistered backends
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "oracle_varchar2_clob", e
+            ),
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
@@ -825,7 +772,7 @@ fn test_oracle_varchar2_clob() {
                 &scythe_codegen::provenance::header_line(
                     &*backend,
                     env!("CARGO_PKG_VERSION"),
-                    "postgresql",
+                    engine,
                     "sch1:0123456789abcdef",
                     "q1:fedcba9876543210",
                 ),
@@ -899,7 +846,12 @@ fn test_redshift_identity_column() {
     );
     assert!(!analyzed.columns[1].nullable, "column nullable for name");
 
-    // Codegen verification: all backends should produce valid output
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "redshift";
     let all_backends = [
         "rust-sqlx",
         "rust-tokio-postgres",
@@ -910,22 +862,19 @@ fn test_redshift_identity_column() {
         "typescript-kysely",
         "go-pgx",
         "java-jdbc",
-        "java-r2dbc",
-        "kotlin-exposed",
         "kotlin-jdbc",
-        "kotlin-r2dbc",
         "csharp-npgsql",
         "elixir-postgrex",
-        "elixir-ecto",
         "ruby-pg",
-        "ruby-trilogy",
         "php-pdo",
-        "php-amphp",
     ];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
-            Err(_) => continue, // skip unregistered backends
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "redshift_identity_column", e
+            ),
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
@@ -962,7 +911,7 @@ fn test_redshift_identity_column() {
                 &scythe_codegen::provenance::header_line(
                     &*backend,
                     env!("CARGO_PKG_VERSION"),
-                    "postgresql",
+                    engine,
                     "sch1:0123456789abcdef",
                     "q1:fedcba9876543210",
                 ),
@@ -1039,7 +988,12 @@ fn test_redshift_no_enum() {
     );
     assert!(!analyzed.columns[1].nullable, "column nullable for status");
 
-    // Codegen verification: all backends should produce valid output
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "redshift";
     let all_backends = [
         "rust-sqlx",
         "rust-tokio-postgres",
@@ -1050,22 +1004,19 @@ fn test_redshift_no_enum() {
         "typescript-kysely",
         "go-pgx",
         "java-jdbc",
-        "java-r2dbc",
-        "kotlin-exposed",
         "kotlin-jdbc",
-        "kotlin-r2dbc",
         "csharp-npgsql",
         "elixir-postgrex",
-        "elixir-ecto",
         "ruby-pg",
-        "ruby-trilogy",
         "php-pdo",
-        "php-amphp",
     ];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
-            Err(_) => continue, // skip unregistered backends
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "redshift_no_enum", e
+            ),
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
@@ -1102,7 +1053,7 @@ fn test_redshift_no_enum() {
                 &scythe_codegen::provenance::header_line(
                     &*backend,
                     env!("CARGO_PKG_VERSION"),
-                    "postgresql",
+                    engine,
                     "sch1:0123456789abcdef",
                     "q1:fedcba9876543210",
                 ),
@@ -1169,7 +1120,12 @@ fn test_redshift_super_type() {
     assert_eq!(analyzed.columns[1].neutral_type, "json", "column neutral_type for data");
     assert!(analyzed.columns[1].nullable, "column nullable for data");
 
-    // Codegen verification: all backends should produce valid output
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "redshift";
     let all_backends = [
         "rust-sqlx",
         "rust-tokio-postgres",
@@ -1180,22 +1136,19 @@ fn test_redshift_super_type() {
         "typescript-kysely",
         "go-pgx",
         "java-jdbc",
-        "java-r2dbc",
-        "kotlin-exposed",
         "kotlin-jdbc",
-        "kotlin-r2dbc",
         "csharp-npgsql",
         "elixir-postgrex",
-        "elixir-ecto",
         "ruby-pg",
-        "ruby-trilogy",
         "php-pdo",
-        "php-amphp",
     ];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
-            Err(_) => continue, // skip unregistered backends
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "redshift_super_type", e
+            ),
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
@@ -1232,7 +1185,7 @@ fn test_redshift_super_type() {
                 &scythe_codegen::provenance::header_line(
                     &*backend,
                     env!("CARGO_PKG_VERSION"),
-                    "postgresql",
+                    engine,
                     "sch1:0123456789abcdef",
                     "q1:fedcba9876543210",
                 ),
@@ -1311,33 +1264,20 @@ fn test_snowflake_timestamp_variants() {
     );
     assert!(analyzed.columns[2].nullable, "column nullable for scheduled_at");
 
-    // Codegen verification: all backends should produce valid output
-    let all_backends = [
-        "rust-sqlx",
-        "rust-tokio-postgres",
-        "python-psycopg3",
-        "python-asyncpg",
-        "typescript-postgres",
-        "typescript-pg",
-        "typescript-kysely",
-        "go-pgx",
-        "java-jdbc",
-        "java-r2dbc",
-        "kotlin-exposed",
-        "kotlin-jdbc",
-        "kotlin-r2dbc",
-        "csharp-npgsql",
-        "elixir-postgrex",
-        "elixir-ecto",
-        "ruby-pg",
-        "ruby-trilogy",
-        "php-pdo",
-        "php-amphp",
-    ];
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "snowflake";
+    let all_backends = ["java-jdbc", "kotlin-jdbc", "php-pdo"];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
-            Err(_) => continue, // skip unregistered backends
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "snowflake_timestamp_variants", e
+            ),
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
@@ -1374,7 +1314,7 @@ fn test_snowflake_timestamp_variants() {
                 &scythe_codegen::provenance::header_line(
                     &*backend,
                     env!("CARGO_PKG_VERSION"),
-                    "postgresql",
+                    engine,
                     "sch1:0123456789abcdef",
                     "q1:fedcba9876543210",
                 ),
@@ -1445,33 +1385,20 @@ fn test_snowflake_variant_type() {
     );
     assert!(analyzed.columns[1].nullable, "column nullable for payload");
 
-    // Codegen verification: all backends should produce valid output
-    let all_backends = [
-        "rust-sqlx",
-        "rust-tokio-postgres",
-        "python-psycopg3",
-        "python-asyncpg",
-        "typescript-postgres",
-        "typescript-pg",
-        "typescript-kysely",
-        "go-pgx",
-        "java-jdbc",
-        "java-r2dbc",
-        "kotlin-exposed",
-        "kotlin-jdbc",
-        "kotlin-r2dbc",
-        "csharp-npgsql",
-        "elixir-postgrex",
-        "elixir-ecto",
-        "ruby-pg",
-        "ruby-trilogy",
-        "php-pdo",
-        "php-amphp",
-    ];
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "snowflake";
+    let all_backends = ["java-jdbc", "kotlin-jdbc", "php-pdo"];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
-            Err(_) => continue, // skip unregistered backends
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "snowflake_variant_type", e
+            ),
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
@@ -1508,7 +1435,7 @@ fn test_snowflake_variant_type() {
                 &scythe_codegen::provenance::header_line(
                     &*backend,
                     env!("CARGO_PKG_VERSION"),
-                    "postgresql",
+                    engine,
                     "sch1:0123456789abcdef",
                     "q1:fedcba9876543210",
                 ),

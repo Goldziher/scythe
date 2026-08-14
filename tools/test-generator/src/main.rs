@@ -1,11 +1,92 @@
 mod fixture;
 
 use clap::Parser;
-use fixture::{ExpectedCatalog, ExpectedQuery, Fixture};
+use fixture::{Command, ExpectedCatalog, ExpectedQuery, Fixture};
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::fs;
 use std::path::PathBuf;
+
+/// The candidate backend names probed for codegen verification. Kept as the generator's
+/// original fixed list -- widening it to the full ~55-name `scythe_codegen::get_backend`
+/// registry (to add real MySQL/SQLite/etc. coverage) is separate follow-up work from the defect
+/// this list exists to fix: which of these actually applies to a *given* fixture's engine. See
+/// #156.
+const CANDIDATE_BACKENDS: &[&str] = &[
+    "rust-sqlx",
+    "rust-tokio-postgres",
+    "python-psycopg3",
+    "python-asyncpg",
+    "typescript-postgres",
+    "typescript-pg",
+    "typescript-kysely",
+    "go-pgx",
+    "java-jdbc",
+    "java-r2dbc",
+    "kotlin-exposed",
+    "kotlin-jdbc",
+    "kotlin-r2dbc",
+    "csharp-npgsql",
+    "elixir-postgrex",
+    "elixir-ecto",
+    "ruby-pg",
+    "ruby-trilogy",
+    "php-pdo",
+    "php-amphp",
+];
+
+/// The engine string a fixture targets, defaulting to `"postgresql"` when unset -- the same
+/// default `catalog_expr` and `Engine::dialect_path` use.
+fn fixture_engine_str(fixture: &Fixture) -> &'static str {
+    fixture
+        .config
+        .as_ref()
+        .and_then(|c| c.engine)
+        .map(fixture::Engine::as_str)
+        .unwrap_or("postgresql")
+}
+
+/// Ask the real `get_backend` registry which of `CANDIDATE_BACKENDS` accept `engine`, at
+/// generation time. Before this, the generated test embedded the *full* candidate list for
+/// every fixture regardless of engine and silently `continue`d past whichever ones didn't apply
+/// -- `ruby-trilogy` (MySQL/MariaDB only) appeared, and contributed zero assertions, in every
+/// one of the ~370 non-error query fixtures, all of which target PostgreSQL. Filtering here
+/// means the list embedded in a generated test is exactly the backends expected to construct,
+/// so a construction failure in the generated test is a real regression rather than an expected
+/// engine mismatch. See #156.
+fn applicable_backends(engine: &str) -> Vec<&'static str> {
+    CANDIDATE_BACKENDS
+        .iter()
+        .copied()
+        .filter(|name| scythe_codegen::get_backend(name, engine).is_ok())
+        .collect()
+}
+
+/// A fixture with `query_sql`, `expected.success == true`, and a row-returning command
+/// (`one`/`many`/`grouped`) that declares no `expected.query.columns` would generate a test
+/// asserting name, command and params only -- not one column type or nullability. A
+/// one-character key typo (`columns` -> `column`) used to produce exactly this silently, because
+/// the field is `#[serde(default)]`. `deny_unknown_fields` now catches the typo itself at parse
+/// time; this catches the remaining case where the key is simply never written. See #156.
+fn validate_fixtures(fixtures: &[Fixture]) -> Result<(), String> {
+    for fixture in fixtures {
+        if fixture.query_sql.is_none() || !fixture.expected.success {
+            continue;
+        }
+        let Some(ref query) = fixture.expected.query else {
+            continue;
+        };
+        let row_returning = matches!(query.command, Command::One | Command::Many | Command::Grouped);
+        if row_returning && query.columns.is_empty() {
+            return Err(format!(
+                "{}: query command `{}` returns rows but declares no `expected.query.columns`",
+                fixture.file_path.as_deref().unwrap_or(&fixture.name),
+                query.command,
+            ));
+        }
+    }
+    Ok(())
+}
 
 /// Emit a bool assertion that satisfies clippy's `bool_assert_comparison` lint.
 ///
@@ -43,6 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("warning: no fixture files found in {}", cli.fixtures.display());
         return Ok(());
     }
+    validate_fixtures(&fixtures)?;
 
     let mut groups: BTreeMap<String, Vec<&Fixture>> = BTreeMap::new();
     for f in &fixtures {
@@ -99,6 +181,10 @@ fn generate_test_file(category: &str, fixtures: &[&Fixture]) -> String {
     let _ = writeln!(out, "// Category: {}\n", category);
     out.push_str("#[allow(unused_imports)]\nuse scythe_codegen as _codegen;\n");
     out.push_str("#[allow(unused_imports)]\nuse syn as _syn;\n\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str("fn normalize_whitespace(s: &str) -> String {\n");
+    out.push_str("    s.split_whitespace().collect::<Vec<_>>().join(\" \")\n");
+    out.push_str("}\n\n");
 
     for fixture in fixtures {
         out.push_str(&generate_single_test(fixture));
@@ -217,33 +303,28 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
         .map(|q| q.command.to_string())
         .unwrap_or_default();
 
-    out.push_str("    // Codegen verification: all backends should produce valid output\n");
+    let engine = fixture_engine_str(fixture);
+    let applicable = applicable_backends(engine);
+
+    out.push_str("    // Codegen verification: every backend that supports this fixture's engine\n");
+    out.push_str("    // should produce valid output. The list below is derived at generation\n");
+    out.push_str("    // time from the fixture's engine via the real `get_backend` registry, so\n");
+    out.push_str("    // every entry here is expected to construct -- a construction failure\n");
+    out.push_str("    // below is a real regression, not an expected engine mismatch. See #156.\n");
+    let _ = writeln!(out, "    let engine = {:?};", engine);
     out.push_str("    let all_backends = [\n");
-    out.push_str("        \"rust-sqlx\",\n");
-    out.push_str("        \"rust-tokio-postgres\",\n");
-    out.push_str("        \"python-psycopg3\",\n");
-    out.push_str("        \"python-asyncpg\",\n");
-    out.push_str("        \"typescript-postgres\",\n");
-    out.push_str("        \"typescript-pg\",\n");
-    out.push_str("        \"typescript-kysely\",\n");
-    out.push_str("        \"go-pgx\",\n");
-    out.push_str("        \"java-jdbc\",\n");
-    out.push_str("        \"java-r2dbc\",\n");
-    out.push_str("        \"kotlin-exposed\",\n");
-    out.push_str("        \"kotlin-jdbc\",\n");
-    out.push_str("        \"kotlin-r2dbc\",\n");
-    out.push_str("        \"csharp-npgsql\",\n");
-    out.push_str("        \"elixir-postgrex\",\n");
-    out.push_str("        \"elixir-ecto\",\n");
-    out.push_str("        \"ruby-pg\",\n");
-    out.push_str("        \"ruby-trilogy\",\n");
-    out.push_str("        \"php-pdo\",\n");
-    out.push_str("        \"php-amphp\",\n");
+    for name in &applicable {
+        let _ = writeln!(out, "        {:?},", name);
+    }
     out.push_str("    ];\n");
     out.push_str("    for backend_name in &all_backends {\n");
-    out.push_str("        let backend = match scythe_codegen::get_backend(backend_name, \"postgresql\") {\n");
+    out.push_str("        let backend = match scythe_codegen::get_backend(backend_name, engine) {\n");
     out.push_str("            Ok(b) => b,\n");
-    out.push_str("            Err(_) => continue, // skip unregistered backends\n");
+    let _ = writeln!(
+        out,
+        "            Err(e) => panic!(\"backend {{}} failed to construct for engine {{}} in fixture {{}}: {{}}\", backend_name, engine, {:?}, e),",
+        fixture.name
+    );
     out.push_str("        };\n");
     out.push_str("        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {\n");
     // ~keep Assembled through `provenance::assemble_file`, exactly as `scythe
@@ -275,7 +356,7 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("                    &scythe_codegen::provenance::header_line(\n");
     out.push_str("                        &*backend,\n");
     out.push_str("                        env!(\"CARGO_PKG_VERSION\"),\n");
-    out.push_str("                        \"postgresql\",\n");
+    out.push_str("                        engine,\n");
     out.push_str("                        \"sch1:0123456789abcdef\",\n");
     out.push_str("                        \"q1:fedcba9876543210\",\n");
     out.push_str("                    ),\n");
@@ -331,10 +412,60 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
         fixture.name
     );
     out.push_str("                );\n");
+    out.push_str(&generate_generated_code_assertions(fixture));
     out.push_str("        }\n");
     out.push_str("    }\n");
 
     out.push_str("}\n");
+    out
+}
+
+/// Emits whitespace-normalised `contains` assertions for every backend/field a fixture declares
+/// under `expected.generated_code`. Without this, the field deserialises and is silently
+/// dropped: a fixture can declare exact expected output for a backend and the generated test
+/// asserts nothing about it -- 45 of the 55 fixtures that declared it had already drifted from
+/// the shipped output with nothing to notice. `contains`, not exact equality, and
+/// whitespace-normalised: the point is to catch a body that materially diverges, not to pin
+/// incidental formatting. See #156.
+fn generate_generated_code_assertions(fixture: &Fixture) -> String {
+    let mut out = String::new();
+    let Some(ref generated_code) = fixture.expected.generated_code else {
+        return out;
+    };
+
+    let mut backends: Vec<_> = generated_code.iter().collect();
+    backends.sort_unstable_by_key(|(name, _)| name.as_str());
+
+    for (backend_name, expected) in backends {
+        let fields: [(&str, Option<&str>); 4] = [
+            ("row_struct", expected.row_struct.as_deref()),
+            ("query_fn", expected.query_fn.as_deref()),
+            ("enum_def", expected.enum_def.as_deref()),
+            ("model_struct", expected.model_struct.as_deref()),
+        ];
+        if fields.iter().all(|(_, value)| value.is_none()) {
+            continue;
+        }
+
+        let _ = writeln!(out, "                if *backend_name == {:?} {{", backend_name);
+        for (field_name, value) in fields {
+            let Some(value) = value else { continue };
+            let _ = writeln!(
+                out,
+                "                    let actual = generated.{}.clone().unwrap_or_default();",
+                field_name,
+            );
+            let _ = writeln!(
+                out,
+                "                    assert!(\n                        normalize_whitespace(&actual).contains(&normalize_whitespace({value:?})),\n                        \"backend {{}} {field} mismatch for {{}}\\n--- expected (substring) ---\\n{{}}\\n--- actual ---\\n{{}}\",\n                        backend_name, {name:?}, {value:?}, actual\n                    );",
+                value = value,
+                field = field_name,
+                name = fixture.name,
+            );
+        }
+        out.push_str("                }\n");
+    }
+
     out
 }
 
@@ -796,4 +927,134 @@ fn sanitize_ident(name: &str) -> String {
         .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
         .collect::<String>()
         .to_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture_from_json(json: &str) -> Fixture {
+        serde_json::from_str(json).expect("test fixture JSON must parse")
+    }
+
+    #[test]
+    fn validate_fixtures_rejects_a_many_query_with_no_declared_columns() {
+        let fixture = fixture_from_json(
+            r#"{
+                "name": "missing_columns",
+                "description": "d",
+                "category": "smoke",
+                "schema_sql": ["CREATE TABLE t (id INT)"],
+                "query_sql": "SELECT id FROM t",
+                "expected": {
+                    "success": true,
+                    "query": { "name": "GetT", "command": "many" }
+                },
+                "source": "original"
+            }"#,
+        );
+
+        let error = validate_fixtures(&[fixture]).expect_err("a `many` query with no columns must be rejected");
+        assert!(
+            error.contains("returns rows but declares no `expected.query.columns`"),
+            "error must name the missing field, got: {error}"
+        );
+    }
+
+    #[test]
+    fn validate_fixtures_accepts_an_exec_query_with_no_declared_columns() {
+        let fixture = fixture_from_json(
+            r#"{
+                "name": "exec_no_columns",
+                "description": "d",
+                "category": "smoke",
+                "schema_sql": ["CREATE TABLE t (id INT)"],
+                "query_sql": "DELETE FROM t",
+                "expected": {
+                    "success": true,
+                    "query": { "name": "DeleteT", "command": "exec" }
+                },
+                "source": "original"
+            }"#,
+        );
+
+        assert_eq!(
+            validate_fixtures(&[fixture]),
+            Ok(()),
+            "exec commands return no rows and need no declared columns"
+        );
+    }
+
+    /// Regression for #156: `ruby-trilogy` only supports MySQL/MariaDB, but the generator used
+    /// to embed it in every fixture's backend list regardless of engine and silently `continue`
+    /// past its construction failure -- contributing zero assertions to ~370 fixtures.
+    #[test]
+    fn applicable_backends_excludes_ruby_trilogy_for_postgresql() {
+        let backends = applicable_backends("postgresql");
+        assert!(
+            !backends.contains(&"ruby-trilogy"),
+            "ruby-trilogy does not support postgresql and must be excluded, got: {backends:?}"
+        );
+        assert!(
+            backends.contains(&"rust-sqlx"),
+            "rust-sqlx supports postgresql and must be included, got: {backends:?}"
+        );
+    }
+
+    #[test]
+    fn applicable_backends_is_engine_specific() {
+        let mysql_backends = applicable_backends("mysql");
+        assert!(
+            !mysql_backends.contains(&"csharp-npgsql"),
+            "csharp-npgsql (Npgsql) has no MySQL manifest and must be excluded, got: {mysql_backends:?}"
+        );
+    }
+
+    #[test]
+    fn generate_generated_code_assertions_is_empty_when_the_fixture_declares_none() {
+        let fixture = fixture_from_json(
+            r#"{
+                "name": "no_generated_code",
+                "description": "d",
+                "category": "smoke",
+                "schema_sql": ["CREATE TABLE t (id INT)"],
+                "query_sql": "SELECT id FROM t",
+                "expected": { "success": true },
+                "source": "original"
+            }"#,
+        );
+
+        assert_eq!(generate_generated_code_assertions(&fixture), String::new());
+    }
+
+    /// Regression for #156: `expected.generated_code` used to deserialise and be dropped --
+    /// 45 of 55 fixtures that declared it had already drifted from the shipped output with
+    /// nothing to notice.
+    #[test]
+    fn generate_generated_code_assertions_emits_a_contains_check_per_declared_field() {
+        let fixture = fixture_from_json(
+            r#"{
+                "name": "with_generated_code",
+                "description": "d",
+                "category": "smoke",
+                "schema_sql": ["CREATE TABLE t (id INT)"],
+                "query_sql": "SELECT id FROM t",
+                "expected": {
+                    "success": true,
+                    "generated_code": {
+                        "rust-sqlx": { "row_struct": "pub struct GetTRow { pub id: i32 }" }
+                    }
+                },
+                "source": "original"
+            }"#,
+        );
+
+        let code = generate_generated_code_assertions(&fixture);
+        assert!(code.contains(r#"if *backend_name == "rust-sqlx""#), "got:\n{code}");
+        assert!(code.contains("generated.row_struct.clone()"), "got:\n{code}");
+        assert!(
+            code.contains("normalize_whitespace(&actual).contains(&normalize_whitespace"),
+            "got:\n{code}"
+        );
+    }
 }

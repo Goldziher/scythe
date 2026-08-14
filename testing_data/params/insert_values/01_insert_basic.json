@@ -11,7 +11,7 @@
     "generated_code": {
       "rust-sqlx": {
         "query_fn": "pub async fn create_user(pool: &sqlx::PgPool, name: &str, email: &str) -> Result<CreateUserRow, sqlx::Error> {\n    sqlx::query_as!(CreateUserRow, \"INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id\", name, email)\n        .fetch_one(pool)\n        .await\n}",
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct CreateUserRow {\n    pub id: i32,\n}"
+        "row_struct": "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct CreateUserRow {\n    pub id: i32,\n}"
       }
     },
     "query": {

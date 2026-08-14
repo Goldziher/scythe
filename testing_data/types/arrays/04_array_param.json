@@ -11,7 +11,7 @@
     "generated_code": {
       "rust-sqlx": {
         "query_fn": "pub async fn get_scores_by_ids(pool: &sqlx::PgPool, ids: &[i32]) -> Result<Vec<GetScoresByIdsRow>, sqlx::Error> {\n    sqlx::query_as!(GetScoresByIdsRow, \"SELECT id, values FROM scores WHERE id = ANY($1)\", ids)\n        .fetch_all(pool)\n        .await\n}",
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetScoresByIdsRow {\n    pub id: i32,\n    pub values: Vec<i32>,\n}"
+        "row_struct": "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct GetScoresByIdsRow {\n    pub id: i32,\n    pub values: Vec<i32>,\n}"
       }
     },
     "query": {

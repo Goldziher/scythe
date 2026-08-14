@@ -11,7 +11,7 @@
     "generated_code": {
       "rust-sqlx": {
         "query_fn": "pub async fn upsert_user(pool: &sqlx::PgPool, name: &str, email: &str) -> Result<UpsertUserRow, sqlx::Error> {\n    sqlx::query_as!(UpsertUserRow, \"INSERT INTO users (name, email) VALUES ($1, $2) ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name RETURNING *\", name, email)\n        .fetch_one(pool)\n        .await\n}",
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct UpsertUserRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}"
+        "row_struct": "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct UpsertUserRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}"
       }
     },
     "query": {

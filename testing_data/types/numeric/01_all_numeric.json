@@ -10,7 +10,7 @@
   "expected": {
     "generated_code": {
       "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetNumericDataRow {\n    pub id: i32,\n    pub small: i16,\n    pub med: i32,\n    pub big: i64,\n    pub r: f32,\n    pub d: f64,\n    pub n: rust_decimal::Decimal,\n}"
+        "row_struct": "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct GetNumericDataRow {\n    pub id: i32,\n    pub small: i16,\n    pub med: i32,\n    pub big: i64,\n    pub r: f32,\n    pub d: f64,\n    pub n: rust_decimal::Decimal,\n}"
       }
     },
     "query": {

@@ -6,6 +6,11 @@ use scythe_codegen as _codegen;
 #[allow(unused_imports)]
 use syn as _syn;
 
+#[allow(dead_code)]
+fn normalize_whitespace(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 #[test]
 fn test_select_all_reuses_model() {
     // From: testing_data/codegen/model_sharing/01_select_all_reuses_model.json
@@ -45,7 +50,12 @@ fn test_select_all_reuses_model() {
     );
     assert!(!analyzed.columns[3].nullable, "column nullable for created_at");
 
-    // Codegen verification: all backends should produce valid output
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "postgresql";
     let all_backends = [
         "rust-sqlx",
         "rust-tokio-postgres",
@@ -64,14 +74,16 @@ fn test_select_all_reuses_model() {
         "elixir-postgrex",
         "elixir-ecto",
         "ruby-pg",
-        "ruby-trilogy",
         "php-pdo",
         "php-amphp",
     ];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
-            Err(_) => continue, // skip unregistered backends
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "select_all_reuses_model", e
+            ),
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
@@ -108,7 +120,7 @@ fn test_select_all_reuses_model() {
                 &scythe_codegen::provenance::header_line(
                     &*backend,
                     env!("CARGO_PKG_VERSION"),
-                    "postgresql",
+                    engine,
                     "sch1:0123456789abcdef",
                     "q1:fedcba9876543210",
                 ),
@@ -147,6 +159,20 @@ fn test_select_all_reuses_model() {
                 backend_name,
                 "select_all_reuses_model"
             );
+            if *backend_name == "rust-sqlx" {
+                let actual = generated.query_fn.clone().unwrap_or_default();
+                assert!(
+                        normalize_whitespace(&actual).contains(&normalize_whitespace("pub async fn get_all_users(pool: &sqlx::PgPool) -> Result<Vec<User>, sqlx::Error> {\n    sqlx::query_as!(User, \"SELECT * FROM users\")\n        .fetch_all(pool)\n        .await\n}")),
+                        "backend {} query_fn mismatch for {}\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name, "select_all_reuses_model", "pub async fn get_all_users(pool: &sqlx::PgPool) -> Result<Vec<User>, sqlx::Error> {\n    sqlx::query_as!(User, \"SELECT * FROM users\")\n        .fetch_all(pool)\n        .await\n}", actual
+                    );
+                let actual = generated.model_struct.clone().unwrap_or_default();
+                assert!(
+                        normalize_whitespace(&actual).contains(&normalize_whitespace("#[derive(Debug, Clone, sqlx::FromRow)]\npub struct User {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}")),
+                        "backend {} model_struct mismatch for {}\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name, "select_all_reuses_model", "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct User {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}", actual
+                    );
+            }
         }
     }
 }
@@ -180,7 +206,12 @@ fn test_pascal_case_structs() {
     );
     assert!(!analyzed.columns[1].nullable, "column nullable for name");
 
-    // Codegen verification: all backends should produce valid output
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "postgresql";
     let all_backends = [
         "rust-sqlx",
         "rust-tokio-postgres",
@@ -199,14 +230,16 @@ fn test_pascal_case_structs() {
         "elixir-postgrex",
         "elixir-ecto",
         "ruby-pg",
-        "ruby-trilogy",
         "php-pdo",
         "php-amphp",
     ];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
-            Err(_) => continue, // skip unregistered backends
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "pascal_case_structs", e
+            ),
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
@@ -243,7 +276,7 @@ fn test_pascal_case_structs() {
                 &scythe_codegen::provenance::header_line(
                     &*backend,
                     env!("CARGO_PKG_VERSION"),
-                    "postgresql",
+                    engine,
                     "sch1:0123456789abcdef",
                     "q1:fedcba9876543210",
                 ),
@@ -282,6 +315,20 @@ fn test_pascal_case_structs() {
                 backend_name,
                 "pascal_case_structs"
             );
+            if *backend_name == "rust-sqlx" {
+                let actual = generated.row_struct.clone().unwrap_or_default();
+                assert!(
+                        normalize_whitespace(&actual).contains(&normalize_whitespace("#[derive(Debug, Clone, sqlx::FromRow)]\npub struct GetUserRow {\n    pub id: i32,\n    pub name: String,\n}")),
+                        "backend {} row_struct mismatch for {}\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name, "pascal_case_structs", "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct GetUserRow {\n    pub id: i32,\n    pub name: String,\n}", actual
+                    );
+                let actual = generated.query_fn.clone().unwrap_or_default();
+                assert!(
+                        normalize_whitespace(&actual).contains(&normalize_whitespace("pub async fn get_user(pool: &sqlx::PgPool, id: i32) -> Result<GetUserRow, sqlx::Error> {\n    sqlx::query_as!(GetUserRow, \"SELECT id, name FROM users WHERE id = $1\", id)\n        .fetch_one(pool)\n        .await\n}")),
+                        "backend {} query_fn mismatch for {}\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name, "pascal_case_structs", "pub async fn get_user(pool: &sqlx::PgPool, id: i32) -> Result<GetUserRow, sqlx::Error> {\n    sqlx::query_as!(GetUserRow, \"SELECT id, name FROM users WHERE id = $1\", id)\n        .fetch_one(pool)\n        .await\n}", actual
+                    );
+            }
         }
     }
 }
@@ -326,7 +373,12 @@ fn test_snake_case_fields() {
     );
     assert!(!analyzed.columns[3].nullable, "column nullable for firstName");
 
-    // Codegen verification: all backends should produce valid output
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "postgresql";
     let all_backends = [
         "rust-sqlx",
         "rust-tokio-postgres",
@@ -345,14 +397,16 @@ fn test_snake_case_fields() {
         "elixir-postgrex",
         "elixir-ecto",
         "ruby-pg",
-        "ruby-trilogy",
         "php-pdo",
         "php-amphp",
     ];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
-            Err(_) => continue, // skip unregistered backends
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "snake_case_fields", e
+            ),
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
@@ -389,7 +443,7 @@ fn test_snake_case_fields() {
                 &scythe_codegen::provenance::header_line(
                     &*backend,
                     env!("CARGO_PKG_VERSION"),
-                    "postgresql",
+                    engine,
                     "sch1:0123456789abcdef",
                     "q1:fedcba9876543210",
                 ),
@@ -428,6 +482,14 @@ fn test_snake_case_fields() {
                 backend_name,
                 "snake_case_fields"
             );
+            if *backend_name == "rust-sqlx" {
+                let actual = generated.row_struct.clone().unwrap_or_default();
+                assert!(
+                        normalize_whitespace(&actual).contains(&normalize_whitespace("#[derive(Debug, Clone, sqlx::FromRow)]\npub struct GetUserFieldsRow {\n    pub id: i32,\n    #[sqlx(rename = \"userId\")]\n    pub user_id: i32,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n    #[sqlx(rename = \"firstName\")]\n    pub first_name: String,\n}")),
+                        "backend {} row_struct mismatch for {}\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name, "snake_case_fields", "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct GetUserFieldsRow {\n    pub id: i32,\n    #[sqlx(rename = \"userId\")]\n    pub user_id: i32,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n    #[sqlx(rename = \"firstName\")]\n    pub first_name: String,\n}", actual
+                    );
+            }
         }
     }
 }
@@ -451,7 +513,12 @@ fn test_exec_query_fn() {
     assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
     assert!(!analyzed.params[0].nullable, "param nullable for id");
 
-    // Codegen verification: all backends should produce valid output
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "postgresql";
     let all_backends = [
         "rust-sqlx",
         "rust-tokio-postgres",
@@ -470,14 +537,16 @@ fn test_exec_query_fn() {
         "elixir-postgrex",
         "elixir-ecto",
         "ruby-pg",
-        "ruby-trilogy",
         "php-pdo",
         "php-amphp",
     ];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
-            Err(_) => continue, // skip unregistered backends
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "exec_query_fn", e
+            ),
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
@@ -514,7 +583,7 @@ fn test_exec_query_fn() {
                 &scythe_codegen::provenance::header_line(
                     &*backend,
                     env!("CARGO_PKG_VERSION"),
-                    "postgresql",
+                    engine,
                     "sch1:0123456789abcdef",
                     "q1:fedcba9876543210",
                 ),
@@ -547,6 +616,14 @@ fn test_exec_query_fn() {
                 backend_name,
                 "exec_query_fn"
             );
+            if *backend_name == "rust-sqlx" {
+                let actual = generated.query_fn.clone().unwrap_or_default();
+                assert!(
+                        normalize_whitespace(&actual).contains(&normalize_whitespace("pub async fn purge_users(pool: &sqlx::PgPool, id: i32) -> Result<(), sqlx::Error> {\n    sqlx::query!(\"DELETE FROM users WHERE id < $1\", id)\n        .execute(pool)\n        .await?;\n    Ok(())\n}")),
+                        "backend {} query_fn mismatch for {}\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name, "exec_query_fn", "pub async fn purge_users(pool: &sqlx::PgPool, id: i32) -> Result<(), sqlx::Error> {\n    sqlx::query!(\"DELETE FROM users WHERE id < $1\", id)\n        .execute(pool)\n        .await?;\n    Ok(())\n}", actual
+                    );
+            }
         }
     }
 }
@@ -586,7 +663,12 @@ fn test_one_query_fn() {
     );
     assert!(!analyzed.columns[2].nullable, "column nullable for email");
 
-    // Codegen verification: all backends should produce valid output
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "postgresql";
     let all_backends = [
         "rust-sqlx",
         "rust-tokio-postgres",
@@ -605,14 +687,16 @@ fn test_one_query_fn() {
         "elixir-postgrex",
         "elixir-ecto",
         "ruby-pg",
-        "ruby-trilogy",
         "php-pdo",
         "php-amphp",
     ];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
-            Err(_) => continue, // skip unregistered backends
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "one_query_fn", e
+            ),
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
@@ -649,7 +733,7 @@ fn test_one_query_fn() {
                 &scythe_codegen::provenance::header_line(
                     &*backend,
                     env!("CARGO_PKG_VERSION"),
-                    "postgresql",
+                    engine,
                     "sch1:0123456789abcdef",
                     "q1:fedcba9876543210",
                 ),
@@ -688,6 +772,20 @@ fn test_one_query_fn() {
                 backend_name,
                 "one_query_fn"
             );
+            if *backend_name == "rust-sqlx" {
+                let actual = generated.row_struct.clone().unwrap_or_default();
+                assert!(
+                        normalize_whitespace(&actual).contains(&normalize_whitespace("#[derive(Debug, Clone, sqlx::FromRow)]\npub struct FindUserRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n}")),
+                        "backend {} row_struct mismatch for {}\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name, "one_query_fn", "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct FindUserRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n}", actual
+                    );
+                let actual = generated.query_fn.clone().unwrap_or_default();
+                assert!(
+                        normalize_whitespace(&actual).contains(&normalize_whitespace("pub async fn find_user(pool: &sqlx::PgPool, id: i32) -> Result<FindUserRow, sqlx::Error> {\n    sqlx::query_as!(FindUserRow, \"SELECT id, name, email FROM users WHERE id = $1\", id)\n        .fetch_one(pool)\n        .await\n}")),
+                        "backend {} query_fn mismatch for {}\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name, "one_query_fn", "pub async fn find_user(pool: &sqlx::PgPool, id: i32) -> Result<FindUserRow, sqlx::Error> {\n    sqlx::query_as!(FindUserRow, \"SELECT id, name, email FROM users WHERE id = $1\", id)\n        .fetch_one(pool)\n        .await\n}", actual
+                    );
+            }
         }
     }
 }
@@ -731,7 +829,12 @@ fn test_simple_query_fn() {
     );
     assert!(!analyzed.columns[3].nullable, "column nullable for created_at");
 
-    // Codegen verification: all backends should produce valid output
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "postgresql";
     let all_backends = [
         "rust-sqlx",
         "rust-tokio-postgres",
@@ -750,14 +853,16 @@ fn test_simple_query_fn() {
         "elixir-postgrex",
         "elixir-ecto",
         "ruby-pg",
-        "ruby-trilogy",
         "php-pdo",
         "php-amphp",
     ];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
-            Err(_) => continue, // skip unregistered backends
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "simple_query_fn", e
+            ),
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
@@ -794,7 +899,7 @@ fn test_simple_query_fn() {
                 &scythe_codegen::provenance::header_line(
                     &*backend,
                     env!("CARGO_PKG_VERSION"),
-                    "postgresql",
+                    engine,
                     "sch1:0123456789abcdef",
                     "q1:fedcba9876543210",
                 ),
@@ -833,6 +938,20 @@ fn test_simple_query_fn() {
                 backend_name,
                 "simple_query_fn"
             );
+            if *backend_name == "rust-sqlx" {
+                let actual = generated.row_struct.clone().unwrap_or_default();
+                assert!(
+                        normalize_whitespace(&actual).contains(&normalize_whitespace("#[derive(Debug, Clone, sqlx::FromRow)]\npub struct ListUsersRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}")),
+                        "backend {} row_struct mismatch for {}\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name, "simple_query_fn", "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct ListUsersRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}", actual
+                    );
+                let actual = generated.query_fn.clone().unwrap_or_default();
+                assert!(
+                        normalize_whitespace(&actual).contains(&normalize_whitespace("pub async fn list_users(pool: &sqlx::PgPool) -> Result<Vec<ListUsersRow>, sqlx::Error> {\n    sqlx::query_as!(ListUsersRow, \"SELECT id, name, email, created_at FROM users ORDER BY created_at DESC\")\n        .fetch_all(pool)\n        .await\n}")),
+                        "backend {} query_fn mismatch for {}\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name, "simple_query_fn", "pub async fn list_users(pool: &sqlx::PgPool) -> Result<Vec<ListUsersRow>, sqlx::Error> {\n    sqlx::query_as!(ListUsersRow, \"SELECT id, name, email, created_at FROM users ORDER BY created_at DESC\")\n        .fetch_all(pool)\n        .await\n}", actual
+                    );
+            }
         }
     }
 }

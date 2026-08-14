@@ -10,7 +10,7 @@
   "expected": {
     "generated_code": {
       "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetEventNestedRow {\n    pub id: i32,\n    pub nested: Option<serde_json::Value>,\n}"
+        "row_struct": "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct GetEventNestedRow {\n    pub id: i32,\n    pub nested: Option<serde_json::Value>,\n}"
       }
     },
     "query": {

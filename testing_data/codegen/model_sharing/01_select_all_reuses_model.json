@@ -10,7 +10,7 @@
   "expected": {
     "generated_code": {
       "rust-sqlx": {
-        "model_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct User {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}",
+        "model_struct": "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct User {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}",
         "query_fn": "pub async fn get_all_users(pool: &sqlx::PgPool) -> Result<Vec<User>, sqlx::Error> {\n    sqlx::query_as!(User, \"SELECT * FROM users\")\n        .fetch_all(pool)\n        .await\n}"
       }
     },
@@ -41,7 +41,6 @@
       "name": "GetAllUsers",
       "params": []
     },
-    "sqlc_comparison": "sqlc creates duplicate types for SELECT * queries instead of reusing the model",
     "success": true
   },
   "name": "select_all_reuses_model",
@@ -50,5 +49,8 @@
     "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());"
   ],
   "source": "original",
+  "sqlc_comparison": {
+    "sqlc_behavior": "sqlc creates duplicate types for SELECT * queries instead of reusing the model"
+  },
   "tags": ["codegen", "model", "reuse", "select_star"]
 }

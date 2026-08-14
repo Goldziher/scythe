@@ -11,7 +11,7 @@
     "generated_code": {
       "rust-sqlx": {
         "query_fn": "pub async fn get_events_after(pool: &sqlx::PgPool, created_at: &chrono::DateTime<chrono::Utc>) -> Result<Vec<GetEventsAfterRow>, sqlx::Error> {\n    sqlx::query_as!(GetEventsAfterRow, \"SELECT id, name, created_at FROM events WHERE created_at > $1\", created_at)\n        .fetch_all(pool)\n        .await\n}",
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetEventsAfterRow {\n    pub id: i32,\n    pub name: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}"
+        "row_struct": "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct GetEventsAfterRow {\n    pub id: i32,\n    pub name: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}"
       }
     },
     "query": {

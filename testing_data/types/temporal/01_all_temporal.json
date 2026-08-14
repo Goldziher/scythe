@@ -10,7 +10,7 @@
   "expected": {
     "generated_code": {
       "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetTemporalDataRow {\n    pub id: i32,\n    pub d: chrono::NaiveDate,\n    pub t: chrono::NaiveTime,\n    pub tz: sqlx::postgres::types::PgTimeTz,\n    pub ts: chrono::NaiveDateTime,\n    pub tstz: chrono::DateTime<chrono::Utc>,\n    pub dur: sqlx::postgres::types::PgInterval,\n}"
+        "row_struct": "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct GetTemporalDataRow {\n    pub id: i32,\n    pub d: chrono::NaiveDate,\n    pub t: chrono::NaiveTime,\n    pub tz: sqlx::postgres::types::PgTimeTz,\n    pub ts: chrono::NaiveDateTime,\n    pub tstz: chrono::DateTime<chrono::Utc>,\n    pub dur: sqlx::postgres::types::PgInterval,\n}"
       }
     },
     "query": {

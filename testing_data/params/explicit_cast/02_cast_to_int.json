@@ -10,7 +10,7 @@
   "expected": {
     "generated_code": {
       "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUserByCastIntRow {\n    pub id: i32,\n    pub name: String,\n}"
+        "row_struct": "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct GetUserByCastIntRow {\n    pub id: i32,\n    pub name: String,\n}"
       }
     },
     "query": {

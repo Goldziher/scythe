@@ -6,6 +6,7 @@ use std::path::Path;
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Fixture {
     pub name: String,
     pub description: String,
@@ -27,12 +28,21 @@ pub struct Fixture {
     #[serde(default)]
     pub sqlc_comparison: Option<SqlcComparison>,
 
+    /// The `testing_data/nullability_live/**` seed/run corpus (`schema_profile`, `engines`,
+    /// `runs`). Accepted, not modeled or consumed: no code in this repo reads it yet -- a live
+    /// fixture runner is separate, larger work than the typo-tolerance fix this field exists to
+    /// unblock. Kept opaque (`Value`, not a dedicated struct) on purpose, so `deny_unknown_fields`
+    /// on `Fixture` doesn't reject these 16 fixtures while that runner doesn't exist. See #156.
+    #[serde(default)]
+    pub live: Option<serde_json::Value>,
+
     /// Populated after loading -- the path on disk this fixture was read from.
     #[serde(skip)]
     pub file_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FixtureConfig {
     #[serde(default)]
     pub engine: Option<Engine>,
@@ -97,6 +107,7 @@ impl Engine {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GenConfig {
     #[serde(default)]
     pub target: Option<GenTarget>,
@@ -110,6 +121,7 @@ pub enum GenTarget {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TypeOverride {
     #[serde(default)]
     pub db_type: Option<String>,
@@ -124,6 +136,7 @@ pub struct TypeOverride {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NamingConfig {
     #[serde(default)]
     pub enum_style: Option<String>,
@@ -132,6 +145,7 @@ pub struct NamingConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Expected {
     pub success: bool,
     #[serde(default)]
@@ -147,12 +161,14 @@ pub struct Expected {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedLint {
     #[serde(default)]
     pub violations: Vec<ExpectedLintViolation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedLintViolation {
     pub rule_code: String,
     #[serde(default)]
@@ -160,6 +176,7 @@ pub struct ExpectedLintViolation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedCatalog {
     #[serde(default)]
     pub tables: AHashMap<String, ExpectedTable>,
@@ -170,11 +187,13 @@ pub struct ExpectedCatalog {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedTable {
     pub columns: Vec<ExpectedColumn>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedColumn {
     pub name: String,
     pub sql_type: String,
@@ -186,22 +205,26 @@ pub struct ExpectedColumn {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedEnum {
     pub values: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedComposite {
     pub fields: Vec<ExpectedCompositeField>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedCompositeField {
     pub name: String,
     pub sql_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedQuery {
     pub name: String,
     pub command: Command,
@@ -220,6 +243,7 @@ pub struct ExpectedQuery {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedNestedStruct {
     /// snake_case name, as it appears in `NestedStructInfo::name`.
     pub name: String,
@@ -228,6 +252,7 @@ pub struct ExpectedNestedStruct {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedNestedField {
     /// The *raw* SQL column name, which is also the JSON key.
     pub name: String,
@@ -264,6 +289,7 @@ impl std::fmt::Display for Command {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedParam {
     pub name: String,
     #[serde(rename = "type")]
@@ -271,9 +297,14 @@ pub struct ExpectedParam {
     pub nullable: bool,
     #[serde(default)]
     pub position: Option<i64>,
+    /// Optional note explaining type/nullability reasoning, mirroring
+    /// `ExpectedReturnColumn::note`. Documentation only -- no assertion reads it.
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedReturnColumn {
     pub name: String,
     #[serde(rename = "type")]
@@ -284,6 +315,7 @@ pub struct ExpectedReturnColumn {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedGeneratedCode {
     #[serde(default)]
     pub row_struct: Option<String>,
@@ -296,6 +328,7 @@ pub struct ExpectedGeneratedCode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedError {
     #[serde(default)]
     pub code: Option<String>,
@@ -312,6 +345,7 @@ pub enum Source {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SqlcComparison {
     #[serde(default)]
     pub sqlc_behavior: Option<String>,
@@ -443,6 +477,61 @@ mod tests {
             fixtures.len(),
             1,
             "dir sits under an underscore-prefixed directory but must still load"
+        );
+    }
+
+    /// Regression for #156: before `#[serde(deny_unknown_fields)]`, misspelling
+    /// `expected.query.columns` as `column` silently deserialised to the empty default and the
+    /// generated test asserted no column type or nullability at all. It must now be a load
+    /// error naming the offending key, not a fixture that loads and tests nothing.
+    #[test]
+    fn load_fixtures_rejects_a_misspelled_expected_query_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let json = r#"{
+  "name": "typo_test",
+  "description": "d",
+  "category": "smoke",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
+  "query_sql": "SELECT id FROM t",
+  "expected": {
+    "success": true,
+    "query": { "name": "GetT", "command": "many", "column": [] }
+  },
+  "source": "original"
+}"#;
+        std::fs::write(dir.path().join("f.json"), json).unwrap();
+
+        let error = load_fixtures(dir.path())
+            .expect_err("a misspelled `column` key must be rejected, not silently dropped")
+            .to_string();
+        assert!(
+            error.contains("column"),
+            "error must name the offending key, got: {error}"
+        );
+    }
+
+    /// The `testing_data/nullability_live/**` corpus carries a top-level `live` block that no
+    /// code in this repo consumes yet (see `Fixture::live`'s doc comment). It must still load
+    /// under `deny_unknown_fields` rather than be treated as an unrecognised key.
+    #[test]
+    fn load_fixtures_accepts_a_live_block_without_rejecting_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let json = r#"{
+  "name": "live_test",
+  "description": "d",
+  "category": "smoke",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
+  "expected": { "success": true },
+  "source": "original",
+  "live": { "schema_profile": "x", "engines": ["postgresql"], "runs": [] }
+}"#;
+        std::fs::write(dir.path().join("f.json"), json).unwrap();
+
+        let fixtures = load_fixtures(dir.path()).expect("a declared `live` block must not be rejected");
+        assert_eq!(fixtures.len(), 1);
+        assert!(
+            fixtures[0].live.is_some(),
+            "the `live` block must round-trip, not be dropped"
         );
     }
 }

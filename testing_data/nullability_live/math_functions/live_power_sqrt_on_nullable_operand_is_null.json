@@ -1,0 +1,51 @@
+{
+  "name": "live_power_sqrt_on_nullable_operand_is_null",
+  "category": "nullability_live/math_functions",
+  "description": "POWER and SQRT over a nullable operand are observed NULL against live engines, not merely asserted from the model -- the #163 gap: no live fixture exercised either function, so a fix that only changed the analyzer's model could regress silently",
+  "tags": ["nullability", "math", "power", "sqrt", "live"],
+  "schema_sql": ["CREATE TABLE measurements (id SERIAL PRIMARY KEY, value DOUBLE PRECISION);"],
+  "query_sql": "-- @name PowerSqrtLive\n-- @returns :many\nSELECT id, POWER(value, 2) AS squared, SQRT(value) AS root FROM measurements ORDER BY id",
+  "expected": {
+    "success": true,
+    "query": {
+      "name": "PowerSqrtLive",
+      "command": "many",
+      "params": [],
+      "columns": [
+        { "name": "id", "nullable": false, "type": "int32" },
+        {
+          "name": "squared",
+          "nullable": true,
+          "type": "float64",
+          "note": "value is nullable, so POWER(value, 2) is nullable"
+        },
+        {
+          "name": "root",
+          "nullable": true,
+          "type": "float64",
+          "note": "value is nullable, so SQRT(value) is nullable"
+        }
+      ]
+    }
+  },
+  "source": "original",
+  "live": {
+    "schema_profile": "measurements",
+    "engines": ["postgresql", "mysql", "mariadb", "mssql", "oracle"],
+    "runs": [
+      {
+        "name": "one_value_one_null",
+        "seed": {
+          "default": [
+            "INSERT INTO measurements (id, value) VALUES (1, 4.0)",
+            "INSERT INTO measurements (id, value) VALUES (2, NULL)"
+          ]
+        },
+        "rows": [
+          { "non_null": ["id", "squared", "root"], "null": [] },
+          { "non_null": ["id"], "null": ["squared", "root"] }
+        ]
+      }
+    ]
+  }
+}

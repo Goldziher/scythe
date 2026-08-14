@@ -11,7 +11,7 @@
     "generated_code": {
       "rust-sqlx": {
         "query_fn": "pub async fn get_users_by_active(pool: &sqlx::PgPool, active: bool) -> Result<Vec<GetUsersByActiveRow>, sqlx::Error> {\n    sqlx::query_as!(GetUsersByActiveRow, \"SELECT id, name FROM users WHERE active = $1\", active)\n        .fetch_all(pool)\n        .await\n}",
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUsersByActiveRow {\n    pub id: i32,\n    pub name: String,\n}"
+        "row_struct": "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct GetUsersByActiveRow {\n    pub id: i32,\n    pub name: String,\n}"
       }
     },
     "query": {

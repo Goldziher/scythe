@@ -12,7 +12,7 @@
       "rust-sqlx": {
         "enum_def": "#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]\n#[sqlx(type_name = \"user_status\", rename_all = \"snake_case\")]\npub enum UserStatus {\n    Active,\n    Inactive,\n    Banned,\n}",
         "query_fn": "pub async fn get_user_status(pool: &sqlx::PgPool) -> Result<Vec<GetUserStatusRow>, sqlx::Error> {\n    sqlx::query_as!(GetUserStatusRow, \"SELECT id, status AS \\\"status: UserStatus\\\" FROM users\")\n        .fetch_all(pool)\n        .await\n}",
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUserStatusRow {\n    pub id: i32,\n    pub status: UserStatus,\n}"
+        "row_struct": "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct GetUserStatusRow {\n    pub id: i32,\n    pub status: UserStatus,\n}"
       }
     },
     "query": {

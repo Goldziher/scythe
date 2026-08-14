@@ -1,0 +1,45 @@
+{
+  "name": "live_age_on_nullable_operand_is_null",
+  "category": "nullability_live/date_functions",
+  "description": "AGE over a nullable operand is observed NULL against a live engine, not merely asserted from the model -- the #163 gap: no live fixture exercised AGE at all, so a fix that only changed the analyzer's model of AGE(NOW(), NULL) could regress silently. AGE is PostgreSQL-only (no MySQL/MariaDB/SQLite/MSSQL/Oracle equivalent that this suite's single shared query_sql could target), so this fixture runs on postgresql alone.",
+  "tags": ["nullability", "date", "age", "live"],
+  "schema_sql": ["CREATE TABLE accounts (id SERIAL PRIMARY KEY, deleted_at TIMESTAMPTZ);"],
+  "query_sql": "-- @name AgeLive\n-- @returns :many\nSELECT id, AGE(NOW(), deleted_at) AS elapsed FROM accounts ORDER BY id",
+  "expected": {
+    "success": true,
+    "query": {
+      "name": "AgeLive",
+      "command": "many",
+      "params": [],
+      "columns": [
+        { "name": "id", "nullable": false, "type": "int32" },
+        {
+          "name": "elapsed",
+          "nullable": true,
+          "type": "interval",
+          "note": "deleted_at is nullable, so AGE(NOW(), deleted_at) is nullable"
+        }
+      ]
+    }
+  },
+  "source": "original",
+  "live": {
+    "schema_profile": "accounts",
+    "engines": ["postgresql"],
+    "runs": [
+      {
+        "name": "one_deleted_one_null",
+        "seed": {
+          "default": [
+            "INSERT INTO accounts (id, deleted_at) VALUES (1, now() - interval '1 day')",
+            "INSERT INTO accounts (id, deleted_at) VALUES (2, NULL)"
+          ]
+        },
+        "rows": [
+          { "non_null": ["id", "elapsed"], "null": [] },
+          { "non_null": ["id"], "null": ["elapsed"] }
+        ]
+      }
+    ]
+  }
+}

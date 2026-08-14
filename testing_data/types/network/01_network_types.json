@@ -10,7 +10,7 @@
   "expected": {
     "generated_code": {
       "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetHostsRow {\n    pub id: i32,\n    pub ip_addr: ipnetwork::IpNetwork,\n    pub subnet: ipnetwork::IpNetwork,\n}"
+        "row_struct": "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct GetHostsRow {\n    pub id: i32,\n    pub ip_addr: ipnetwork::IpNetwork,\n    pub subnet: ipnetwork::IpNetwork,\n}"
       }
     },
     "query": {

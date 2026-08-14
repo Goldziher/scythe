@@ -12,7 +12,7 @@
       "rust-sqlx": {
         "enum_def": "#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]\n#[sqlx(type_name = \"user_status\", rename_all = \"snake_case\")]\npub enum UserStatus {\n    Active,\n    Inactive,\n    Banned,\n}",
         "query_fn": "pub async fn get_user_status_nullable(pool: &sqlx::PgPool) -> Result<Vec<GetUserStatusNullableRow>, sqlx::Error> {\n    sqlx::query_as!(GetUserStatusNullableRow, \"SELECT id, status AS \\\"status: Option<UserStatus>\\\" FROM users\")\n        .fetch_all(pool)\n        .await\n}",
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUserStatusNullableRow {\n    pub id: i32,\n    pub status: Option<UserStatus>,\n}"
+        "row_struct": "#[derive(Debug, Clone, sqlx::FromRow)]\npub struct GetUserStatusNullableRow {\n    pub id: i32,\n    pub status: Option<UserStatus>,\n}"
       }
     },
     "query": {
@@ -32,7 +32,6 @@
       "name": "GetUserStatusNullable",
       "params": []
     },
-    "sqlc_comparison": "sqlc struggles with nullable enums in some codegen targets",
     "success": true
   },
   "name": "nullable_enum",
@@ -42,5 +41,8 @@
     "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status user_status);"
   ],
   "source": "sqlc_expanded",
+  "sqlc_comparison": {
+    "sqlc_behavior": "sqlc struggles with nullable enums in some codegen targets"
+  },
   "tags": ["enum", "nullable", "option"]
 }

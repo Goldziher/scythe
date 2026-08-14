@@ -1,0 +1,47 @@
+{
+  "name": "live_like_on_nullable_operand_is_null",
+  "category": "nullability_live/pattern_matching",
+  "description": "LIKE over a nullable column is observed NULL against a live engine, not merely asserted from the model -- the #163 gap: no live fixture exercised LIKE at all, so a fix that only changed the analyzer's model of NULL LIKE 'x' could regress silently",
+  "tags": ["nullability", "pattern_matching", "like", "live"],
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "query_sql": "-- @name LikeOnNullableEmail\n-- @returns :many\nSELECT id, email LIKE 'a%' AS starts_with_a FROM users ORDER BY id",
+  "expected": {
+    "success": true,
+    "query": {
+      "name": "LikeOnNullableEmail",
+      "command": "many",
+      "params": [],
+      "columns": [
+        { "name": "id", "nullable": false, "type": "int32" },
+        {
+          "name": "starts_with_a",
+          "nullable": true,
+          "type": "bool",
+          "note": "email is nullable, so email LIKE 'a%' is NULL (not false) when email IS NULL"
+        }
+      ]
+    }
+  },
+  "source": "original",
+  "live": {
+    "schema_profile": "users_orders",
+    "engines": ["postgresql", "mysql", "mariadb", "sqlite", "mssql", "oracle"],
+    "runs": [
+      {
+        "name": "one_matching_one_null_email",
+        "seed": {
+          "default": [
+            "INSERT INTO users (id, name, email) VALUES (1, 'Ada Lovelace', 'ada@example.com')",
+            "INSERT INTO users (id, name, email) VALUES (2, 'Grace Hopper', NULL)"
+          ]
+        },
+        "rows": [
+          { "non_null": ["id", "starts_with_a"], "null": [] },
+          { "non_null": ["id"], "null": ["starts_with_a"] }
+        ]
+      }
+    ]
+  }
+}
