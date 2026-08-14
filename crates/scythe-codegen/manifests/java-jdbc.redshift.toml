@@ -36,7 +36,6 @@ geometry = "String"
 # itself before substituting into List<>, because List<int> is not legal Java.
 array = "java.util.List<{T}>"
 nullable = "@Nullable {T}"
-range = "String"
 json_typed = "{T}"
 
 [naming]

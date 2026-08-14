@@ -30,7 +30,6 @@ geometry = "string"
 [types.containers]
 array = "{T}[]"
 nullable = "{T} | null"
-range = "string"
 json_typed = "{T}"
 
 [naming]

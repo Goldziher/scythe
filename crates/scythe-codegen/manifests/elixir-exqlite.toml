@@ -28,7 +28,6 @@ inet = "String.t()"
 [types.containers]
 array = "list({T})"
 nullable = "{T} | nil"
-range = "string()"
 json_typed = "{T}"
 
 [naming]

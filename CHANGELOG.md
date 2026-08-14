@@ -500,6 +500,18 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Changed
 
+- **The `range` container is now declared only on PostgreSQL manifests — 84 declarations become 19.**
+  `range` was mapped in 84 of 102 manifests in seven mutually incompatible spellings, and nothing
+  asserted anything about it. Presence tracked no engine capability in either direction: it was
+  declared for MySQL, MariaDB, SQLite, MSSQL, Oracle, DuckDB and Redshift, none of which has a
+  PostgreSQL-style range column type, and omitted from manifests whose siblings declared it. The
+  spellings contradicted each other inside single language families and, in two cases, inside one
+  file — `python-asyncpg` said `tuple[{T}, {T}]` while `python-asyncpg.redshift` said `str`;
+  `elixir-postgrex` said `string()`, which is not the Elixir typespec for a binary at all. Dropping
+  the key on an engine with no range type is a degradation only in the sense that a query can no
+  longer silently resolve `range<T>` to a wrong host type there — it now falls through the unknown-
+  container path like any other unmapped container. `range_container_consistency.rs` gates presence
+  against engine and spelling against each family's own `string` scalar, in both directions. (#190)
 - **`scythe fmt --check` exits 2 rather than 1 when files need formatting.** #212 reserves exit 1 for
   operational failure — an unreadable file, an invalid config — and a distinct code for "the thing
   you asked about is not satisfied", which is what `lint` and `check` already do. `fmt --check` used

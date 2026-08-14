@@ -28,7 +28,6 @@ inet = "str"
 [types.containers]
 array = "list[{T}]"
 nullable = "{T} | None"
-range = "tuple[{T}, {T}]"
 json_typed = "{T}"
 
 [naming]

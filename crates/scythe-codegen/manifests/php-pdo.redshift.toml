@@ -30,7 +30,6 @@ geometry = "string"
 [types.containers]
 array = "array"
 nullable = "?{T}"
-range = "string"
 json_typed = "{T}"
 
 [types.docblock_containers]

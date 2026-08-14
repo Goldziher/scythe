@@ -29,7 +29,7 @@ inet = "String.t()"
 [types.containers]
 array = "list({T})"
 nullable = "{T} | nil"
-range = "string()"
+range = "String.t()"
 json_typed = "{T}"
 
 [naming]

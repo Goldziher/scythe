@@ -28,7 +28,6 @@ inet = "string"
 [types.containers]
 array = "List<{T}>"
 nullable = "{T}?"
-range = "string"
 json_typed = "{T}"
 
 [naming]

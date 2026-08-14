@@ -33,7 +33,6 @@ inet = "String"
 # are legal Kotlin on their own.
 array = "List<{T}>"
 nullable = "{T}?"
-range = "String"
 json_typed = "{T}"
 
 [naming]

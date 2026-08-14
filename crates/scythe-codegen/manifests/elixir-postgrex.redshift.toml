@@ -30,7 +30,6 @@ geometry = "String.t()"
 [types.containers]
 array = "list({T})"
 nullable = "{T} | nil"
-range = "String.t()"
 json_typed = "{T}"
 
 [naming]

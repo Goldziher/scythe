@@ -30,7 +30,6 @@ geometry = "String"
 [types.containers]
 array = "Vec<{T}>"
 nullable = "Option<{T}>"
-range = "String"
 json_typed = "{T}"
 
 [naming]
