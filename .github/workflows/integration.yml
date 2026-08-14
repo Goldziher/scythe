@@ -115,8 +115,8 @@ jobs:
           elixir-version: "1.16"
       - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.3"
-          # Ruby 3.3 ships Bundler 2.5.x, but the committed Gemfile.lock files
+          ruby-version: "3.4"
+          # The pinned Ruby ships a Bundler older than 4.x, but the committed Gemfile.lock files
           # are written by Bundler 4. An older Bundler cannot read a newer
           # lockfile: it re-execs to install the newer one mid-step and then
           # fails to resolve gems. A newer Bundler reads older lockfiles fine.
@@ -351,8 +351,8 @@ jobs:
           elixir-version: "1.16"
       - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.3"
-          # Ruby 3.3 ships Bundler 2.5.x, but the committed Gemfile.lock files
+          ruby-version: "3.4"
+          # The pinned Ruby ships a Bundler older than 4.x, but the committed Gemfile.lock files
           # are written by Bundler 4. An older Bundler cannot read a newer
           # lockfile: it re-execs to install the newer one mid-step and then
           # fails to resolve gems. A newer Bundler reads older lockfiles fine.
@@ -494,8 +494,8 @@ jobs:
           elixir-version: "1.16"
       - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.3"
-          # Ruby 3.3 ships Bundler 2.5.x, but the committed Gemfile.lock files
+          ruby-version: "3.4"
+          # The pinned Ruby ships a Bundler older than 4.x, but the committed Gemfile.lock files
           # are written by Bundler 4. An older Bundler cannot read a newer
           # lockfile: it re-execs to install the newer one mid-step and then
           # fails to resolve gems. A newer Bundler reads older lockfiles fine.
@@ -647,8 +647,8 @@ jobs:
           elixir-version: "1.16"
       - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.3"
-          # Ruby 3.3 ships Bundler 2.5.x, but the committed Gemfile.lock files
+          ruby-version: "3.4"
+          # The pinned Ruby ships a Bundler older than 4.x, but the committed Gemfile.lock files
           # are written by Bundler 4. An older Bundler cannot read a newer
           # lockfile: it re-execs to install the newer one mid-step and then
           # fails to resolve gems. A newer Bundler reads older lockfiles fine.
@@ -768,8 +768,8 @@ jobs:
           elixir-version: "1.16"
       - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.3"
-          # Ruby 3.3 ships Bundler 2.5.x, but the committed Gemfile.lock files
+          ruby-version: "3.4"
+          # The pinned Ruby ships a Bundler older than 4.x, but the committed Gemfile.lock files
           # are written by Bundler 4. An older Bundler cannot read a newer
           # lockfile: it re-execs to install the newer one mid-step and then
           # fails to resolve gems. A newer Bundler reads older lockfiles fine.
@@ -893,8 +893,8 @@ jobs:
           elixir-version: "1.16"
       - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.3"
-          # Ruby 3.3 ships Bundler 2.5.x, but the committed Gemfile.lock files
+          ruby-version: "3.4"
+          # The pinned Ruby ships a Bundler older than 4.x, but the committed Gemfile.lock files
           # are written by Bundler 4. An older Bundler cannot read a newer
           # lockfile: it re-execs to install the newer one mid-step and then
           # fails to resolve gems. A newer Bundler reads older lockfiles fine.
@@ -1047,8 +1047,8 @@ jobs:
           elixir-version: "1.16"
       - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.3"
-          # Ruby 3.3 ships Bundler 2.5.x, but the committed Gemfile.lock files
+          ruby-version: "3.4"
+          # The pinned Ruby ships a Bundler older than 4.x, but the committed Gemfile.lock files
           # are written by Bundler 4. An older Bundler cannot read a newer
           # lockfile: it re-execs to install the newer one mid-step and then
           # fails to resolve gems. A newer Bundler reads older lockfiles fine.

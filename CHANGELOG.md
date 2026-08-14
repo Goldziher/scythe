@@ -115,6 +115,14 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   noticed; python evaluates `@dataclass` annotations when the class body runs, so the generated module
   raised `NameError` on import. Definitions are now emitted in dependency order. (#204)
 
+- **Generated Ruby raised `LoadError` on Ruby 3.4+.** `bigdecimal` stopped shipping as a default gem
+  in Ruby 3.4.0, and `ruby-pg`, `ruby-mysql2` and `ruby-trilogy` emit `require "bigdecimal/util"`
+  whenever a query's generated code applies `.to_d` to a `decimal` column — so on 3.4 that `require`
+  failed unless something else in the bundle happened to depend on the gem. The generated `Gemfile`
+  for those three drivers now declares `bigdecimal` explicitly. `ruby-sqlite3`, `ruby-tiny-tds` and
+  `ruby-oci8` never emit that require and are unaffected. CI pinned Ruby 3.3 — a version predating the
+  change — so it structurally could not observe this; the integration workflow now pins 3.4.
+
 - **An enum reachable only through an array column generated with no variants.** The analyzer's
   enum-discovery loop matched the bare `enum::x` neutral type, so a column typed `mood[]` — neutral
   type `array<enum::mood>` — was never recognized as referencing `mood`. `scythe-codegen`, which

@@ -14,6 +14,22 @@ through GitHub's Trilogy client, which has no bind-parameter API at all -- see [
 below. `ruby-mysql2` targets MySQL and MariaDB, `ruby-sqlite3` targets SQLite, `ruby-tiny-tds` targets
 MSSQL, and `ruby-oci8` targets Oracle -- see their sections below.
 
+## Ruby 3.4+ and BigDecimal
+
+`bigdecimal` stopped shipping as a default gem in Ruby 3.4.0. `ruby-pg`, `ruby-mysql2`, and
+`ruby-trilogy` emit `require "bigdecimal/util"` whenever a query's generated code applies the
+`.to_d` coercion for a `decimal` column (`crates/scythe-codegen/src/backends/ruby_rbs.rs`,
+`ruby_generated_code_needs_bigdecimal_util`); on Ruby 3.4+ that `require` raises `LoadError`
+unless something in the bundle depends on the `bigdecimal` gem. Add it to your project's
+`Gemfile` alongside the driver gem:
+
+```ruby
+gem "pg"        # or "mysql2", "trilogy"
+gem "bigdecimal"
+```
+
+`ruby-sqlite3`, `ruby-tiny-tds`, and `ruby-oci8` never emit that `require` and are unaffected.
+
 ## SQL input
 
 ```sql

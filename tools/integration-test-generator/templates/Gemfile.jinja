@@ -15,3 +15,14 @@ source "https://rubygems.org"
 {%- elif driver == "oci8" -%}
   gem "ruby-oci8"
 {%- endif %}
+{% if driver == "pg" or driver == "mysql2" or driver == "trilogy" %}
+# bigdecimal stopped being a default gem in Ruby 3.4.0. The pg, mysql2, and
+# trilogy backends are the only ones that ever emit `require "bigdecimal/util"`
+# (crates/scythe-codegen/src/backends/ruby_rbs.rs,
+# ruby_generated_code_needs_bigdecimal_util), gated on whether a query's
+# generated code actually calls `.to_d`. That gate is per generated file, not
+# per project, so it cannot be mirrored here -- declare the dependency
+# whenever the driver is capable of emitting it, rather than trying to know in
+# advance whether this project's schema has a decimal column.
+gem "bigdecimal"
+{%- endif %}
