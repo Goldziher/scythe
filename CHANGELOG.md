@@ -141,6 +141,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend can emit, and that failure reproduces identically whether the cast is written `as` or
   `/** @type */`. (#93)
 
+- **`json_agg(json_build_object(...))`/`jsonb_agg(jsonb_build_object(...))` now infer an inline
+  nested field list.** The relation-argument form (`json_agg(o.*)`) already synthesized a struct;
+  the inline-object form — what people actually write when the columns they want are not a whole
+  table — fell back to flat `json`. Field names come from the call's own string-literal keys, and
+  field nullability follows each value expression's real type, including outer-join widening.
+  Confirmed against PostgreSQL 16: `json_build_object` is not strict, so the built object is never
+  itself SQL NULL — not even for the phantom all-NULL row a LEFT JOIN miss produces — so unlike the
+  relation-argument form, elements here are never wrapped `nullable<>`; only individual fields are.
+  Also recognizes the standard `FILTER (WHERE {alias}.{col} IS NOT NULL)` idiom (optionally
+  `AND`-conjoined) on the relation-argument form: it provably excludes that phantom row regardless
+  of which column of the relation it names, so the array element is no longer marked nullable when
+  the filter is present. (#78)
+
 ### Changed
 
 - **Every integration harness now applies the same schema file its `scythe.toml` generated from.**

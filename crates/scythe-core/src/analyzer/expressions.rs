@@ -1089,21 +1089,27 @@ impl<'a> Analyzer<'a> {
 
     /// PostgreSQL-only nested-struct type inference for
     /// `json_agg`/`jsonb_agg` over a relation wildcard (or the
-    /// bare-identifier form `json_agg(relation)`) and for
-    /// `row_to_json`/`to_json`/`to_jsonb` over one.
+    /// bare-identifier form `json_agg(relation)`), over an inline
+    /// `json_build_object(...)`/`jsonb_build_object(...)` call (#78 --
+    /// see [`Analyzer::infer_inline_object_aggregate_type`]), and for
+    /// `row_to_json`/`to_json`/`to_jsonb` over a relation wildcard.
     ///
     /// `WrapArray::Yes` wraps the placeholder in `array<>` for the two
     /// aggregates (one JSON array element per row aggregated);
     /// `WrapArray::No` leaves it bare for the three row-to-document
-    /// conversions (one JSON object per output row, not an aggregate).
+    /// conversions (one JSON object per output row, not an aggregate). The
+    /// inline `json_build_object(...)` shape is only recognized for
+    /// `WrapArray::Yes` -- `to_json(json_build_object(...))` would just be
+    /// redundant, not a shape worth a dedicated struct for.
     ///
     /// Returns `None` whenever the nested shape can't be established — wrong
     /// dialect or engine, zero or more than one argument, or an argument that
-    /// isn't a `FuncArgShape::Relation` (a bare wildcard, a scalar expression,
-    /// or a relation alias that somehow resolved to no scope columns). Every
-    /// caller falls back to the pre-existing behaviour for that function on
-    /// `None`, so this never changes output for anything it doesn't
-    /// explicitly handle.
+    /// isn't a `FuncArgShape::Relation` and isn't a recognized inline
+    /// `json_build_object(...)` call (a bare wildcard, some other scalar
+    /// expression, or a relation alias that somehow resolved to no scope
+    /// columns). Every caller falls back to the pre-existing behaviour for
+    /// that function on `None`, so this never changes output for anything it
+    /// doesn't explicitly handle.
     fn infer_nested_aggregate_type(
         &mut self,
         func: &ast::Function,
@@ -1115,6 +1121,14 @@ impl<'a> Analyzer<'a> {
         }
 
         let shapes = self.get_function_arg_shapes(func, scope);
+
+        if wrap == WrapArray::Yes
+            && let [FuncArgShape::Expr(expr)] = shapes.as_slice()
+            && let Expr::Function(inner_func) = expr.as_ref()
+        {
+            return self.infer_inline_object_aggregate_type(inner_func, scope);
+        }
+
         let [FuncArgShape::Relation(alias)] = shapes.as_slice() else {
             return None;
         };
@@ -1145,11 +1159,28 @@ impl<'a> Analyzer<'a> {
             return None;
         }
 
-        let elements_nullable = scope
+        let source_nullable_from_join = scope
             .sources
             .iter()
             .find(|s| s.alias == *alias)
             .is_some_and(|s| s.nullable_from_join);
+
+        // ~keep #78: `FILTER (WHERE {alias}.{col} IS NOT NULL)`, optionally
+        // `AND`-conjoined, provably rules the phantom row out -- see
+        // `filter_excludes_null_relation` -- regardless of which column of
+        // `alias` it names, because the phantom row (below) makes *every*
+        // column of `alias` NULL at once, not just the filtered one.
+        // Confirmed against PostgreSQL 16 (see the module-level test evidence
+        // in the analyzer test module): unfiltered, a LEFT JOIN miss yields
+        // `[null]`; with this filter, the group's aggregate is SQL NULL
+        // instead (every candidate row was excluded), never `[null]`.
+        let filter_excludes_phantom = wrap == WrapArray::Yes
+            && func
+                .filter
+                .as_deref()
+                .is_some_and(|f| filter_excludes_null_relation(f, alias));
+
+        let elements_nullable = source_nullable_from_join && !filter_excludes_phantom;
 
         let id = self.push_pending_nested(fields);
         let placeholder = format!("__nested__{id}");
@@ -1165,12 +1196,15 @@ impl<'a> Analyzer<'a> {
         // "invalid type: null", and Python's `[Foo(...) for item in raw]`
         // raises on the NULL element.
         //
-        // Deliberately conservative: `json_agg(o.*) FILTER (WHERE o.id IS NOT
-        // NULL)` — the idiom for suppressing exactly that `[null]` — cannot
-        // produce a null element, but recognising that would mean proving an
-        // arbitrary filter excludes the non-matching rows. Over-approximating
-        // costs an `Option`/`| None` that is always `Some`; under-
-        // approximating is a runtime deserialization failure, so this errs
+        // `filter_excludes_phantom` above recognizes the standard
+        // `FILTER (WHERE {alias}.{col} IS NOT NULL)` idiom that suppresses
+        // exactly that `[null]`. Deliberately narrow, not a general filter
+        // prover: anything else (`OR`, an unqualified column, a UDF, a
+        // filter over some *other* relation) stays conservative, since
+        // proving an arbitrary filter excludes the non-matching rows in
+        // general is not attempted. Over-approximating costs an
+        // `Option`/`| None` that is always `Some`; under-approximating is a
+        // runtime deserialization failure, so unrecognized filters still err
         // toward the former.
         let element = if elements_nullable {
             format!("nullable<{placeholder}>")
@@ -1210,6 +1244,80 @@ impl<'a> Analyzer<'a> {
             })
             .collect()
     }
+
+    /// `json_agg(json_build_object('id', o.id, 'total', o.total))` element
+    /// type (#78): an inline field list built from the call's own key/value
+    /// pairs, not a relation's schema -- the form people write when the
+    /// columns they want are not a whole table.
+    ///
+    /// Confirmed against PostgreSQL 16: `json_build_object`/
+    /// `jsonb_build_object` is `proisstrict = f`, so the object it builds is
+    /// never itself SQL NULL -- not even when every argument is NULL, and
+    /// not even when the arguments come from the phantom all-NULL row a
+    /// LEFT JOIN miss produces for `o.*`
+    /// (`json_agg(json_build_object('id', o.id, 'total', o.total))` over an
+    /// unmatched LEFT JOIN row yields `[{"id": null, "total": null}]`, never
+    /// `[null]`). So unlike [`Analyzer::nested_fields_for_relation`]'s
+    /// caller, the *element* here is unconditionally non-nullable; only
+    /// individual *fields* can be NULL, and each field's nullability falls
+    /// straight out of the ordinary `infer_expr_type` call on its value
+    /// expression -- including outer-join widening, since
+    /// `TypeInfo::from_scope_column` already folds `nullable_from_join` into
+    /// a column reference's own nullability.
+    fn infer_inline_object_aggregate_type(&mut self, inner_func: &ast::Function, scope: &Scope) -> Option<TypeInfo> {
+        let fields = self.inline_json_object_fields(inner_func, scope)?;
+        if fields.is_empty() {
+            return None;
+        }
+        // Same #223 discipline as every other arm here: a field built from
+        // an unresolvable value expression (typo'd column, unknown
+        // function, ...) must fail analysis with a named error, not leak an
+        // internal marker into a nested struct's field list where
+        // `reject_unresolved_columns` (which only walks top-level output
+        // columns) would never catch it.
+        if let Some(err) = fields
+            .iter()
+            .find_map(|f| unresolved_type_error(&f.neutral_type, "field", &f.name))
+        {
+            self.type_errors.push(err.to_string());
+            return None;
+        }
+        let id = self.push_pending_nested(fields);
+        Some(TypeInfo::new(format!("json_nested<array<__nested__{id}>>"), true))
+    }
+
+    /// Extract the field list of a `json_build_object(...)`/
+    /// `jsonb_build_object(...)` call: alternating `'key', value` pairs where
+    /// every key is a string literal.
+    ///
+    /// Returns `None` -- letting the caller fall back to a flat `json` type
+    /// -- when `inner_func` isn't one of those two functions, has an odd
+    /// argument count, or has any key that isn't a string literal (e.g.
+    /// `json_build_object(k, v)` with a *computed* key: the field name
+    /// can't be known until the query runs, so there is no fixed field set
+    /// to synthesize a struct from -- the same reasoning
+    /// `json_object_agg`'s arm above already applies to its whole call).
+    fn inline_json_object_fields(&mut self, inner_func: &ast::Function, scope: &Scope) -> Option<Vec<NestedFieldInfo>> {
+        let inner_name = object_name_to_string(&inner_func.name).to_lowercase();
+        if !matches!(inner_name.as_str(), "json_build_object" | "jsonb_build_object") {
+            return None;
+        }
+        let args = self.get_function_args(inner_func);
+        if args.is_empty() || !args.len().is_multiple_of(2) {
+            return None;
+        }
+        let mut fields = Vec::with_capacity(args.len() / 2);
+        for pair in args.chunks_exact(2) {
+            let name = string_literal_value(&pair[0])?;
+            let ti = self.infer_expr_type(&pair[1], scope);
+            fields.push(NestedFieldInfo {
+                name,
+                neutral_type: ti.neutral_type,
+                nullable: ti.nullable,
+            });
+        }
+        Some(fields)
+    }
 }
 
 /// Whether nested-aggregate inference is available for this catalog.
@@ -1234,6 +1342,63 @@ fn catalog_has_nested_aggregates(catalog: &crate::catalog::Catalog) -> bool {
         .is_none_or(|engine| matches!(engine, "postgresql" | "postgres" | "pg" | "cockroachdb" | "crdb"))
 }
 
+/// The string value of a `key` argument in `json_build_object('key', ...)`,
+/// or `None` when the key isn't a literal -- see
+/// [`Analyzer::inline_json_object_fields`].
+fn string_literal_value(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Value(vws) => match &vws.value {
+            ast::Value::SingleQuotedString(s) | ast::Value::DoubleQuotedString(s) => Some(s.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Whether `filter` -- a `json_agg`/`jsonb_agg` call's `FILTER (WHERE ...)`
+/// clause -- provably excludes the phantom all-NULL row a LEFT JOIN miss
+/// produces for `alias`. See the `filter_excludes_phantom` comment in
+/// [`Analyzer::infer_nested_aggregate_type`] for the PostgreSQL evidence and
+/// why this stays narrow rather than trying to prove an arbitrary filter
+/// excludes the non-matching rows.
+///
+/// Recurses through `AND` and parenthesization so
+/// `FILTER (WHERE o.id IS NOT NULL AND o.total > 0)` and
+/// `FILTER (WHERE (o.id IS NOT NULL))` are both recognized; any other shape
+/// -- `OR`, `IS DISTINCT FROM`, a bare unqualified column, a UDF -- returns
+/// `false`.
+fn filter_excludes_null_relation(filter: &Expr, alias: &str) -> bool {
+    match filter {
+        Expr::IsNotNull(inner) => expr_is_column_of_relation(inner, alias),
+        Expr::Nested(inner) => filter_excludes_null_relation(inner, alias),
+        Expr::BinaryOp {
+            left,
+            op: BinaryOperator::And,
+            right,
+        } => filter_excludes_null_relation(left, alias) || filter_excludes_null_relation(right, alias),
+        _ => false,
+    }
+}
+
+/// Whether `expr` is a qualified `alias.column` reference. Mirrors the
+/// last-two-parts qualifier convention `infer_expr_type`'s
+/// `Expr::CompoundIdentifier` arm uses, so `db.schema.alias.column` still
+/// resolves against `alias`.
+fn expr_is_column_of_relation(expr: &Expr, alias: &str) -> bool {
+    let Expr::CompoundIdentifier(parts) = expr else {
+        return false;
+    };
+    let Some(qualifier) = parts.len().checked_sub(2).and_then(|i| parts.get(i)) else {
+        return false;
+    };
+    let qualifier_name = if qualifier.quote_style.is_some() {
+        qualifier.value.clone()
+    } else {
+        qualifier.value.to_lowercase()
+    };
+    qualifier_name == alias
+}
+
 /// Whether [`Analyzer::infer_nested_aggregate_type`] wraps its placeholder in
 /// `array<>` (`json_agg`/`jsonb_agg`, one element per aggregated row) or
 /// leaves it bare (`row_to_json`/`to_json`/`to_jsonb`, one object per output
@@ -1248,10 +1413,11 @@ enum WrapArray {
 /// `FunctionArgExpr` to preserve wildcard and relation-reference forms that
 /// [`Analyzer::get_function_args`] silently drops.
 ///
-/// `infer_nested_aggregate_type` only ever needs to distinguish `Relation`
-/// from everything else, so `Expr`'s payload is currently read by tests only
-/// (see `test_get_function_arg_shapes_plain_expr_unaffected`) — kept for a
-/// caller that needs the actual expression, not because it's unused.
+/// `infer_nested_aggregate_type` distinguishes `Relation` from a
+/// `json_build_object(...)`/`jsonb_build_object(...)` call carried by
+/// `Expr` (#78's inline field-list path) from everything else; every other
+/// `Expr` payload is currently read by tests only (see
+/// `test_get_function_arg_shapes_plain_expr_unaffected`).
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub(super) enum FuncArgShape {
@@ -2210,6 +2376,361 @@ mod tests {
         let ti = analyzer.infer_function_type(&func, &scope);
         assert_eq!(ti.neutral_type, "json_nested<array<__nested__0>>");
         assert!(ti.nullable, "an aggregate over zero rows is SQL NULL");
+    }
+
+    /// A scope source with an arbitrary set of `(name, neutral_type,
+    /// base_nullable)` columns and a settable `nullable_from_join` -- the
+    /// nested-aggregate FILTER/inline-field-list tests below need both
+    /// multi-column relations and an outer-join-widened source, neither of
+    /// which `scope_with_source_alias`'s fixed one-column, never-nullable
+    /// shape can express.
+    fn scope_with_relation_columns(alias: &str, columns: Vec<(&str, &str, bool)>, nullable_from_join: bool) -> Scope {
+        Scope {
+            sources: vec![ScopeSource {
+                alias: alias.to_string(),
+                table_name: alias.to_string(),
+                columns: columns
+                    .into_iter()
+                    .map(|(name, neutral_type, base_nullable)| ScopeColumn::new(name, neutral_type, base_nullable))
+                    .collect(),
+                nullable_from_join,
+            }],
+        }
+    }
+
+    fn qualified_col(qualifier: &str, name: &str) -> Expr {
+        Expr::CompoundIdentifier(vec![Ident::new(qualifier), Ident::new(name)])
+    }
+
+    fn func_call(name: &str, args: Vec<Expr>) -> Expr {
+        Expr::Function(make_func(name, args))
+    }
+
+    fn with_filter(mut f: ast::Function, filter: Expr) -> ast::Function {
+        f.filter = Some(Box::new(filter));
+        f
+    }
+
+    /// #78: `json_agg(json_build_object('id', o.id, 'total', o.total))` --
+    /// the form people write when the columns they want are not a whole
+    /// table -- must synthesize an inline field list instead of falling
+    /// back to flat `json`. Mutation: deleting the `FuncArgShape::Expr`
+    /// branch (or its `wrap == WrapArray::Yes` guard) in
+    /// `infer_nested_aggregate_type` makes this assert `"json"` instead.
+    #[test]
+    fn test_json_agg_json_build_object_infers_inline_field_list() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_relation_columns("o", vec![("id", "int64", false), ("total", "decimal", false)], false);
+        let func = make_func_with_arg_exprs(
+            "json_agg",
+            vec![FunctionArgExpr::Expr(func_call(
+                "json_build_object",
+                vec![
+                    string_literal("id"),
+                    qualified_col("o", "id"),
+                    string_literal("total"),
+                    qualified_col("o", "total"),
+                ],
+            ))],
+        );
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "json_nested<array<__nested__0>>");
+        assert!(ti.nullable, "an aggregate over zero rows is SQL NULL");
+        assert_eq!(analyzer.pending_nested.len(), 1);
+        assert_eq!(
+            analyzer.pending_nested[0].fields,
+            vec![
+                NestedFieldInfo {
+                    name: "id".to_string(),
+                    neutral_type: "int64".to_string(),
+                    nullable: false,
+                },
+                NestedFieldInfo {
+                    name: "total".to_string(),
+                    neutral_type: "decimal".to_string(),
+                    nullable: false,
+                },
+            ]
+        );
+    }
+
+    /// `jsonb_agg`/`jsonb_build_object` must take the same inline path as
+    /// their `json_*` counterparts. Mutation: matching only
+    /// `"json_build_object"` (not `"jsonb_build_object"`) in
+    /// `inline_json_object_fields` makes this fall back to flat `json`.
+    #[test]
+    fn test_jsonb_agg_jsonb_build_object_infers_inline_field_list() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_relation_columns("o", vec![("id", "int64", false)], false);
+        let func = make_func_with_arg_exprs(
+            "jsonb_agg",
+            vec![FunctionArgExpr::Expr(func_call(
+                "jsonb_build_object",
+                vec![string_literal("id"), qualified_col("o", "id")],
+            ))],
+        );
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "json_nested<array<__nested__0>>");
+    }
+
+    /// Field-level nullability must follow each value expression's own
+    /// inferred type, not be hardcoded. Mutation: hardcoding `nullable:
+    /// false` (or `true`) in `inline_json_object_fields` makes one of these
+    /// two assertions fail.
+    #[test]
+    fn test_json_agg_json_build_object_field_nullability_follows_value_expr() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_relation_columns("o", vec![("id", "int64", false), ("note", "string", true)], false);
+        let func = make_func_with_arg_exprs(
+            "json_agg",
+            vec![FunctionArgExpr::Expr(func_call(
+                "json_build_object",
+                vec![
+                    string_literal("id"),
+                    qualified_col("o", "id"),
+                    string_literal("note"),
+                    qualified_col("o", "note"),
+                ],
+            ))],
+        );
+        let _ti = analyzer.infer_function_type(&func, &scope);
+        let fields = &analyzer.pending_nested[0].fields;
+        assert!(!fields[0].nullable, "id is NOT NULL in the schema");
+        assert!(fields[1].nullable, "note is nullable in the schema");
+    }
+
+    /// The defining contrast with the relation-argument path: confirmed
+    /// against PostgreSQL 16, `json_build_object` is not strict (#78), so
+    /// even when `o` sits on the nullable side of a LEFT JOIN the *element*
+    /// it builds is never `null` -- only the individual fields inside it
+    /// are (`[{"id": null}]`, never `[null]`, for an unmatched LEFT JOIN
+    /// row). Mutation: reusing the relation-arg path's `elements_nullable`
+    /// computation for this shape wraps the element in `nullable<>` and the
+    /// first assert fails; computing fields from schema instead of
+    /// `infer_expr_type` (losing the outer-join fold-in) makes the second
+    /// assert fail.
+    #[test]
+    fn test_json_agg_json_build_object_element_never_nullable_across_outer_join() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_relation_columns("o", vec![("id", "int64", false)], true);
+        let func = make_func_with_arg_exprs(
+            "json_agg",
+            vec![FunctionArgExpr::Expr(func_call(
+                "json_build_object",
+                vec![string_literal("id"), qualified_col("o", "id")],
+            ))],
+        );
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(
+            ti.neutral_type, "json_nested<array<__nested__0>>",
+            "the element must never be wrapped in nullable<>, even across an outer join"
+        );
+        assert!(
+            analyzer.pending_nested[0].fields[0].nullable,
+            "the field itself must pick up the outer join's nullability instead"
+        );
+    }
+
+    /// A computed (non-literal) key has no field name available at analyze
+    /// time, so there is no fixed field set to synthesize a struct from --
+    /// the same reasoning `json_object_agg`'s arm applies to its whole
+    /// call. Mutation: accepting any expression as a key (e.g. via
+    /// `expr_to_name`) instead of requiring a string literal makes this
+    /// synthesize a struct instead of falling back.
+    #[test]
+    fn test_json_agg_json_build_object_non_literal_key_falls_back_to_flat_json() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_relation_columns("o", vec![("k", "string", false), ("v", "string", false)], false);
+        let func = make_func_with_arg_exprs(
+            "json_agg",
+            vec![FunctionArgExpr::Expr(func_call(
+                "json_build_object",
+                vec![qualified_col("o", "k"), qualified_col("o", "v")],
+            ))],
+        );
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(
+            ti.neutral_type, "json",
+            "a computed key has no fixed field name to synthesize a struct from"
+        );
+        assert!(analyzer.pending_nested.is_empty());
+    }
+
+    /// A malformed (odd-arity) `json_build_object` call must not panic and
+    /// must not synthesize a partial struct. Mutation: removing the
+    /// `args.len() % 2 != 0` guard in `inline_json_object_fields` either
+    /// panics on the unpaired chunk or silently drops the last key.
+    #[test]
+    fn test_json_agg_json_build_object_odd_arg_count_falls_back_to_flat_json() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = empty_scope();
+        let func = make_func_with_arg_exprs(
+            "json_agg",
+            vec![FunctionArgExpr::Expr(func_call(
+                "json_build_object",
+                vec![string_literal("id")],
+            ))],
+        );
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "json");
+    }
+
+    /// Unresolvable field values must fail analysis by name instead of
+    /// leaking an internal marker into the nested struct's field list --
+    /// `reject_unresolved_columns` only walks top-level output columns, so
+    /// a marker embedded in a nested field would otherwise reach codegen
+    /// unexplained (#223). Mutation: deleting the `unresolved_type_error`
+    /// check in `infer_inline_object_aggregate_type` leaves `type_errors`
+    /// empty and registers the struct anyway.
+    #[test]
+    fn test_json_agg_json_build_object_unresolved_field_reports_type_error_not_marker() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_relation_columns("o", vec![("id", "int64", false)], false);
+        let func = make_func_with_arg_exprs(
+            "json_agg",
+            vec![FunctionArgExpr::Expr(func_call(
+                "json_build_object",
+                vec![string_literal("bad"), qualified_col("o", "nonexistent")],
+            ))],
+        );
+        let _ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(analyzer.type_errors.len(), 1);
+        assert!(
+            analyzer.type_errors[0].contains("nonexistent"),
+            "must name the unresolvable column, not just fail silently: {}",
+            analyzer.type_errors[0]
+        );
+        assert!(
+            analyzer.pending_nested.is_empty(),
+            "no struct should be registered for a rejected field list"
+        );
+    }
+
+    /// Baseline (no FILTER): confirmed against PostgreSQL 16, an outer join
+    /// with no matching row still produces the phantom `[null]` element for
+    /// `json_agg(o.*)`. No existing test exercised `nullable_from_join:
+    /// true` for this path before #78; this is the control
+    /// `test_json_agg_relation_filter_is_not_null_suppresses_element_nullability`
+    /// is contrasted against. Mutation: hardcoding `elements_nullable` to
+    /// `false` makes this assert the wrong (unwrapped) type.
+    #[test]
+    fn test_json_agg_relation_arg_wraps_nullable_element_across_outer_join_without_filter() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_relation_columns("o", vec![("id", "int64", false)], true);
+        let func = make_func_with_arg_exprs("json_agg", vec![qualified_wildcard("o")]);
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(
+            ti.neutral_type, "json_nested<array<nullable<__nested__0>>>",
+            "without FILTER, an outer join can still produce the phantom [null] element"
+        );
+    }
+
+    /// #78: `json_agg(o.*) FILTER (WHERE o.id IS NOT NULL)` is the standard
+    /// idiom for suppressing the `[null]` element an outer join miss
+    /// otherwise produces -- confirmed against PostgreSQL 16 (see the
+    /// `filter_excludes_phantom` comment in `infer_nested_aggregate_type`
+    /// for the exact queries and results). Mutation: deleting the
+    /// `filter_excludes_phantom` check, or making
+    /// `filter_excludes_null_relation` always return `false`, leaves the
+    /// `nullable<>` wrapper and this assert fails.
+    #[test]
+    fn test_json_agg_relation_filter_is_not_null_suppresses_element_nullability() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_relation_columns("o", vec![("id", "int64", false)], true);
+        let func = with_filter(
+            make_func_with_arg_exprs("json_agg", vec![qualified_wildcard("o")]),
+            Expr::IsNotNull(Box::new(qualified_col("o", "id"))),
+        );
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "json_nested<array<__nested__0>>");
+    }
+
+    /// A FILTER clause that isn't the recognized `IS NOT NULL` idiom must
+    /// not suppress nullability -- proving an arbitrary filter excludes the
+    /// phantom row is out of scope (see the comment next to
+    /// `elements_nullable`). Mutation: recognizing any non-`None` `FILTER`
+    /// clause (e.g. `func.filter.is_some()` alone) instead of inspecting
+    /// its shape makes this drop the `nullable<>` wrapper.
+    #[test]
+    fn test_json_agg_relation_filter_unrelated_condition_leaves_element_nullable() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_relation_columns("o", vec![("id", "int64", false), ("total", "decimal", false)], true);
+        let func = with_filter(
+            make_func_with_arg_exprs("json_agg", vec![qualified_wildcard("o")]),
+            Expr::BinaryOp {
+                left: Box::new(qualified_col("o", "total")),
+                op: BinaryOperator::Gt,
+                right: Box::new(int_literal()),
+            },
+        );
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(
+            ti.neutral_type, "json_nested<array<nullable<__nested__0>>>",
+            "a filter that isn't the recognized `IS NOT NULL` idiom must stay conservative"
+        );
+    }
+
+    /// `AND`-conjoined filters must still be recognized when one conjunct
+    /// is the `IS NOT NULL` idiom -- `AND` only narrows the row set, so a
+    /// passing row still proves the conjunct true. Mutation: deleting the
+    /// `BinaryOp { op: And, .. }` arm in `filter_excludes_null_relation`
+    /// makes this fall back to the `nullable<>` wrapper.
+    #[test]
+    fn test_json_agg_relation_filter_and_conjunction_is_recognized() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_relation_columns("o", vec![("id", "int64", false), ("total", "decimal", false)], true);
+        let func = with_filter(
+            make_func_with_arg_exprs("json_agg", vec![qualified_wildcard("o")]),
+            Expr::BinaryOp {
+                left: Box::new(Expr::BinaryOp {
+                    left: Box::new(qualified_col("o", "total")),
+                    op: BinaryOperator::Gt,
+                    right: Box::new(int_literal()),
+                }),
+                op: BinaryOperator::And,
+                right: Box::new(Expr::IsNotNull(Box::new(qualified_col("o", "id")))),
+            },
+        );
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "json_nested<array<__nested__0>>");
+    }
+
+    /// `IS NOT NULL` on a *different* relation's column proves nothing
+    /// about whether the aggregated one is the phantom all-NULL row.
+    /// Mutation: `expr_is_column_of_relation` ignoring the qualifier (e.g.
+    /// matching any `CompoundIdentifier` regardless of which alias it
+    /// names) makes this incorrectly drop the `nullable<>` wrapper.
+    #[test]
+    fn test_json_agg_relation_filter_on_different_relation_does_not_count() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let mut scope = scope_with_relation_columns("o", vec![("id", "int64", false)], true);
+        scope.sources.push(ScopeSource {
+            alias: "c".to_string(),
+            table_name: "customers".to_string(),
+            columns: vec![ScopeColumn::new("id", "int64", false)],
+            nullable_from_join: false,
+        });
+        let func = with_filter(
+            make_func_with_arg_exprs("json_agg", vec![qualified_wildcard("o")]),
+            Expr::IsNotNull(Box::new(qualified_col("c", "id"))),
+        );
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(
+            ti.neutral_type, "json_nested<array<nullable<__nested__0>>>",
+            "IS NOT NULL on a different relation's column proves nothing about the aggregated one"
+        );
     }
 
     /// `to_json`/`to_jsonb` over a whole-row reference are `row_to_json`
