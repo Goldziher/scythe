@@ -71,10 +71,12 @@ const TS_JS_BACKENDS: &[(&str, &str)] = &[
     ("typescript-node-sqlite", "sqlite"),
     ("javascript-node-sqlite", "sqlite"),
     ("typescript-wasm-sqlite", "sqlite"),
+    ("javascript-wasm-sqlite", "sqlite"),
     ("typescript-kysely", "postgresql"),
     ("typescript-mssql", "mssql"),
     ("typescript-oracledb", "oracle"),
     ("typescript-snowflake", "snowflake"),
+    ("javascript-snowflake", "snowflake"),
 ];
 
 /// The exact text `ts_row_not_found_throw("GetItem")` renders -- pinned here

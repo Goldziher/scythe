@@ -2348,6 +2348,7 @@ mod tests {
         "typescript-node-sqlite",
         "javascript-node-sqlite",
         "typescript-wasm-sqlite",
+        "javascript-wasm-sqlite",
         "typescript-kysely",
         "go-database-sql",
         "go-pgx",
@@ -2384,6 +2385,7 @@ mod tests {
         "elixir-jamdb",
         "python-snowflake",
         "typescript-snowflake",
+        "javascript-snowflake",
         "go-gosnowflake",
         "csharp-snowflake",
     ];
@@ -2518,6 +2520,16 @@ mod tests {
         },
         BackendNote {
             backend: "javascript-node-sqlite",
+            reason: "js_mode types via JSDoc comments only; no runtime identifier for either side of \
+                      the check to find once comments are stripped",
+        },
+        BackendNote {
+            backend: "javascript-wasm-sqlite",
+            reason: "js_mode types via JSDoc comments only; no runtime identifier for either side of \
+                      the check to find once comments are stripped",
+        },
+        BackendNote {
+            backend: "javascript-snowflake",
             reason: "js_mode types via JSDoc comments only; no runtime identifier for either side of \
                       the check to find once comments are stripped",
         },

@@ -1,7 +1,7 @@
 // ~keep Hand-written ambient stubs for the driver packages the `javascript-*`
 // (JSDoc emit mode, #81/#93) backends reference via `import("pkg").Type`
 // JSDoc annotations: `pg`, `postgres`, `mysql2/promise`, `better-sqlite3`,
-// `node:sqlite`.
+// `node:sqlite`, `@sqlite.org/sqlite-wasm`, `snowflake-sdk`.
 //
 // `tsc --checkJs --strict` (see `validate_javascript_tools` in
 // `src/validation.rs`) needs these to resolve those `import("pkg")` type
@@ -41,6 +41,25 @@
 //     accepts `/** @type {Row[]} */ (stmt.all())` against this exact
 //     declaration -- so `javascript-node-sqlite` casts in one step
 //     everywhere, and a second `unknown` hop here would be dead weight.
+//   - `@sqlite.org/sqlite-wasm`'s `Database.selectObject`/`.selectObjects`
+//     return `Record<string, SqlValue> | undefined` / `Record<string,
+//     SqlValue>[]` (copied from `@sqlite.org/sqlite-wasm@3.53.0-build1`'s
+//     `src/index.d.ts`). Both the single-row and the array cast are genuine
+//     TS2352s as `as`, but the JSDoc spelling of both is accepted -- so
+//     `javascript-wasm-sqlite` casts in one step everywhere too, unlike the
+//     TS backend a few lines up in `typescript_wasm_sqlite.rs`, which routes
+//     both through `as unknown as`.
+//   - `snowflake-sdk`'s `Connection.execute`'s `complete` callback hands back
+//     `rows?: Array<any>` (copied from `snowflake-sdk@3.1.0`'s `index.d.ts`),
+//     so no row cast is a genuine TS2352 for `javascript-snowflake` either --
+//     but `binds: Binds` (`Binds = readonly Bind[] | InsertBinds`, `Bind =
+//     string | number | boolean | null`) does not admit every
+//     `ResolvedParam::full_type` this backend emits (`Date`, `Buffer`, ...),
+//     and a bound array containing one of those *is* a genuine TS2352 as a
+//     single-step JSDoc cast, exactly as it is as `as Binds` -- so
+//     `typescript_snowflake.rs::generate_query_fn_js` routes `binds` through
+//     an explicit `unknown` hop, the one JSDoc cast in this file that still
+//     needs one.
 //
 // If any of those casts is ever dropped, the corresponding
 // `test_javascript_*_grouped_and_nullable_pass_real_tools` test in
@@ -121,5 +140,30 @@ declare module "node:sqlite" {
     constructor(path: string, options?: unknown);
     exec(sql: string): void;
     prepare(sql: string): StatementSync;
+  }
+}
+
+declare module "@sqlite.org/sqlite-wasm" {
+  type SqlValue = string | number | null | bigint | Uint8Array | Int8Array | ArrayBuffer;
+  export class Database {
+    selectObject(sql: string, bind?: unknown): Record<string, SqlValue> | undefined;
+    selectObjects(sql: string, bind?: unknown): Record<string, SqlValue>[];
+    exec(sql: string, opts?: { bind?: unknown }): this;
+    exec(opts: { sql: string; bind?: unknown }): this;
+    changes(): number;
+    transaction<T>(callback: (db: this) => T): T;
+  }
+}
+
+declare module "snowflake-sdk" {
+  type Bind = string | number | boolean | null;
+  type InsertBinds = readonly Bind[][];
+  export type Binds = readonly Bind[] | InsertBinds;
+  type StatementCallback = (err: Error | undefined, stmt: RowStatement, rows?: Array<any> | undefined) => void;
+  export interface RowStatement {
+    getNumUpdatedRows(): number | undefined;
+  }
+  export interface Connection {
+    execute(options: { sqlText: string; binds?: Binds; complete?: StatementCallback }): RowStatement;
   }
 }

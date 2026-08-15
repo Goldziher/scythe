@@ -989,6 +989,13 @@ const JS_MODE_SQLITE_SCHEMA: [&str; 2] = [
 const JS_MODE_SQLITE_ONE: &str = "-- @name GetUserById\n-- @returns :one\n\
     SELECT id, name, bio FROM users WHERE id = ?;";
 
+const JS_MODE_SNOWFLAKE_SCHEMA: [&str; 2] = [
+    "CREATE TABLE users (id INTEGER PRIMARY KEY, name VARCHAR(255) NOT NULL, bio VARCHAR(255));",
+    "CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, total NUMERIC);",
+];
+const JS_MODE_SNOWFLAKE_ONE: &str = "-- @name GetUserById\n-- @returns :one\n\
+    SELECT id, name, bio FROM users WHERE id = ?;";
+
 // ~keep `:many` is the one command whose JSDoc cast is not a straight
 // `/** @type {T} */ (expr)`: a driver whose row-fetch returns a concrete
 // record type rather than `unknown` cannot be asserted directly to a row
@@ -1179,6 +1186,42 @@ fn test_javascript_node_sqlite_grouped_and_nullable_pass_real_tools() {
         "expected the grouped parent typedef; got:\n{code}"
     );
     assert_js_mode_tool_validation_passes("javascript-node-sqlite", &code);
+}
+
+#[test]
+fn test_javascript_wasm_sqlite_grouped_and_nullable_pass_real_tools() {
+    let code = generate_js_mode_nullable_and_grouped_file(
+        "javascript-wasm-sqlite",
+        "sqlite",
+        &SqlDialect::SQLite,
+        &JS_MODE_SQLITE_SCHEMA,
+        JS_MODE_SQLITE_ONE,
+    );
+    eprintln!("\n=== javascript-wasm-sqlite (nullable + grouped) ===\n{code}\n=== END ===\n");
+    assert_js_mode_nullable_property_is_type_or_null(&code, "bio");
+    assert!(
+        code.contains("@typedef {object} GetUsersWithOrdersRow"),
+        "expected the grouped parent typedef; got:\n{code}"
+    );
+    assert_js_mode_tool_validation_passes("javascript-wasm-sqlite", &code);
+}
+
+#[test]
+fn test_javascript_snowflake_grouped_and_nullable_pass_real_tools() {
+    let code = generate_js_mode_nullable_and_grouped_file(
+        "javascript-snowflake",
+        "snowflake",
+        &SqlDialect::Snowflake,
+        &JS_MODE_SNOWFLAKE_SCHEMA,
+        JS_MODE_SNOWFLAKE_ONE,
+    );
+    eprintln!("\n=== javascript-snowflake (nullable + grouped) ===\n{code}\n=== END ===\n");
+    assert_js_mode_nullable_property_is_type_or_null(&code, "bio");
+    assert!(
+        code.contains("@typedef {object} GetUsersWithOrdersRow"),
+        "expected the grouped parent typedef; got:\n{code}"
+    );
+    assert_js_mode_tool_validation_passes("javascript-snowflake", &code);
 }
 
 #[test]

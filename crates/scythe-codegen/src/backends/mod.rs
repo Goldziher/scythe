@@ -1006,6 +1006,9 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
         "typescript-wasm-sqlite" => Box::new(typescript_wasm_sqlite::TypescriptWasmSqliteBackend::new(
             canonical_engine,
         )?),
+        "javascript-wasm-sqlite" => Box::new(typescript_wasm_sqlite::TypescriptWasmSqliteBackend::new_js(
+            canonical_engine,
+        )?),
         "typescript-kysely" | "kysely" => Box::new(typescript_kysely::TypescriptKyselyBackend::new(canonical_engine)?),
         "go-database-sql" => Box::new(go_database_sql::GoDatabaseSqlBackend::new(canonical_engine)?),
         "go-pgx" | "go" => Box::new(go_pgx::GoPgxBackend::new(canonical_engine)?),
@@ -1050,6 +1053,9 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
         "elixir-jamdb" | "jamdb" => Box::new(elixir_jamdb::ElixirJamdbBackend::new(canonical_engine)?),
         "python-snowflake" => Box::new(python_snowflake::PythonSnowflakeBackend::new(canonical_engine)?),
         "typescript-snowflake" => Box::new(typescript_snowflake::TypescriptSnowflakeBackend::new(canonical_engine)?),
+        "javascript-snowflake" => Box::new(typescript_snowflake::TypescriptSnowflakeBackend::new_js(
+            canonical_engine,
+        )?),
         "go-gosnowflake" | "gosnowflake" => Box::new(go_gosnowflake::GoGosnowflakeBackend::new(canonical_engine)?),
         "csharp-snowflake" => Box::new(csharp_snowflake::CsharpSnowflakeBackend::new(canonical_engine)?),
         _ => {

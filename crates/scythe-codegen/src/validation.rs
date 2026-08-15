@@ -21,7 +21,9 @@ pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
         | "javascript-postgres"
         | "javascript-mysql2"
         | "javascript-better-sqlite3"
-        | "javascript-node-sqlite" => validate_javascript(code),
+        | "javascript-node-sqlite"
+        | "javascript-wasm-sqlite"
+        | "javascript-snowflake" => validate_javascript(code),
         "go-pgx" | "go-database-sql" | "go-godror" | "go-gosnowflake" => validate_go(code),
         "java-jdbc" => validate_java(code),
         "java-r2dbc" => validate_java_r2dbc(code),

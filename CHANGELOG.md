@@ -126,6 +126,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cast is not a plain one-step assertion was pinned by hand-written string matching alone, on all
   five backends. It now builds a `:many` query too. (#93)
 
+- **`javascript-wasm-sqlite` and `javascript-snowflake`: two more JSDoc emit modes.** The sixth and
+  seventh `javascript-*` backends. `javascript-wasm-sqlite` mirrors `javascript-better-sqlite3`'s
+  synchronous shape (`@sqlite.org/sqlite-wasm`'s OO1 API is sync, and the driver's one-time async
+  `sqlite3InitModule()` stays entirely outside generated code); unlike the sync sqlite backends
+  already shipped, its single-row *and* array casts are both genuine `tsc` `TS2352`s as a TypeScript
+  `as`, but the JSDoc `/** @type {T} */ (...)` spelling of both is accepted, verified against real
+  `tsc --checkJs --strict`, so it never needs the TS path's `unknown` hop. `javascript-snowflake` is
+  the first `javascript-*` backend whose `file_header` is not empty: `normalizeRow`, the runtime
+  helper the generated query bodies call to lowercase Snowflake's uppercase column names, has to stay
+  in JSDoc mode too (re-typed via a JSDoc block), and only the TS-only `import type { Binds,
+  Connection }` line drops. Its `binds` cast is the one JSDoc cast across all seven backends that
+  still needs the `unknown` hop -- `Binds`'s declared type does not admit every parameter type this
+  backend can emit, and that failure reproduces identically whether the cast is written `as` or
+  `/** @type */`. (#93)
+
 ### Changed
 
 - **Every integration harness now applies the same schema file its `scythe.toml` generated from.**

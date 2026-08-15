@@ -93,12 +93,14 @@ fn fixture(dialect: &SqlDialect) -> (&'static str, [&'static str; 3]) {
 /// Each pairs with the same engine its `typescript-*` sibling in
 /// [`TS_BACKENDS`] uses, since `get_backend` dispatches both names to the
 /// same per-engine constructor (`new` vs. `new_js`).
-const JS_BACKENDS: [(&str, &str, SqlDialect); 5] = [
+const JS_BACKENDS: [(&str, &str, SqlDialect); 7] = [
     ("javascript-postgres", "postgresql", SqlDialect::PostgreSQL),
     ("javascript-pg", "postgresql", SqlDialect::PostgreSQL),
     ("javascript-mysql2", "mysql", SqlDialect::MySQL),
     ("javascript-better-sqlite3", "sqlite", SqlDialect::SQLite),
     ("javascript-node-sqlite", "sqlite", SqlDialect::SQLite),
+    ("javascript-wasm-sqlite", "sqlite", SqlDialect::SQLite),
+    ("javascript-snowflake", "snowflake", SqlDialect::Snowflake),
 ];
 
 /// The three keys every fixture projects, spelled as they must appear in the
