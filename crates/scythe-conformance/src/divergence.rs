@@ -42,7 +42,7 @@ pub enum DivergenceKind {
 #[serde(deny_unknown_fields)]
 pub struct DivergenceEntry {
     pub fixture: String,
-    pub engine: String,
+    pub engine: Engine,
     pub column: String,
     pub kind: DivergenceKind,
     /// URL to the tracking issue -- required so every accepted gap has an
@@ -75,7 +75,7 @@ pub enum DivergenceError {
     #[error("divergence entry for {fixture}/{engine}/{column} has a non-URL issue: {issue:?}")]
     InvalidIssueUrl {
         fixture: String,
-        engine: String,
+        engine: Engine,
         column: String,
         issue: String,
     },
@@ -84,7 +84,7 @@ pub enum DivergenceError {
     #[error("divergence for {fixture}/{engine}/{column} no longer reproduces; remove it")]
     Stale {
         fixture: String,
-        engine: String,
+        engine: Engine,
         column: String,
     },
 }
@@ -114,7 +114,7 @@ pub fn load(path: &Path) -> Result<Vec<DivergenceEntry>, DivergenceError> {
         if !(entry.issue.starts_with("https://") || entry.issue.starts_with("http://")) {
             return Err(DivergenceError::InvalidIssueUrl {
                 fixture: entry.fixture.clone(),
-                engine: entry.engine.clone(),
+                engine: entry.engine,
                 column: entry.column.clone(),
                 issue: entry.issue.clone(),
             });
@@ -156,14 +156,14 @@ pub fn apply(entries: &[DivergenceEntry], verdicts: Vec<Verdict>) -> Vec<Verdict
             let failures = verdict
                 .failures
                 .into_iter()
-                .filter(|failure| !is_registered(entries, &verdict.fixture, verdict.engine.as_str(), failure))
+                .filter(|failure| !is_registered(entries, &verdict.fixture, verdict.engine, failure))
                 .collect();
             Verdict { failures, ..verdict }
         })
         .collect()
 }
 
-fn is_registered(entries: &[DivergenceEntry], fixture: &str, engine: &str, failure: &Failure) -> bool {
+fn is_registered(entries: &[DivergenceEntry], fixture: &str, engine: Engine, failure: &Failure) -> bool {
     entries.iter().any(|entry| {
         entry.fixture == fixture && entry.engine == engine && kind_suppresses(entry.kind, failure, &entry.column)
     })
@@ -190,14 +190,14 @@ pub fn check_staleness(
     engines_run: &[Engine],
 ) -> Result<(), DivergenceError> {
     for entry in entries {
-        let entry_engine_was_run = engines_run.iter().any(|e| e.as_str() == entry.engine);
+        let entry_engine_was_run = engines_run.contains(&entry.engine);
         if !entry_engine_was_run {
             continue;
         }
 
         let still_reproduces = verdicts.iter().any(|verdict| {
             verdict.fixture == entry.fixture
-                && verdict.engine.as_str() == entry.engine
+                && verdict.engine == entry.engine
                 && verdict
                     .failures
                     .iter()
@@ -206,7 +206,7 @@ pub fn check_staleness(
         if !still_reproduces {
             return Err(DivergenceError::Stale {
                 fixture: entry.fixture.clone(),
-                engine: entry.engine.clone(),
+                engine: entry.engine,
                 column: entry.column.clone(),
             });
         }
@@ -236,10 +236,10 @@ mod tests {
     use super::*;
     use crate::fixture::Engine;
 
-    fn entry(fixture: &str, engine: &str, column: &str) -> DivergenceEntry {
+    fn entry(fixture: &str, engine: Engine, column: &str) -> DivergenceEntry {
         DivergenceEntry {
             fixture: fixture.to_string(),
-            engine: engine.to_string(),
+            engine,
             column: column.to_string(),
             kind: DivergenceKind::AnalyzerOverPessimistic,
             issue: "https://github.com/Goldziher/scythe/issues/1".to_string(),
@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn apply_suppresses_a_matching_vacuity_failure() {
-        let entries = vec![entry("live_x", "oracle", "notes")];
+        let entries = vec![entry("live_x", Engine::Oracle, "notes")];
         let verdicts = vec![verdict(
             "live_x",
             Engine::Oracle,
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn apply_leaves_unmatched_vacuity_failures_alone() {
-        let entries = vec![entry("live_x", "oracle", "notes")];
+        let entries = vec![entry("live_x", Engine::Oracle, "notes")];
         let verdicts = vec![verdict(
             "live_x",
             Engine::Postgresql,
@@ -285,7 +285,7 @@ mod tests {
 
     #[test]
     fn apply_never_suppresses_unsound_nullability() {
-        let entries = vec![entry("live_x", "oracle", "id")];
+        let entries = vec![entry("live_x", Engine::Oracle, "id")];
         let verdicts = vec![verdict(
             "live_x",
             Engine::Oracle,
@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn apply_never_suppresses_fidelity_mismatch() {
-        let entries = vec![entry("live_x", "oracle", "id")];
+        let entries = vec![entry("live_x", Engine::Oracle, "id")];
         let verdicts = vec![verdict(
             "live_x",
             Engine::Oracle,
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn apply_never_suppresses_join_group_incoherent() {
-        let entries = vec![entry("live_x", "oracle", "id")];
+        let entries = vec![entry("live_x", Engine::Oracle, "id")];
         let verdicts = vec![verdict(
             "live_x",
             Engine::Oracle,
@@ -397,6 +397,35 @@ reason = "test"
     }
 
     #[test]
+    fn loader_rejects_an_unknown_engine_name() {
+        // ~keep Before `engine` was typed as `Engine`, a typo here (e.g.
+        // "postgres" instead of "postgresql") would deserialize as a plain
+        // `String` and simply never match any `Verdict`, forever, with no
+        // diagnostic -- the entry would sit in the registry looking active
+        // while suppressing nothing.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("DIVERGENCES.toml");
+        std::fs::write(
+            &path,
+            r#"
+[[entry]]
+fixture = "live_x"
+engine = "postgres"
+column = "notes"
+kind = "analyzer_over_pessimistic"
+issue = "https://github.com/Goldziher/scythe/issues/1"
+reason = "test"
+"#,
+        )
+        .unwrap();
+        let result = load(&path);
+        assert!(
+            matches!(result, Err(DivergenceError::Parse { .. })),
+            "a typo'd engine name must fail to deserialize, not silently match nothing: {result:?}"
+        );
+    }
+
+    #[test]
     fn loader_rejects_a_non_url_issue() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("DIVERGENCES.toml");
@@ -453,7 +482,7 @@ reason = "Oracle never returns NULL for this synthetic column in any live run"
         assert_eq!(entries.len(), 1);
         let parsed = &entries[0];
         assert_eq!(parsed.fixture, "live_right_side_not_null_becomes_nullable");
-        assert_eq!(parsed.engine, "oracle");
+        assert_eq!(parsed.engine, Engine::Oracle);
         assert_eq!(parsed.column, "notes");
         assert_eq!(parsed.kind, DivergenceKind::AnalyzerOverPessimistic);
         assert_eq!(parsed.issue, "https://github.com/Goldziher/scythe/issues/42");
@@ -465,7 +494,7 @@ reason = "Oracle never returns NULL for this synthetic column in any live run"
 
     #[test]
     fn check_staleness_fails_when_a_registered_divergence_no_longer_reproduces() {
-        let entries = vec![entry("live_x", "oracle", "notes")];
+        let entries = vec![entry("live_x", Engine::Oracle, "notes")];
         let verdicts = vec![verdict("live_x", Engine::Oracle, vec![])];
         let result = check_staleness(&entries, &verdicts, &[Engine::Oracle]);
         assert!(matches!(result, Err(DivergenceError::Stale { .. })));
@@ -473,7 +502,7 @@ reason = "Oracle never returns NULL for this synthetic column in any live run"
 
     #[test]
     fn check_staleness_passes_when_the_divergence_still_reproduces() {
-        let entries = vec![entry("live_x", "oracle", "notes")];
+        let entries = vec![entry("live_x", Engine::Oracle, "notes")];
         let verdicts = vec![verdict(
             "live_x",
             Engine::Oracle,
@@ -489,7 +518,7 @@ reason = "Oracle never returns NULL for this synthetic column in any live run"
     fn check_staleness_skips_entries_for_engines_that_were_not_run() {
         // A partial run (only Postgres this time) must not mark every
         // Oracle-scoped entry stale just because Oracle wasn't dialed.
-        let entries = vec![entry("live_x", "oracle", "notes")];
+        let entries = vec![entry("live_x", Engine::Oracle, "notes")];
         let verdicts = vec![verdict("live_x", Engine::Postgresql, vec![])];
         let result = check_staleness(&entries, &verdicts, &[Engine::Postgresql]);
         assert!(result.is_ok(), "{result:?}");
@@ -500,7 +529,7 @@ reason = "Oracle never returns NULL for this synthetic column in any live run"
         // Calling check_staleness on the *raw* verdicts (before apply) must
         // succeed for an entry that still reproduces, regardless of what
         // apply would later do to those same verdicts.
-        let entries = vec![entry("live_x", "oracle", "notes")];
+        let entries = vec![entry("live_x", Engine::Oracle, "notes")];
         let raw_verdicts = vec![verdict(
             "live_x",
             Engine::Oracle,
@@ -520,7 +549,7 @@ reason = "Oracle never returns NULL for this synthetic column in any live run"
 
     #[test]
     fn reconcile_checks_staleness_before_suppressing_regardless_of_call_site_order() {
-        let entries = vec![entry("live_x", "oracle", "notes")];
+        let entries = vec![entry("live_x", Engine::Oracle, "notes")];
         let verdicts = vec![verdict(
             "live_x",
             Engine::Oracle,
@@ -534,7 +563,7 @@ reason = "Oracle never returns NULL for this synthetic column in any live run"
 
     #[test]
     fn reconcile_fails_for_a_stale_entry_instead_of_silently_suppressing_nothing() {
-        let entries = vec![entry("live_x", "oracle", "notes")];
+        let entries = vec![entry("live_x", Engine::Oracle, "notes")];
         let verdicts = vec![verdict("live_x", Engine::Oracle, vec![])];
         let result = reconcile(&entries, verdicts, &[Engine::Oracle]);
         assert!(matches!(result, Err(DivergenceError::Stale { .. })));

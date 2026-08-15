@@ -212,6 +212,15 @@ pub enum RunnerError {
         source: FixtureRowCountMismatch,
     },
     #[error(
+        "fixture {fixture:?} on engine {engine}: expected.query.columns declares {column:?}, which the analyzer \
+         produced no matching column for -- the fixture and query_sql have drifted apart"
+    )]
+    DeclaredColumnNotAnalyzed {
+        fixture: String,
+        engine: Engine,
+        column: String,
+    },
+    #[error(
         "fixture {fixture:?} on engine {engine}: run {run:?} row {row} column {column:?}: the fixture declares this value {declared} but the engine returned it {observed}"
     )]
     RowNullnessMismatch {
@@ -591,6 +600,28 @@ async fn evaluate_fixture<E: Executor>(
         }
     })?;
 
+    // ~keep Every column `expected.query.columns` names must actually be one
+    // the analyzer produced for this query. Without this, a fixture whose
+    // `query_sql` drifted out from under its `expected.query.columns` (a
+    // rename, a dropped SELECT item) would still load and run: the four
+    // assertions below only ever iterate `analyzed.columns`, so a declared
+    // column absent from that list is never fed into any of them -- not a
+    // failure, not a skip, just silently never examined. `fixture.rs`
+    // validates that every declared column is *mentioned* in every row, but
+    // that only checks internal consistency of the fixture file itself; it
+    // has no way to know what the analyzer will actually produce for
+    // `query_sql`, which is only known here.
+    for expected_column in &fixture.expected.query.columns {
+        if !analyzed.columns.iter().any(|c| c.name == expected_column.name) {
+            let (fixture, engine) = err_ctx();
+            return Err(RunnerError::DeclaredColumnNotAnalyzed {
+                fixture,
+                engine,
+                column: expected_column.name.clone(),
+            });
+        }
+    }
+
     // Representative backend for computing G (rendered nullability).
     let backend = scythe_codegen::get_backend(representative_backend(engine), engine.as_str()).map_err(|source| {
         let (fixture, engine) = err_ctx();
@@ -739,4 +770,298 @@ async fn evaluate_fixture<E: Executor>(
     })?;
 
     Ok(evaluate(&facts))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use ahash::AHashMap;
+
+    use super::*;
+    use crate::executor::ObservedRow;
+    use crate::fixture::{
+        ExpectedBlock, ExpectedColumn, ExpectedQuery, LiveBlock, LiveFixture, RowExpectation, Run, SeedBlock,
+    };
+
+    /// A driver double that never touches a network or a file beyond the
+    /// schema profile [`evaluate_fixture`] itself reads. It exists to unit
+    /// test the *runner's* own reconciliation logic in
+    /// [`evaluate_fixture`]/[`run`] -- row-count checking, per-cell nullness
+    /// comparison, missing-column detection -- in isolation from any real
+    /// database, which is exactly what [`Executor`] (see its module docs)
+    /// exists to make possible.
+    struct FakeExecutor {
+        rows: Vec<ObservedRow>,
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("fake executor error")]
+    struct FakeExecutorError;
+
+    impl Executor for FakeExecutor {
+        const ENGINE: Engine = Engine::Sqlite;
+        type Error = FakeExecutorError;
+
+        async fn seed_schema(&mut self, _schema_sql: &str) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        async fn seed_run(&mut self, _statements: &[String]) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        async fn query_nullness(&mut self, _query_sql: &str) -> Result<Vec<ObservedRow>, Self::Error> {
+            Ok(self.rows.clone())
+        }
+    }
+
+    /// A minimal, otherwise-valid fixture: `SELECT id, total FROM t ORDER BY
+    /// id` against `CREATE TABLE t (id INTEGER, total INTEGER)`, declaring
+    /// `id` and `total` with one run whose rows are supplied by the caller.
+    fn fixture_with_rows(rows: Vec<RowExpectation>) -> LiveFixture {
+        fixture_with_columns_and_rows(vec!["id".to_string(), "total".to_string()], rows)
+    }
+
+    fn fixture_with_columns_and_rows(declared_columns: Vec<String>, rows: Vec<RowExpectation>) -> LiveFixture {
+        LiveFixture {
+            name: "live_runner_test".to_string(),
+            category: "test".to_string(),
+            schema_sql: vec!["CREATE TABLE t (id INTEGER, total INTEGER)".to_string()],
+            // ~keep The `-- @name` line is not decoration: the analyzer rejects an
+            // unnamed query with MissingAnnotation before it ever reaches the
+            // nullness comparison these tests exist to exercise.
+            query_sql: "-- @name LiveRunnerProbe\n-- @returns :many\nSELECT id, total FROM t ORDER BY id".to_string(),
+            expected: ExpectedBlock {
+                query: ExpectedQuery {
+                    columns: declared_columns
+                        .into_iter()
+                        .map(|name| ExpectedColumn { name, nullable: true })
+                        .collect(),
+                },
+            },
+            live: LiveBlock {
+                schema_profile: "profile".to_string(),
+                engines: vec![Engine::Sqlite],
+                runs: vec![Run {
+                    name: "run1".to_string(),
+                    seed: SeedBlock {
+                        default: vec!["INSERT INTO t VALUES (1, NULL)".to_string()],
+                        per_engine: AHashMap::new(),
+                    },
+                    rows,
+                }],
+                null_together: vec![],
+                engine_expectations: AHashMap::new(),
+            },
+            file_path: PathBuf::new(),
+        }
+    }
+
+    /// Builds a `RunnerConfig` and writes a matching `profile/sqlite.sql`
+    /// live schema file under a fresh temp directory -- `evaluate_fixture`
+    /// reads that file from disk before ever calling the executor.
+    fn config_with_schema(schemas_root: &std::path::Path) -> RunnerConfig {
+        let dir = schemas_root.join("profile");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("sqlite.sql"), "CREATE TABLE t (id INTEGER, total INTEGER);").unwrap();
+        RunnerConfig {
+            selected_engines: vec![Engine::Sqlite],
+            schemas_root: schemas_root.to_path_buf(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn evaluate_fixture_errors_when_a_column_declared_null_is_observed_non_null() {
+        let schemas_root = tempfile::tempdir().unwrap();
+        let config = config_with_schema(schemas_root.path());
+        let fixture = fixture_with_rows(vec![RowExpectation {
+            non_null: vec!["id".to_string()],
+            null: vec!["total".to_string()],
+        }]);
+        let executor = FakeExecutor {
+            rows: vec![ObservedRow::new([
+                ("id".to_string(), false),
+                ("total".to_string(), false),
+            ])],
+        };
+
+        let result = evaluate_fixture(&fixture, executor, &config).await;
+
+        match result {
+            Err(RunnerError::RowNullnessMismatch {
+                column,
+                declared,
+                observed,
+                row,
+                ..
+            }) => {
+                assert_eq!(column, "total");
+                assert_eq!(declared, "NULL");
+                assert_eq!(observed, "non-NULL");
+                assert_eq!(row, 0);
+            }
+            other => panic!("expected RowNullnessMismatch, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn evaluate_fixture_errors_when_a_column_declared_non_null_is_observed_null() {
+        let schemas_root = tempfile::tempdir().unwrap();
+        let config = config_with_schema(schemas_root.path());
+        let fixture = fixture_with_rows(vec![RowExpectation {
+            non_null: vec!["id".to_string()],
+            null: vec!["total".to_string()],
+        }]);
+        let executor = FakeExecutor {
+            rows: vec![ObservedRow::new([
+                ("id".to_string(), true),
+                ("total".to_string(), true),
+            ])],
+        };
+
+        let result = evaluate_fixture(&fixture, executor, &config).await;
+
+        match result {
+            Err(RunnerError::RowNullnessMismatch {
+                column,
+                declared,
+                observed,
+                ..
+            }) => {
+                assert_eq!(column, "id");
+                assert_eq!(declared, "non-NULL");
+                assert_eq!(observed, "NULL");
+            }
+            other => panic!("expected RowNullnessMismatch, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn evaluate_fixture_errors_when_the_executor_omits_a_declared_column() {
+        let schemas_root = tempfile::tempdir().unwrap();
+        let config = config_with_schema(schemas_root.path());
+        let fixture = fixture_with_rows(vec![RowExpectation {
+            non_null: vec!["id".to_string()],
+            null: vec!["total".to_string()],
+        }]);
+        // `total` is never reported at all -- a name/case mismatch, not a
+        // nullness disagreement.
+        let executor = FakeExecutor {
+            rows: vec![ObservedRow::new([("id".to_string(), false)])],
+        };
+
+        let result = evaluate_fixture(&fixture, executor, &config).await;
+
+        assert!(
+            matches!(result, Err(RunnerError::MissingObservedColumn { .. })),
+            "{result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn evaluate_fixture_errors_when_the_executor_returns_the_wrong_row_count() {
+        let schemas_root = tempfile::tempdir().unwrap();
+        let config = config_with_schema(schemas_root.path());
+        let fixture = fixture_with_rows(vec![RowExpectation {
+            non_null: vec!["id".to_string()],
+            null: vec!["total".to_string()],
+        }]);
+        // One row is declared; the executor reports none.
+        let executor = FakeExecutor { rows: vec![] };
+
+        let result = evaluate_fixture(&fixture, executor, &config).await;
+
+        assert!(matches!(result, Err(RunnerError::RowCount { .. })), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn evaluate_fixture_errors_when_a_declared_column_is_not_produced_by_the_analyzer() {
+        // ~keep The direct regression test for the "declared columns are
+        // never reconciled" gap: `expected.query.columns` names a column the
+        // query does not select. Before this check existed, nothing in this
+        // crate ever compared `expected.query.columns` against what the
+        // analyzer actually produced, so this column would silently never be
+        // fed into any of the four assertions.
+        let schemas_root = tempfile::tempdir().unwrap();
+        let config = config_with_schema(schemas_root.path());
+        let fixture = fixture_with_columns_and_rows(
+            vec!["id".to_string(), "total".to_string(), "does_not_exist".to_string()],
+            vec![RowExpectation {
+                non_null: vec!["id".to_string(), "does_not_exist".to_string()],
+                null: vec!["total".to_string()],
+            }],
+        );
+        let executor = FakeExecutor {
+            rows: vec![ObservedRow::new([
+                ("id".to_string(), false),
+                ("total".to_string(), true),
+            ])],
+        };
+
+        let result = evaluate_fixture(&fixture, executor, &config).await;
+
+        match result {
+            Err(RunnerError::DeclaredColumnNotAnalyzed { column, .. }) => {
+                assert_eq!(column, "does_not_exist");
+            }
+            other => panic!("expected DeclaredColumnNotAnalyzed, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn run_skips_every_leg_when_no_engine_is_selected() {
+        let fixture = fixture_with_rows(vec![RowExpectation {
+            non_null: vec!["id".to_string()],
+            null: vec!["total".to_string()],
+        }]);
+        let fixtures = [fixture];
+        let config = RunnerConfig {
+            selected_engines: vec![],
+            schemas_root: PathBuf::new(),
+            ..Default::default()
+        };
+
+        let report = run(&fixtures, &[], &config)
+            .await
+            .expect("no engine selected must not error");
+
+        assert_eq!(
+            report.skipped,
+            vec![SkippedLeg {
+                fixture: "live_runner_test".to_string(),
+                engine: Engine::Sqlite,
+                reason: "not selected for this run".to_string(),
+            }]
+        );
+        assert!(report.verdicts.is_empty());
+        assert!(report.is_pass(), "a report with only skips is vacuously passing");
+    }
+
+    #[tokio::test]
+    async fn run_fails_fast_when_a_selected_engines_driver_is_not_compiled() {
+        // ~keep This crate's default feature set is `[]` (see Cargo.toml), so
+        // `pg` is off unless a caller explicitly opts in -- exercising the
+        // "selected but not runnable" hard-error branch the module docs
+        // describe, distinct from the silent-skip branch above.
+        let config = RunnerConfig {
+            selected_engines: vec![Engine::Postgresql],
+            schemas_root: PathBuf::new(),
+            ..Default::default()
+        };
+
+        let result = run(&[], &[], &config).await;
+
+        assert!(
+            matches!(
+                result,
+                Err(RunnerError::EngineNotCompiled {
+                    engine: Engine::Postgresql,
+                    feature: "pg"
+                })
+            ),
+            "{result:?}"
+        );
+    }
 }

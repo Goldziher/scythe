@@ -130,6 +130,7 @@ pub struct ExpectedColumn {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LiveBlock {
     pub schema_profile: String,
     pub engines: Vec<Engine>,
@@ -144,6 +145,7 @@ pub struct LiveBlock {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Run {
     pub name: String,
     pub seed: SeedBlock,
@@ -209,6 +211,7 @@ impl SeedBlock {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RowExpectation {
     #[serde(default)]
     pub non_null: Vec<String>,
@@ -231,6 +234,7 @@ impl RowExpectation {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EngineExpectation {
     pub reason: String,
     #[serde(default)]
@@ -1303,6 +1307,132 @@ mod tests {
         write_fixture(fixtures_root.path(), "f.json", json);
         let result = load_fixtures(fixtures_root.path(), schemas_root.path());
         assert!(result.is_ok(), "{result:?}");
+    }
+
+    // -- deny_unknown_fields ------------------------------------------------
+
+    #[test]
+    fn load_fixtures_rejects_an_unknown_field_in_the_live_block() {
+        // ~keep `null_together` and `engine_expectations` are `#[serde(default)]`,
+        // so without `deny_unknown_fields` a typo in either key silently
+        // evaporates the whole block instead of failing to parse.
+        let fixtures_root = tempfile::tempdir().unwrap();
+        let schemas_root = tempfile::tempdir().unwrap();
+        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        let json = r#"{
+  "name": "live_x",
+  "category": "nullability_live/test",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
+  "query_sql": "SELECT id FROM t ORDER BY id",
+  "expected": { "query": { "columns": [{ "name": "id", "nullable": false }] } },
+  "live": {
+    "schema_profile": "profile",
+    "engines": ["postgresql"],
+    "runs": [
+      { "name": "run1", "seed": { "default": ["INSERT"] }, "rows": [{ "non_null": ["id"], "null": [] }] }
+    ],
+    "null_togehter": [["id"]]
+  }
+}"#;
+        write_fixture(fixtures_root.path(), "f.json", json);
+        let result = load_fixtures(fixtures_root.path(), schemas_root.path());
+        assert!(
+            matches!(result, Err(FixtureError::Parse { .. })),
+            "a typo'd live-block field must fail to parse, not silently vanish: {result:?}"
+        );
+    }
+
+    #[test]
+    fn load_fixtures_rejects_an_unknown_field_in_a_run() {
+        let fixtures_root = tempfile::tempdir().unwrap();
+        let schemas_root = tempfile::tempdir().unwrap();
+        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        let json = r#"{
+  "name": "live_x",
+  "category": "nullability_live/test",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
+  "query_sql": "SELECT id FROM t ORDER BY id",
+  "expected": { "query": { "columns": [{ "name": "id", "nullable": false }] } },
+  "live": {
+    "schema_profile": "profile",
+    "engines": ["postgresql"],
+    "runs": [
+      {
+        "name": "run1",
+        "seed": { "default": ["INSERT"] },
+        "rows": [{ "non_null": ["id"], "null": [] }],
+        "unexpected_field": 1
+      }
+    ]
+  }
+}"#;
+        write_fixture(fixtures_root.path(), "f.json", json);
+        let result = load_fixtures(fixtures_root.path(), schemas_root.path());
+        assert!(
+            matches!(result, Err(FixtureError::Parse { .. })),
+            "a typo'd run field must fail to parse: {result:?}"
+        );
+    }
+
+    #[test]
+    fn load_fixtures_rejects_an_unknown_field_in_a_row_expectation() {
+        let fixtures_root = tempfile::tempdir().unwrap();
+        let schemas_root = tempfile::tempdir().unwrap();
+        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        let json = r#"{
+  "name": "live_x",
+  "category": "nullability_live/test",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
+  "query_sql": "SELECT id FROM t ORDER BY id",
+  "expected": { "query": { "columns": [{ "name": "id", "nullable": false }] } },
+  "live": {
+    "schema_profile": "profile",
+    "engines": ["postgresql"],
+    "runs": [
+      {
+        "name": "run1",
+        "seed": { "default": ["INSERT"] },
+        "rows": [{ "non_null": ["id"], "null": [], "extra_key": "oops" }]
+      }
+    ]
+  }
+}"#;
+        write_fixture(fixtures_root.path(), "f.json", json);
+        let result = load_fixtures(fixtures_root.path(), schemas_root.path());
+        assert!(
+            matches!(result, Err(FixtureError::Parse { .. })),
+            "a typo'd row-expectation field must fail to parse: {result:?}"
+        );
+    }
+
+    #[test]
+    fn load_fixtures_rejects_an_unknown_field_in_an_engine_expectation() {
+        let fixtures_root = tempfile::tempdir().unwrap();
+        let schemas_root = tempfile::tempdir().unwrap();
+        write_schema(schemas_root.path(), "profile", Engine::Postgresql);
+        let json = r#"{
+  "name": "live_x",
+  "category": "nullability_live/test",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
+  "query_sql": "SELECT id FROM t ORDER BY id",
+  "expected": { "query": { "columns": [{ "name": "id", "nullable": false }] } },
+  "live": {
+    "schema_profile": "profile",
+    "engines": ["postgresql"],
+    "runs": [
+      { "name": "run1", "seed": { "default": ["INSERT"] }, "rows": [{ "non_null": ["id"], "null": [] }] }
+    ],
+    "engine_expectations": {
+      "postgresql": { "reason": "test", "runs": {}, "unexpected": true }
+    }
+  }
+}"#;
+        write_fixture(fixtures_root.path(), "f.json", json);
+        let result = load_fixtures(fixtures_root.path(), schemas_root.path());
+        assert!(
+            matches!(result, Err(FixtureError::Parse { .. })),
+            "a typo'd engine-expectation field must fail to parse: {result:?}"
+        );
     }
 
     // -- integration: the committed testing_data/nullability_live tree ------

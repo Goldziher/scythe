@@ -1030,6 +1030,34 @@ direct caller that builds one by struct literal rather than through the parser. 
   `include_str!` the manifests `scythe-codegen` ships, and assertions cover `reserved`,
   `sanitize_field_names`, `json_nested` and the corrected `range` value. (#157)
 
+- **`scythe-conformance` never checked that a fixture's `expected.query.columns` matched what the
+  analyzer actually produced for `query_sql`.** The four nullability assertions only ever iterate
+  `analyzed.columns`, so a declared column absent from that list — a rename, a dropped `SELECT`
+  item, a typo — was never fed into any of them: not a failure, not a skip, just silently never
+  examined, even though every row still named it. `crate::runner::evaluate_fixture` now rejects a
+  declared column the analyzer produced no match for, via a new
+  `RunnerError::DeclaredColumnNotAnalyzed`. (#160)
+
+- **A typo in a live-fixture's `live` block, a run, a row expectation, or an `engine_expectations`
+  entry parsed clean and silently dropped the whole thing.** `LiveBlock`, `Run`, `RowExpectation`
+  and `EngineExpectation` had no `#[serde(deny_unknown_fields)]`, and `null_together` /
+  `engine_expectations` are `#[serde(default)]`, so a misspelled key evaporated instead of failing
+  to parse. All four now reject unknown fields. (#160)
+
+- **`DIVERGENCES.toml`'s `engine` field was a bare, unvalidated `String`.** A typo'd engine name
+  (e.g. `"postgres"` instead of `"postgresql"`) loaded successfully and then matched no `Verdict`,
+  forever, with no diagnostic — the entry would sit in the registry looking active while
+  suppressing nothing. `DivergenceEntry::engine` is now typed as `Engine`, so an unrecognized
+  engine name fails to deserialize instead. (#160)
+
+- **The three unit tests in `scythe-conformance/src/executors/mssql.rs` ran in no CI job at all.**
+  `ci.yml`'s `test` job runs `cargo test --workspace` with this crate's default (empty) feature
+  set, which never compiles the `mssql`-gated module; `nullability-conformance.yml`'s mssql job
+  passes `--test live`, which restricts `cargo test` to that one integration binary and excludes
+  lib unit tests. `ci.yml` now runs `cargo test -p scythe-conformance --features mssql --lib` as
+  its own step, on every push and pull request. (#160)
+
+
 ### Added
 
 - **`scythe-inspect` can read a SQLite or MySQL catalog.** A new `SchemaCatalogDriver` trait gives

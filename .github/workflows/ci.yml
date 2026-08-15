@@ -195,6 +195,17 @@ jobs:
         env:
           SCYTHE_VALIDATE_STRICT: "1"
         run: cargo test --workspace
+      # `scythe-conformance`'s default feature set is `[]` (see its Cargo.toml),
+      # so `cargo test --workspace` above never compiles `src/executors/mssql.rs`
+      # (behind `#[cfg(feature = "mssql")]`) at all -- its unit tests (e.g.
+      # `is_null_reports_true_for_every_absent_value`) have never run in any CI
+      # job. `nullability-conformance.yml`'s mssql job doesn't cover this either:
+      # it passes `--test live`, which restricts cargo to that one integration
+      # target and excludes the lib unit tests. `tiberius` (behind `mssql`) is
+      # pure Rust over `rustls`, so this needs no service container or native
+      # library install, unlike the live mssql leg.
+      - name: Run scythe-conformance unit tests with the mssql driver compiled in
+        run: cargo test -p scythe-conformance --features mssql --lib
 
   build:
     name: Build
