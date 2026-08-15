@@ -47,7 +47,12 @@ impl<'a> Analyzer<'a> {
                 } else if value_is_boolean(vws) {
                     TypeInfo::new("bool", false)
                 } else if value_is_null(vws) {
-                    TypeInfo::new("unknown", true)
+                    // ~keep A literal `NULL` reached bare (no `CAST`, comparison, or
+                    // other typed context around it) has nothing to infer a type from.
+                    // `untyped_literal()` marks that so `analyze()` can reject it as a
+                    // user error instead of letting `neutral_type: "unknown"` reach
+                    // codegen (GH #170's residual half).
+                    TypeInfo::untyped_literal()
                 } else if let Some(p) = value_is_placeholder(vws) {
                     // ~keep `parse_placeholder` alone only resolves `$N`; a bare MySQL `?`
                     // parses to `None` and was silently dropped here whenever this was
@@ -59,7 +64,10 @@ impl<'a> Analyzer<'a> {
                     if let Some(pos) = self.resolve_placeholder_position(p, vws.span) {
                         self.register_param(pos, None, None, false, None);
                     }
-                    TypeInfo::unknown()
+                    // ~keep Same "nothing to infer a type from" shape as the NULL arm
+                    // above -- a bare placeholder reached with no CAST/comparison/
+                    // COALESCE context. See `TypeInfo::untyped_literal`.
+                    TypeInfo::untyped_literal()
                 } else {
                     TypeInfo::new("string", false)
                 }

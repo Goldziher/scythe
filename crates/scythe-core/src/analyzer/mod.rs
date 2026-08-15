@@ -57,6 +57,26 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         }
     }
 
+    // ~keep Runs after the annotation loop (a `@json` mapping is a legitimate way to
+    // give such a column a type) and after every UNION arm has already been widened
+    // (`analyze_set_expr`'s `SetOperation` arm rebuilds each column with
+    // `..Default::default()`, which drops `untyped_literal` back to `false` --
+    // so a NULL arm a later arm resolves never reaches this check tainted).
+    // `jsonb_each` and other set-returning/composite columns are never tainted at
+    // all: they reach `neutral_type: "unknown"` through `infer_function_type`, a
+    // different `TypeInfo` constructor than the two `Expr::Value` arms that set
+    // `untyped_literal`. See `AnalyzedColumn::untyped_literal`.
+    for col in &columns {
+        if col.untyped_literal && col.neutral_type == "unknown" {
+            return Err(ScytheError::type_mismatch(format!(
+                "query \"{}\": column \"{}\" is a bare parameter or NULL literal with no CAST, comparison, \
+                 COALESCE, or other typed context -- scythe cannot infer its type; add an explicit CAST, e.g. \
+                 CAST(? AS <type>)",
+                query.name, col.name
+            )));
+        }
+    }
+
     // ~keep Phase 2 of nested-struct naming (see `types::PendingNestedStruct`):
     // columns now have their final names (aliases and overrides applied),
     // so each `__nested__{id}` placeholder pushed during expression
@@ -1885,16 +1905,13 @@ SELECT CAST(? AS CHAR) AS tag, name FROM users WHERE age = ?;",
 
     /// A `?` used bare in the SELECT list, with nothing to widen or cast against,
     /// has no type-bearing context at all -- `infer_expr_type` returns
-    /// `TypeInfo::unknown()` for it and there is no fallback. This is a distinct,
-    /// pre-existing defect from the counting/ordering bugs above (a literal
-    /// `NULL` in the same position hits the exact same `"unknown"` sentinel): the
-    /// column reaches `analyze()`'s `Ok` result already mistyped, and the
-    /// `INTERNAL_ERROR: unknown neutral type: unknown` the issue reports is
-    /// raised later, in the backend's type-to-language mapping, not here. Fixing
-    /// that requires giving such a column a real inferable type (or a proper
-    /// user-facing error) and is out of scope for this fix.
+    /// `TypeInfo::untyped_literal()` for it and there is no fallback. Letting
+    /// `analyze()` return `Ok` here is what used to surface two layers down as
+    /// the backend's `INTERNAL_ERROR: unknown neutral type: unknown` -- this is
+    /// the remainder of GH #170 the counting/ordering fix (c288fce1) left open,
+    /// closed by rejecting the shape here instead of leaving it for codegen.
     #[test]
-    fn test_bare_placeholder_alone_in_projection_has_no_inferable_column_type() {
+    fn test_bare_placeholder_alone_in_projection_is_rejected() {
         let catalog = Catalog::from_ddl_with_dialect(
             &["CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);"],
             &SqlDialect::MySQL,
@@ -1907,13 +1924,78 @@ SELECT ? AS tag, name FROM users;",
             &SqlDialect::MySQL,
         )
         .unwrap();
-        let result = analyze(&catalog, &query).unwrap();
-        assert_eq!(result.params.len(), 1, "the bare `?` is still counted as one parameter");
-        assert_eq!(
-            result.columns[0].neutral_type, "unknown",
-            "a bare placeholder with no comparison/cast context has no type to infer -- this is what \
-             surfaces as the backend's INTERNAL_ERROR, and remains unfixed here"
+        let err = analyze(&catalog, &query).expect_err(
+            "a bare placeholder with no comparison/cast context has no type to infer and must be rejected \
+             before it reaches codegen as neutral_type \"unknown\"",
         );
+        assert_eq!(err.code, crate::errors::ErrorCode::TypeMismatch);
+        assert!(
+            err.message.contains("BareTag") && err.message.contains("tag"),
+            "the error must name both the query and the offending column, got: {}",
+            err.message
+        );
+    }
+
+    /// Same shape as the bare-placeholder case above, for a literal `NULL` --
+    /// the issue's other trigger for the same `neutral_type: "unknown"` sentinel.
+    #[test]
+    fn test_literal_null_alone_in_projection_is_rejected() {
+        let catalog = Catalog::from_ddl(&["CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);"]).unwrap();
+        let query = parse_query(
+            "-- @name BareNull
+-- @returns :many
+SELECT NULL AS tag, name FROM users;",
+        )
+        .unwrap();
+        let err = analyze(&catalog, &query)
+            .expect_err("a bare NULL with no typed context must be rejected the same way a bare placeholder is");
+        assert_eq!(err.code, crate::errors::ErrorCode::TypeMismatch);
+        assert!(err.message.contains("BareNull") && err.message.contains("tag"));
+    }
+
+    /// The rejection must not fire on a UNION arm's own untyped NULL before the
+    /// other arm has had a chance to widen it -- `widen_neutral_type` absorbs
+    /// `"unknown"` into whatever real type the other arm provides, and the
+    /// widened `AnalyzedColumn` is rebuilt with `..Default::default()`, which
+    /// drops `untyped_literal` back to `false` regardless of either arm's origin.
+    #[test]
+    fn test_null_projection_widened_by_union_arm_is_not_rejected() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TABLE a (id INTEGER PRIMARY KEY, x INTEGER);",
+            "CREATE TABLE b (id INTEGER PRIMARY KEY);",
+        ])
+        .unwrap();
+        let query = parse_query(
+            "-- @name Widened
+-- @returns :many
+SELECT x FROM a UNION SELECT NULL AS x FROM b;",
+        )
+        .unwrap();
+        let result =
+            analyze(&catalog, &query).expect("the NULL arm must be widened by the other arm's int32, not rejected");
+        assert_eq!(result.columns[0].neutral_type, "int32");
+    }
+
+    /// `jsonb_each` in select-list position produces a column whose
+    /// `neutral_type` is legitimately `"unknown"` (PostgreSQL's `record`
+    /// pseudo-type has no neutral-type representation) -- it must never be
+    /// rejected, because it reaches `TypeInfo::new("unknown", true)` through
+    /// `infer_function_type`, never through the two `Expr::Value` arms that set
+    /// `untyped_literal`. This is the exact shape a previous, reverted attempt at
+    /// this fix broke by rejecting on `neutral_type` alone (it broke
+    /// `generated::test_types::test_jsonb_each_select_list` /
+    /// `..._text_select_list` in `scythe-cli`).
+    #[test]
+    fn test_json_each_in_select_list_is_not_rejected() {
+        let catalog = Catalog::from_ddl(&["CREATE TABLE t (id INTEGER PRIMARY KEY, j JSONB);"]).unwrap();
+        let query = parse_query(
+            "-- @name GetKv
+-- @returns :many
+SELECT jsonb_each(j) AS kv FROM t;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).expect("a jsonb_each record column must not be rejected");
+        assert_eq!(result.columns[0].neutral_type, "unknown");
     }
 
     // Regression tests for the unfiled defect found alongside the JVM composite `fromText`

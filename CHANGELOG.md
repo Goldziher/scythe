@@ -926,6 +926,17 @@ direct caller that builds one by struct literal rather than through the parser. 
   runs once per enum, the variant counterpart of the existing enum/query-type-name check, and rejects
   the query with `DUPLICATE_ALIAS` before any backend renders it. (#136)
 
+- **A bare `?` placeholder or literal `NULL` projected with no `CAST`/comparison/`COALESCE` to borrow a
+  type from reached `analyze()`'s `Ok` result typed `neutral_type: "unknown"`, then surfaced two layers
+  down as the backend's `INTERNAL_ERROR: unknown neutral type: unknown`** — the part of #170 the
+  counting/ordering fix (c288fce1) left open. `analyze()` now rejects the shape with `TYPE_MISMATCH`,
+  naming the query and column and suggesting an explicit `CAST`. The rejection is origin-based, not a
+  blanket check on `neutral_type == "unknown"`: it only fires on a column whose projected expression is
+  itself a bare placeholder/`NULL`, so a UNION arm's `NULL` that a sibling arm resolves, and a
+  `jsonb_each`/`json_each` record column (legitimately `"unknown"` — PostgreSQL's `record` pseudo-type
+  has no neutral-type representation), are both unaffected. (#170)
+
+
 ### Added
 
 - **`scythe-inspect` can read a SQLite or MySQL catalog.** A new `SchemaCatalogDriver` trait gives

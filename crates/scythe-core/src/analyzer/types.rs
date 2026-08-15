@@ -206,6 +206,33 @@ pub struct AnalyzedColumn {
     /// serialized `AnalyzedQuery`.
     #[cfg_attr(feature = "serde", serde(default))]
     pub source_relation: Option<String>,
+    /// Whether this column's projected expression is, after stripping only
+    /// parentheses/unary sign, a bare `?`/`$N` placeholder or a literal `NULL`
+    /// with no `CAST`, comparison, `COALESCE`, or other typed context to
+    /// borrow a type from -- the shape `analyze()` rejects with
+    /// [`crate::errors::ScytheError::type_mismatch`] rather than letting it
+    /// reach codegen as `neutral_type == "unknown"` (issue tracked from
+    /// GH #170's residual half).
+    ///
+    /// Set only by [`TypeInfo`]'s two `Expr::Value` arms for `NULL` and a bare
+    /// placeholder (see `expressions.rs`); every other path that produces
+    /// `neutral_type == "unknown"` -- `jsonb_each`'s record column included --
+    /// goes through a different `TypeInfo` constructor and leaves this `false`.
+    /// A UNION arm rebuilds its widened `AnalyzedColumn` with
+    /// `..Default::default()`, so this flag never survives widening: it is
+    /// true only for a column that is *still exactly* its own untyped literal
+    /// with nothing else in the query to borrow a type from.
+    ///
+    /// Internal bookkeeping consumed by `analyze()` before it returns --
+    /// `#[serde(skip)]` keeps it out of the public wire format entirely rather
+    /// than requiring every existing payload to gain a new key.
+    ///
+    /// ~keep `pub`, not `pub(crate)`: `AnalyzedColumn` is constructed by struct
+    /// literal in other crates' tests, and a private field makes even
+    /// `..Default::default()` an E0451 there -- struct update syntax still
+    /// requires every field to be visible at the call site.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub untyped_literal: bool,
 }
 
 impl AnalyzedColumn {
@@ -227,6 +254,7 @@ impl AnalyzedColumn {
             nullable_before_join: type_info.nullable_before_join,
             sql_type,
             source_relation: type_info.source_relation,
+            untyped_literal: type_info.untyped_literal,
         }
     }
 }
@@ -352,6 +380,12 @@ pub(super) struct TypeInfo {
     /// a computed expression, a literal, a function result. See
     /// [`AnalyzedColumn::source_relation`].
     pub(super) source_relation: Option<String>,
+    /// See [`AnalyzedColumn::untyped_literal`]. Set only by the two
+    /// `Expr::Value` arms that infer a bare `NULL`/placeholder with nothing to
+    /// widen or cast against; every constructor here defaults it `false` so a
+    /// typed wrapper (`CAST`, a comparison, `COALESCE`, `widen_type_info`, ...)
+    /// clears it the moment it builds a fresh `TypeInfo` around the value.
+    pub(super) untyped_literal: bool,
 }
 
 impl TypeInfo {
@@ -364,6 +398,7 @@ impl TypeInfo {
             join_group: None,
             nullable_before_join: nullable,
             source_relation: None,
+            untyped_literal: false,
         }
     }
 
@@ -390,11 +425,24 @@ impl TypeInfo {
             join_group: nullable_from_join.then(|| source_alias.to_string()),
             nullable_before_join: base_nullable,
             source_relation: Some(source_table.to_string()),
+            untyped_literal: false,
         }
     }
 
     pub(super) fn unknown() -> Self {
         Self::new("unknown", true)
+    }
+
+    /// [`TypeInfo::unknown`] for the one shape `analyze()` treats as an error
+    /// rather than a legitimate `"unknown"` (a set-returning function's record
+    /// column, a UNION arm not yet widened): a bare `?`/`$N` placeholder or a
+    /// literal `NULL`, projected with nothing to cast or compare it against.
+    /// See [`AnalyzedColumn::untyped_literal`].
+    pub(super) fn untyped_literal() -> Self {
+        Self {
+            untyped_literal: true,
+            ..Self::unknown()
+        }
     }
 }
 
