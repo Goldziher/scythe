@@ -253,9 +253,7 @@ struct LegacyGenConfig {
 #[derive(Debug, Deserialize)]
 struct LegacyRustGenConfig {
     target: String,
-    #[allow(dead_code)]
     derive: Option<Vec<String>>,
-    #[allow(dead_code)]
     serde: Option<bool>,
 }
 
@@ -1005,9 +1003,9 @@ fn provenance_header_line(
     )
 }
 
-/// Reject two queries destined for one output file whose row/model struct or
-/// enum declaration resolves to the same generated identifier with a
-/// *different* rendered body.
+/// Reject two queries destined for one output file whose row/model struct,
+/// enum declaration, or query function resolves to the same generated
+/// identifier with a *different* rendered body.
 ///
 /// `scythe-codegen`'s `resolve::check_type_name_collisions` only compares
 /// names *within one query's own* enum list, plus that query's own row/model
@@ -1016,14 +1014,26 @@ fn provenance_header_line(
 /// name here: `@name get_user` and `@name GetUser` both PascalCase to
 /// `GetUserRow`, and nothing caught that before `assemble_body` rendered
 /// both declarations into one file (board #200). The same gap exists across
-/// two different enums whose SQL names case-convert to the same identifier.
+/// two different enums whose SQL names case-convert to the same identifier,
+/// and across two queries whose `fn_case`-converted names collide -- e.g.
+/// `@name CreateAPIKey` and `@name CreateApiKey` both resolve to
+/// `create_api_key` under `snake_case`, and unlike `model_struct`/`row_struct`,
+/// `assemble_body` never dedupes `query_fn` at all: it pushes every result's
+/// function unconditionally, so a name collision there always reaches the
+/// output file as two function definitions rather than being silently
+/// merged (GH #136 residual).
 ///
 /// A name collision with an *identical* rendered body is not an error: it is
 /// the same "one declaration, reused" case `assemble_body` already dedupes
 /// for a shared table model or a composite reachable from two queries --
 /// keyed there on rendered text, and here on declared name plus body, so the
 /// two agree on what counts as the same declaration rather than a
-/// redeclaration.
+/// redeclaration. Query function names are checked in a namespace of their
+/// own (`declared_fns`, separate from `declared`) so a type name and a
+/// function name that happen to render to the same identifier -- expected to
+/// be rare, since `struct_case`/`fn_case` are normally different casings --
+/// are never compared against each other; only two functions, or two types,
+/// can collide.
 ///
 /// Deliberately independent of `assemble_body`'s own text-exact dedup sets:
 /// this runs first, over the full `(name, body)` picture, so it reports the
@@ -1037,16 +1047,40 @@ fn check_file_level_type_name_collisions(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let naming = &backend.manifest().naming;
     let mut declared: AHashMap<String, (String, String)> = AHashMap::new();
+    let mut declared_fns: AHashMap<String, (String, String)> = AHashMap::new();
 
     for (analyzed, result) in analyzed_queries.iter().zip(results) {
         if let Some(ref table_name) = analyzed.source_table {
             if let Some(ref body) = result.code.model_struct {
                 let name = scythe_codegen::model_struct_name(table_name, naming);
-                record_type_declaration(&mut declared, name, format!("table '{table_name}'"), body)?;
+                record_type_declaration(
+                    &mut declared,
+                    name,
+                    format!("table '{table_name}'"),
+                    body,
+                    "@name, or the qualifying schema/table",
+                )?;
             }
         } else if let Some(ref body) = result.code.row_struct {
             let name = row_struct_name(&analyzed.name, naming);
-            record_type_declaration(&mut declared, name, format!("query '{}'", analyzed.name), body)?;
+            record_type_declaration(
+                &mut declared,
+                name,
+                format!("query '{}'", analyzed.name),
+                body,
+                "@name, or the qualifying schema/table",
+            )?;
+        }
+
+        if let Some(ref body) = result.code.query_fn {
+            let name = fn_name(&analyzed.name, naming);
+            record_type_declaration(
+                &mut declared_fns,
+                name,
+                format!("query '{}'", analyzed.name),
+                body,
+                "@name",
+            )?;
         }
 
         for info in &result.enums {
@@ -1054,7 +1088,13 @@ fn check_file_level_type_name_collisions(
             let body = generate_single_enum_def_with_backend(info, backend, nested)
                 .map_err(|e| format!("rendering enum '{}' for collision check: {e}", info.sql_name))?;
             let name = enum_type_name(&info.sql_name, naming);
-            record_type_declaration(&mut declared, name, format!("enum '{}'", info.sql_name), &body)?;
+            record_type_declaration(
+                &mut declared,
+                name,
+                format!("enum '{}'", info.sql_name),
+                &body,
+                "@name, or the qualifying schema/table",
+            )?;
         }
     }
 
@@ -1064,17 +1104,24 @@ fn check_file_level_type_name_collisions(
 /// Record one generated declaration under `name`. A second declaration under
 /// the same `name` is accepted silently when its body is byte-identical to
 /// the first (the intended dedup), and rejected otherwise.
+///
+/// `rename_hint` is the parenthetical the error message suggests acting on --
+/// callers pass what can actually change this declaration's generated name
+/// (a struct/enum can come from `@name` or a qualifying schema/table; a
+/// query function's name comes from `@name` alone), so the hint never
+/// suggests a fix that would not move the name it is attached to.
 fn record_type_declaration(
     declared: &mut AHashMap<String, (String, String)>,
     name: String,
     source: String,
     body: &str,
+    rename_hint: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let Some((prev_source, prev_body)) = declared.get(&name) {
         if prev_body != body {
             return Err(format!(
                 "{prev_source} and {source} both generate a declaration named '{name}' with different bodies -- \
-                 rename one of them (@name, or the qualifying schema/table) so the generated names differ"
+                 rename one of them ({rename_hint}) so the generated names differ"
             )
             .into());
         }
@@ -1364,6 +1411,7 @@ fn generate_for_backend(
     let mut results: Vec<QueryResult> = Vec::new();
     for analyzed in analyzed_queries {
         let code = generate_with_backend_and_overrides(analyzed, backend, overrides)?;
+
         // ~keep GH #147: `degrade_unsupported_nested_structs` rewrites a nested-aggregate
         // column to an opaque `json`/`json_array` scalar when the backend cannot build a
         // struct for it. That is a real narrowing of what the user asked for, and before
@@ -1430,8 +1478,11 @@ fn generate_for_backend(
 
     let output_file = out_path.join(&filename);
 
+    let mut format_validation_failed = false;
     if backend.manifest().backend.file_extension == "rs" {
-        output_content = format_rust_code_if_possible(&output_content);
+        let (formatted, failed) = apply_rust_formatting(config_name, &output_file, &output_content, validate_output);
+        output_content = formatted;
+        format_validation_failed = failed;
     }
 
     std::fs::write(&output_file, &output_content)
@@ -1444,11 +1495,12 @@ fn generate_for_backend(
         output_file.display()
     );
 
-    let validation_failed = if validate_output {
+    let output_validation_failed = if validate_output {
         report_generated_code_validation(config_name, &output_file, backend.name(), &output_content)
     } else {
         false
     };
+    let validation_failed = output_validation_failed || format_validation_failed;
 
     generate_rbs_if_supported(config_name, backend, analyzed_queries, overrides, out_path, provenance)?;
 
@@ -2797,34 +2849,156 @@ fn verify_artifact(artifact_path: &Path, expected: &ProvenanceExpectation<'_>) -
     violations
 }
 
+/// Outcome of attempting to format generated Rust with `rustfmt`.
+///
+/// Three variants, not the two-way "formatted or not" the previous
+/// implementation collapsed everything into: `stderr` was piped to
+/// `/dev/null`, a failed spawn silently fell back to the original code, and
+/// a non-zero exit or a bad pipe did too (`_ => code.to_string()`). That
+/// made `scythe generate` produce different bytes depending on whether
+/// `rustfmt` happened to be on `PATH`, with no way for a caller -- or a
+/// user reading the run's output -- to tell the difference between "clean,
+/// formatted output" and "rustfmt silently did nothing" (GH #167). Splitting
+/// "tool missing" from "tool ran and rejected the input" also lets the
+/// caller ([`apply_rust_formatting`]) treat them differently: a missing
+/// toolchain is an environment fact that must never fail `generate` by
+/// default, but `rustfmt` rejecting the input is a real signal about the
+/// *generated* code -- for a `rust generate` file, close to "this is not
+/// valid Rust" -- and Rust has no other tool-based validator at all (see
+/// `ValidationOutcome`'s doc comments in `scythe-codegen`), so this is
+/// currently the only thing `--validate-output` can check for Rust output.
+enum RustFormatOutcome {
+    /// `rustfmt` ran to completion and formatted the code.
+    Formatted(String),
+    /// `rustfmt` could not be spawned at all -- almost always because it is
+    /// not on `PATH`. The original code is passed through unformatted and
+    /// this is never treated as a validation failure.
+    ToolMissing(String),
+    /// `rustfmt` spawned but rejected the input (non-zero exit), or the
+    /// pipe to/from it failed. `code` is the original, unformatted input;
+    /// `detail` is `rustfmt`'s own stderr when it produced any, else a
+    /// description of the process-level failure.
+    Failed { code: String, detail: String },
+}
+
 /// Format Rust code using rustfmt if available.
-/// If rustfmt is not found or fails, returns the original code unchanged.
+///
 /// This ensures that generated code is rustfmt-compliant without requiring
-/// downstream users to run `cargo fmt` and create unnecessary diffs.
-fn format_rust_code_if_possible(code: &str) -> String {
+/// downstream users to run `cargo fmt` and create unnecessary diffs. Always
+/// invokes the real `rustfmt` on `PATH` -- see [`format_rust_code_with`] for
+/// the version tests use to avoid depending on the host having `rustfmt`
+/// installed.
+fn format_rust_code_if_possible(code: &str) -> RustFormatOutcome {
+    format_rust_code_with(code, "rustfmt")
+}
+
+/// [`format_rust_code_if_possible`] with the `rustfmt` command overridable,
+/// so tests can point it at a stand-in executable instead of depending on
+/// whether the real `rustfmt` is installed on the machine running the test
+/// (GH #167).
+fn format_rust_code_with(code: &str, rustfmt_cmd: &str) -> RustFormatOutcome {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
-    let Ok(mut child) = Command::new("rustfmt")
+    let Ok(mut child) = Command::new(rustfmt_cmd)
         .arg("--edition=2024")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
     else {
-        return code.to_string();
+        return RustFormatOutcome::ToolMissing(code.to_string());
     };
 
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(code.as_bytes());
     }
 
-    match child.wait_with_output() {
-        Ok(output) if output.status.success() => match String::from_utf8(output.stdout) {
-            Ok(formatted) => formatted,
-            Err(_) => code.to_string(),
+    let output = match child.wait_with_output() {
+        Ok(output) => output,
+        Err(e) => {
+            return RustFormatOutcome::Failed {
+                code: code.to_string(),
+                detail: format!("rustfmt process error: {e}"),
+            };
+        }
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = if stderr.trim().is_empty() {
+            format!("rustfmt exited with {}", output.status)
+        } else {
+            stderr.trim().to_string()
+        };
+        return RustFormatOutcome::Failed {
+            code: code.to_string(),
+            detail,
+        };
+    }
+
+    match String::from_utf8(output.stdout) {
+        Ok(formatted) => RustFormatOutcome::Formatted(formatted),
+        Err(e) => RustFormatOutcome::Failed {
+            code: code.to_string(),
+            detail: format!("rustfmt produced non-UTF-8 output: {e}"),
         },
-        _ => code.to_string(),
+    }
+}
+
+/// Run `rustfmt` on `code` and report the outcome, so a skipped or rejected
+/// formatting pass is always visible instead of being absorbed into
+/// byte-identical-looking output (GH #167). Thin wrapper around
+/// [`format_rust_code_if_possible`] and [`report_rust_format_outcome`],
+/// split apart so the reporting/exit-code policy in the latter is testable
+/// without spawning a real (or stand-in) `rustfmt` process.
+fn apply_rust_formatting(config_name: &str, output_file: &Path, code: &str, validate_output: bool) -> (String, bool) {
+    report_rust_format_outcome(
+        config_name,
+        output_file,
+        format_rust_code_if_possible(code),
+        validate_output,
+    )
+}
+
+/// Report a [`RustFormatOutcome`] via `eprintln!` and decide whether it
+/// counts as a validation failure.
+///
+/// Returns the code to write (formatted, or the original when formatting
+/// was skipped) and whether this counts as a validation failure for
+/// [`generate_for_backend`]'s combined return value. A missing `rustfmt`
+/// never does -- see [`RustFormatOutcome::ToolMissing`] -- but `rustfmt`
+/// running and rejecting the input does, gated behind the same
+/// `--validate-output` opt-in [`report_generated_code_validation`] uses, so
+/// a plain `scythe generate` still never fails on this by default. Pure
+/// (aside from the `eprintln!`) and free of process-spawning, unlike
+/// [`apply_rust_formatting`], so the exit-code policy above can be asserted
+/// directly against a hand-built [`RustFormatOutcome`] rather than through a
+/// real or stand-in `rustfmt` binary.
+fn report_rust_format_outcome(
+    config_name: &str,
+    output_file: &Path,
+    outcome: RustFormatOutcome,
+    validate_output: bool,
+) -> (String, bool) {
+    match outcome {
+        RustFormatOutcome::Formatted(formatted) => (formatted, false),
+        RustFormatOutcome::ToolMissing(original) => {
+            eprintln!(
+                "[{config_name}] warning: rustfmt not found on PATH -- {} written unformatted (install rustfmt \
+                 for reproducible generated Rust output)",
+                output_file.display()
+            );
+            (original, false)
+        }
+        RustFormatOutcome::Failed { code: original, detail } => {
+            eprintln!(
+                "[{config_name}] warning: rustfmt rejected the generated Rust for {} -- written unformatted: \
+                 {detail}",
+                output_file.display()
+            );
+            (original, validate_output)
+        }
     }
 }
 
@@ -2849,6 +3023,134 @@ mod tests {
         assert!(
             failed,
             "a real tool failure must report true so the caller moves generate's exit code to 2"
+        );
+    }
+
+    /// Writes an executable shell script at `dir/name` whose body is
+    /// `script_body`, and returns its path -- a deterministic stand-in for
+    /// `rustfmt` so [`format_rust_code_with`] tests never depend on whether
+    /// the real `rustfmt` happens to be installed on the machine running the
+    /// test (GH #167). CI in this repo runs `ubuntu-latest` only (see
+    /// `.github/workflows/ci.yml`), and local development here is macOS --
+    /// both Unix, so a `#!/bin/sh` script with the executable bit set is
+    /// portable enough without a `cfg(unix)` guard.
+    fn write_fake_rustfmt(dir: &std::path::Path, name: &str, script_body: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = dir.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{script_body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    /// A `rustfmt` that cannot even be spawned (path does not exist) must
+    /// report [`RustFormatOutcome::ToolMissing`] with the original code
+    /// untouched -- not the pre-#167 behavior of silently returning
+    /// `code.to_string()` with no signal to the caller at all.
+    #[test]
+    fn format_rust_code_with_reports_tool_missing_when_binary_is_absent() {
+        let code = "fn   x( ) { }";
+
+        match format_rust_code_with(code, "/nonexistent/path/to/rustfmt-scythe-test-fixture") {
+            RustFormatOutcome::ToolMissing(original) => assert_eq!(original, code),
+            RustFormatOutcome::Formatted(_) => panic!("expected ToolMissing, got Formatted"),
+            RustFormatOutcome::Failed { detail, .. } => panic!("expected ToolMissing, got Failed: {detail}"),
+        }
+    }
+
+    /// A `rustfmt` stand-in that spawns successfully but exits non-zero
+    /// (rejecting the input, as the real `rustfmt` does on invalid Rust)
+    /// must report [`RustFormatOutcome::Failed`] carrying its stderr as
+    /// `detail` -- not the pre-#167 behavior of piping stderr to
+    /// `/dev/null` and falling through to `_ => code.to_string()` with the
+    /// failure reason discarded.
+    #[test]
+    fn format_rust_code_with_reports_failed_with_stderr_detail_on_nonzero_exit() {
+        let dir = tempfile::tempdir().unwrap();
+        let fake_rustfmt = write_fake_rustfmt(dir.path(), "fake-rustfmt", "echo 'boom: invalid token' >&2\nexit 1");
+
+        let code = "fn x() {}";
+        match format_rust_code_with(code, fake_rustfmt.to_str().unwrap()) {
+            RustFormatOutcome::Failed { code: original, detail } => {
+                assert_eq!(original, code);
+                assert!(detail.contains("boom: invalid token"), "{detail}");
+            }
+            _ => panic!("expected Failed for a rustfmt stand-in that exits non-zero"),
+        }
+    }
+
+    /// The success path: a stand-in that behaves like `rustfmt` actually
+    /// formatting (here, just echoing stdin back) must report `Formatted`
+    /// with that output, proving the piping itself (not just the error
+    /// paths) still works after the [`RustFormatOutcome`] refactor.
+    #[test]
+    fn format_rust_code_with_reports_formatted_on_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let fake_rustfmt = write_fake_rustfmt(dir.path(), "fake-rustfmt", "cat");
+
+        let code = "fn x() {}\n";
+        match format_rust_code_with(code, fake_rustfmt.to_str().unwrap()) {
+            RustFormatOutcome::Formatted(formatted) => assert_eq!(formatted, code),
+            RustFormatOutcome::ToolMissing(_) => panic!("expected Formatted, got ToolMissing"),
+            RustFormatOutcome::Failed { detail, .. } => panic!("expected Formatted, got Failed: {detail}"),
+        }
+    }
+
+    /// The exit-code contract, asserted directly against
+    /// [`report_rust_format_outcome`] rather than through a real or
+    /// stand-in `rustfmt` process: a missing `rustfmt` must never be a
+    /// validation failure regardless of `--validate-output` (GH #167 is
+    /// explicit that a missing toolchain must not become a hard failure by
+    /// default), but `rustfmt` rejecting the input must become one -- and
+    /// only when `--validate-output` is set, matching the same opt-in gate
+    /// `report_generated_code_validation` uses, so a plain `scythe
+    /// generate` still never fails on this by default.
+    #[test]
+    fn report_rust_format_outcome_only_fails_validation_when_rustfmt_rejects_input_under_validate_output() {
+        let path = Path::new("queries.rs");
+
+        for validate_output in [false, true] {
+            let (code, failed) = report_rust_format_outcome(
+                "main",
+                path,
+                RustFormatOutcome::ToolMissing("fn x() {}".to_string()),
+                validate_output,
+            );
+            assert_eq!(code, "fn x() {}");
+            assert!(
+                !failed,
+                "a missing rustfmt must never be a validation failure (validate_output={validate_output})"
+            );
+        }
+
+        let (code, failed) = report_rust_format_outcome(
+            "main",
+            path,
+            RustFormatOutcome::Failed {
+                code: "fn x() {}".to_string(),
+                detail: "boom".to_string(),
+            },
+            false,
+        );
+        assert_eq!(code, "fn x() {}");
+        assert!(
+            !failed,
+            "rustfmt rejecting the input must not fail generate without --validate-output"
+        );
+
+        let (code, failed) = report_rust_format_outcome(
+            "main",
+            path,
+            RustFormatOutcome::Failed {
+                code: "fn x() {}".to_string(),
+                detail: "boom".to_string(),
+            },
+            true,
+        );
+        assert_eq!(code, "fn x() {}");
+        assert!(
+            failed,
+            "rustfmt rejecting the input under --validate-output must be a validation failure"
         );
     }
 
@@ -3688,6 +3990,59 @@ backend = \"rust-sqlx\"
         let err = check_file_level_type_name_collisions(&analyzed, &results, backend.as_ref())
             .expect_err("order_status and order-status both derive OrderStatus with different variants");
         assert!(err.to_string().contains("OrderStatus"), "{err}");
+    }
+
+    /// GH #136 residual: two queries in one `[[sql]]` block whose `@name`
+    /// values differ only in case render to the same `fn_name` --
+    /// `CreateAPIKey` and `CreateApiKey` both snake_case to
+    /// `create_api_key` -- and nothing compared them before `assemble_body`
+    /// pushed both `query_fn` bodies into the output unconditionally. Unlike
+    /// `row_struct`/`model_struct`, `query_fn` has no dedup pass at all in
+    /// `assemble_body` (see its own doc comment), so this always reaches the
+    /// file as two function definitions -- never silently merged, even when
+    /// the bodies happen to match -- which is why `generate` exited 0 on a
+    /// file with a duplicate `fn create_api_key`.
+    #[test]
+    fn check_file_level_type_name_collisions_rejects_fn_name_collisions() {
+        use scythe_core::analyzer::AnalyzedColumn;
+
+        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+
+        let make_query = |name: &str, sql: &str| {
+            AnalyzedQuery::build(|q| {
+                q.name = name.to_string();
+                q.command = QueryCommand::One;
+                q.sql = sql.to_string();
+                q.columns = vec![AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                }];
+            })
+        };
+
+        // "CreateAPIKey" and "CreateApiKey" are both valid, distinct @name
+        // values that `fn_name` case-converts to the identical "create_api_key".
+        let query_a = make_query("CreateAPIKey", "SELECT id FROM api_keys WHERE id = 1");
+        let query_b = make_query("CreateApiKey", "SELECT id FROM api_keys WHERE id = 2");
+
+        let code_a = scythe_codegen::generate_with_backend(&query_a, backend.as_ref()).expect("query_a generates");
+        let code_b = scythe_codegen::generate_with_backend(&query_b, backend.as_ref()).expect("query_b generates");
+        assert_ne!(
+            code_a.query_fn, code_b.query_fn,
+            "test premise: different SQL text must render different function bodies"
+        );
+
+        let analyzed = vec![query_a, query_b];
+        let results = vec![query_result_with_code(code_a), query_result_with_code(code_b)];
+
+        let err = check_file_level_type_name_collisions(&analyzed, &results, backend.as_ref())
+            .expect_err("CreateAPIKey and CreateApiKey both derive create_api_key with different bodies");
+        let message = err.to_string();
+        assert!(message.contains("create_api_key"), "{message}");
+        assert!(message.contains("CreateAPIKey"), "{message}");
+        assert!(message.contains("CreateApiKey"), "{message}");
     }
 
     fn query_result_with_code(code: scythe_codegen::GeneratedCode) -> QueryResult {

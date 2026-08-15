@@ -286,12 +286,24 @@ SELECT u.id, b.payload AS orders FROM users u JOIN blobs b ON b.id = u.id;
     );
 }
 
-/// Two queries whose names collapse onto the same snake_case stem derive the
-/// same nested struct name. Identical shapes deduplicate; different shapes
-/// are unresolvable and must fail loudly rather than silently give one query
-/// the other's type.
+/// Two queries whose names collapse onto the same snake_case stem are rejected.
+///
+/// This assertion is inverted from what it was. It used to generate these two
+/// queries successfully and check only that the shared nested struct was
+/// emitted once -- while ignoring that the two queries also collapse onto one
+/// *function* name, `get_user_orders`, with different bodies (the second
+/// carries a `WHERE`). The emitted file therefore had two identically-named
+/// functions: E0428, the very defect GH #136 tracks, passing a test whose
+/// stated subject was avoiding E0428 on the struct.
+///
+/// `check_file_level_type_name_collisions` now compares `fn_name` across
+/// queries too, so this input fails before anything is written. The
+/// deduplication path the old test aimed at is not reachable through colliding
+/// query names any more, which is strictly better: a collision the user must
+/// resolve with `@name` is now named, rather than half-deduplicated into
+/// output that could not compile.
 #[test]
-fn duplicate_nested_struct_names_with_identical_shapes_emit_one_definition() {
+fn duplicate_query_names_that_collapse_onto_one_fn_name_are_rejected() {
     let queries = "\
 -- @name GetUserOrders
 -- @returns :many
@@ -302,12 +314,11 @@ SELECT json_agg(o.*) AS orders FROM orders o;
 SELECT json_agg(o.*) AS orders FROM orders o WHERE o.user_id = $1;
 ";
 
-    let code = generate("rust-sqlx", "rs", SCHEMA, queries).expect("generate");
+    let error = generate("rust-sqlx", "rs", SCHEMA, queries).expect_err("colliding fn names must be rejected");
 
-    assert_eq!(
-        code.matches("pub struct GetUserOrdersRowOrders {").count(),
-        1,
-        "a second identical definition is E0428; got:\n{code}"
+    assert!(
+        error.contains("get_user_orders") && error.contains("GetUserOrders") && error.contains("GETUserOrders"),
+        "the error must name the generated declaration and both queries that produced it; got:\n{error}"
     );
 }
 

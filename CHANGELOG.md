@@ -982,6 +982,22 @@ direct caller that builds one by struct literal rather than through the parser. 
   long as both files agree on table/column shape, which nothing checked; a new
   `tests/schema_variant_consistency.rs` now checks it. (#196, #195)
 
+- **Two queries in one `[[sql]]` block whose `@name` values differed only in case could render the
+  same function name into one file, and `generate` exited 0.** `CreateAPIKey` and `CreateApiKey` both
+  `snake_case` to `create_api_key`; `check_file_level_type_name_collisions` already caught this shape
+  for row/model structs and enums but never compared query function names, and `assemble_body` has no
+  dedup pass at all for `query_fn` (unlike the struct/enum lists, it pushes every result's function
+  unconditionally), so the collision always reached the output file as two function definitions. The
+  check now also compares `fn_name` across every query destined for the same file. (#136)
+
+- **`scythe generate` silently produced different bytes for the same input depending on whether
+  `rustfmt` happened to be on `PATH`, and said nothing either way.** `format_rust_code_if_possible`
+  piped `rustfmt`'s `stderr` to `/dev/null` and fell back to the unformatted code on a failed spawn,
+  a non-zero exit, or a broken pipe, all indistinguishably. A missing `rustfmt` is now reported as a
+  warning (and still never fails the run — a missing toolchain says nothing about whether the
+  generated code is correct); `rustfmt` spawning and then rejecting the input is reported with its
+  own stderr and, since Rust has no other tool-based validator, now counts as a `--validate-output`
+  finding the same way every other backend's real-compiler check already does. (#167)
 
 ### Added
 
