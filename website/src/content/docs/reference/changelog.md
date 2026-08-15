@@ -114,8 +114,12 @@ working code, but the error now arrives earlier and from a different layer. Fixt
   and nested-struct fields but never from its params. A composite bound only as a parameter — an
   `INSERT` whose composite column never appears in `RETURNING` — therefore never reached that list
   at all, and the emitter took its silent whole-object fallback. The worklist now chains params the
-  way the enum scan beside it always did. This was the last entry in
-  `scripts/torture-expected-failures.txt`, which is now empty. (#225)
+  way the enum scan beside it always did, and `typescript-pg` compiles the torture project as a
+  result. `typescript-postgres` still does not: with the composite reaching the emitter, two further
+  defects in that backend became visible — a nullable composite param dereferences null, and a
+  `jsonb` param binds as a raw object postgres.js rejects. Its
+  `scripts/torture-expected-failures.txt` entry has been restored with those reasons and now points
+  at #231. (#225)
 
 - **A `UNION` whose `NULL`-projecting arm came first failed type resolution instead of widening.**
   `SELECT id AS tag FROM accounts UNION SELECT NULL AS tag FROM users` compiled; swapping the arms

@@ -143,3 +143,5 @@
 # defect behind #191 -- the torture schema's composite home_address and uuid
 # external_id columns were read through the untyped getObject, whose
 # Object/Any static type is assignable to nothing.
+
+typescript-postgres : a nullable composite param dereferences null, and a jsonb param binds as a raw object (#231)
