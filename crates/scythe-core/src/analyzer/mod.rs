@@ -1977,8 +1977,13 @@ SELECT x FROM a UNION SELECT NULL AS x FROM b;",
         assert_eq!(result.columns[0].neutral_type, "int32");
     }
 
-    /// The same widening must work when the untyped NULL is in the first arm.
-    /// UNION arm order cannot change the inferred result type.
+    /// UNION is commutative -- the widening in the sibling test above must not depend on
+    /// which arm the untyped NULL sits in. Before #224, `widen_union_arm_type`'s non-nested
+    /// fallthrough called `widen_type` directly instead of `widen_neutral_type`, and
+    /// `widen_type` returned its left argument for any pair its numeric ladder did not
+    /// handle. So a NULL arm on the left won over the other arm's real type and the column
+    /// reached codegen as `"unknown"`, reported there as
+    /// `INTERNAL_ERROR: type resolution failed for column 'x': unknown neutral type: unknown`.
     #[test]
     fn test_null_projection_in_first_union_arm_is_widened() {
         let catalog = Catalog::from_ddl(&[

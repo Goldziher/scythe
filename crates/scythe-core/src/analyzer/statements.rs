@@ -261,7 +261,10 @@ impl<'a> Analyzer<'a> {
     ///   directions produce code that compiles and is wrong.
     ///
     /// Two non-nested arms are untouched and fall straight through to
-    /// `widen_type`.
+    /// `widen_neutral_type`, so an untyped `NULL` arm on either side is
+    /// absorbed into the other arm's real type regardless of arm order
+    /// (#224) -- `widen_type` alone is order-sensitive and must not be
+    /// called here directly.
     fn widen_union_arm_type(&mut self, left: &str, right: &str) -> String {
         let (left_nested, right_nested) = (find_nested_placeholder_id(left), find_nested_placeholder_id(right));
 
@@ -280,7 +283,7 @@ impl<'a> Analyzer<'a> {
                      wrong shape at runtime"
                 ));
             }
-            return widen_type(left, right);
+            return widen_neutral_type(left, right);
         };
 
         let left_fields = self

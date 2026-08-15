@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A `UNION` whose `NULL`-projecting arm came first failed type resolution instead of widening.**
+  `SELECT id AS tag FROM accounts UNION SELECT NULL AS tag FROM users` compiled; swapping the arms
+  produced `INTERNAL_ERROR: type resolution failed for column 'tag': unknown neutral type: unknown`.
+  `widen_union_arm_type`'s non-nested fallthrough called `widen_type` directly, and `widen_type`
+  returned its left argument for any pair its numeric ladder does not handle — so an `unknown` arm
+  on the left won over the other arm's real type. `widen_type` now absorbs `unknown` from either
+  position, and the call site routes through `widen_neutral_type`, the helper whose own doc comment
+  names it the single rule every widening call site must use (#121) and which every other call site
+  already used. `UNION` is commutative, so both spellings now agree. Reported and fixed by
+  @snowyukitty in #227. (#224)
+
 ## [0.15.0] - 2026-08-15
 
 This release is mostly about checks that could not fail. A validator whose only callers were its own
