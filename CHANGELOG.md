@@ -5,7 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.16.0] - 2026-08-15
+
+0.15.0 shipped fixes only and moved everything that was coverage debt or a feature into this
+release, so 0.16.0 is the mixed one: four bugs, six gates, and the two features outside users asked
+for.
+
+Three of the bugs turned out to be one. The analyzer used the string `"unknown"` as an in-band
+sentinel for "nothing resolved this", and when it escaped into codegen the user got
+`INTERNAL_ERROR: unknown neutral type: unknown` — which reads as "file a bug" for input scythe had
+diagnosed perfectly well. A set-returning function in the SELECT list, `array_agg(ROW(a, b))` and a
+UNION whose arms widened in the wrong order were three symptoms of the same thing. The sentinel now
+leaves the analyzer as a real `UNRESOLVED_TYPE` diagnostic naming the column or the parameter and,
+where one exists, the form that works instead.
+
+The gates are the shape 0.15.0 spent itself on, one layer further out: a check whose failure path is
+unreachable. A fixture suite that skipped every assertion when codegen errored. A compile-check
+script that exits 0 when project discovery finds nothing. A schema comparison that degrades to
+comparing two empty lists. A generator that warned and succeeded on zero fixtures. Two suites that
+run a real interpreter over generated code, and reported success when the interpreter was missing.
+A dependency audit that could not see an optional-feature-only dependency, because `cargo deny
+check` uses the default feature set. And `field_case`, honoured by sixteen backends, whose every
+assertion was on a generated string rather than on a row a database returned.
+
+On the feature side, `json_agg(json_build_object(...))` now infers a struct from the call's own keys
+instead of degrading to flat `json`, and `FILTER (WHERE ... IS NOT NULL)` — the idiom for
+suppressing the `[null]` a LEFT JOIN miss produces — is recognized rather than ignored. Six more
+TypeScript backends gained a `javascript-*` JSDoc emit mode.
+
+**Upgrading**: two nested-aggregate changes move types in code that already worked. A query using
+`json_agg(json_build_object('id', o.id, ...))` previously generated a flat JSON value and now
+generates a struct, so anything hand-typed on the receiving end needs updating. A query using
+`json_agg(o.*) FILTER (WHERE o.id IS NOT NULL)` previously produced an optional element and now
+produces a non-optional one — `Vec<Option<T>>` becomes `Vec<T>`, and the equivalent in every other
+language. Separately, a query whose result column or parameter has no nameable type now fails at
+analyze time with `UNRESOLVED_TYPE` instead of reaching codegen; such queries never generated
+working code, but the error now arrives earlier and from a different layer. Fixture authors: the
+`config.naming` and `config.type_overrides` keys are now load errors, and
+`testing_data/00-FIXTURE-SCHEMA.json` is gone — `tools/test-generator/src/fixture.rs` is the schema.
 
 ### Security
 

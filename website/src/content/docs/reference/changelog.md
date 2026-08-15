@@ -7,6 +7,240 @@ Scythe follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Ver
 
 For the latest changes, see the [CHANGELOG.md](https://github.com/Goldziher/scythe/blob/main/CHANGELOG.md) in the repository root.
 
+## [0.16.0] - 2026-08-15
+
+0.15.0 shipped fixes only and moved everything that was coverage debt or a feature into this
+release, so 0.16.0 is the mixed one: four bugs, six gates, and the two features outside users asked
+for.
+
+Three of the bugs turned out to be one. The analyzer used the string `"unknown"` as an in-band
+sentinel for "nothing resolved this", and when it escaped into codegen the user got
+`INTERNAL_ERROR: unknown neutral type: unknown` — which reads as "file a bug" for input scythe had
+diagnosed perfectly well. A set-returning function in the SELECT list, `array_agg(ROW(a, b))` and a
+UNION whose arms widened in the wrong order were three symptoms of the same thing. The sentinel now
+leaves the analyzer as a real `UNRESOLVED_TYPE` diagnostic naming the column or the parameter and,
+where one exists, the form that works instead.
+
+The gates are the shape 0.15.0 spent itself on, one layer further out: a check whose failure path is
+unreachable. A fixture suite that skipped every assertion when codegen errored. A compile-check
+script that exits 0 when project discovery finds nothing. A schema comparison that degrades to
+comparing two empty lists. A generator that warned and succeeded on zero fixtures. Two suites that
+run a real interpreter over generated code, and reported success when the interpreter was missing.
+A dependency audit that could not see an optional-feature-only dependency, because `cargo deny
+check` uses the default feature set. And `field_case`, honoured by sixteen backends, whose every
+assertion was on a generated string rather than on a row a database returned.
+
+On the feature side, `json_agg(json_build_object(...))` now infers a struct from the call's own keys
+instead of degrading to flat `json`, and `FILTER (WHERE ... IS NOT NULL)` — the idiom for
+suppressing the `[null]` a LEFT JOIN miss produces — is recognized rather than ignored. Six more
+TypeScript backends gained a `javascript-*` JSDoc emit mode.
+
+**Upgrading**: two nested-aggregate changes move types in code that already worked. A query using
+`json_agg(json_build_object('id', o.id, ...))` previously generated a flat JSON value and now
+generates a struct, so anything hand-typed on the receiving end needs updating. A query using
+`json_agg(o.*) FILTER (WHERE o.id IS NOT NULL)` previously produced an optional element and now
+produces a non-optional one — `Vec<Option<T>>` becomes `Vec<T>`, and the equivalent in every other
+language. Separately, a query whose result column or parameter has no nameable type now fails at
+analyze time with `UNRESOLVED_TYPE` instead of reaching codegen; such queries never generated
+working code, but the error now arrives earlier and from a different layer. Fixture authors: the
+`config.naming` and `config.type_overrides` keys are now load errors, and
+`testing_data/00-FIXTURE-SCHEMA.json` is gone — `tools/test-generator/src/fixture.rs` is the schema.
+
+### Security
+
+- **Every PHP integration harness created an order and never checked it was the one returned.**
+  The same defect fixed for all 13 Python harnesses in 0.15.0 was left live in all 9 PHP ones:
+  `test_create_order` returns the new row's id and `test_get_orders_by_user` ignored it, asserting
+  only the first result's `notes`, so a query returning someone else's order still passed.
+  `test_get_orders_by_user` now takes the created `order_id` and asserts it is among the returned
+  rows. (#112)
+
+### Fixed
+
+- **The `python-psycopg3-msgspec` harness never checked its rows were msgspec structs.** The
+  project exists to prove the `row_type = "msgspec"` codegen option works, and its Pydantic twin
+  carries seven assertions — a dedicated row-type test plus five `isinstance` checks — while the
+  msgspec harness had none; `import msgspec` was the only trace of it, unused. It now mirrors the
+  Pydantic assertions. Three unconditional imports (`asyncio`, `Decimal`, `msgspec`) that were
+  unused on some engine branches are now emitted only where used, so the generated Python harnesses
+  are `F401`- and `I001`-clean. (#112)
+
+- **Every codegen assertion in the fixture-generated test suite was skipped when codegen errored.**
+  One line in the generator wrapped each backend loop in `if let Ok(generated) = …`, producing 273
+  skip-guards across 13 files that between them discarded the result of **4993**
+  `generate_with_backend` calls. Backend *construction* failure already panicked; generation failure
+  one line later did not — and `generate_generated_code_assertions`, added in 0.15.0 specifically to
+  stop assertions being dropped, was emitted *inside* that guard, so the fix for dropped assertions
+  was itself dropped. A codegen error now fails the test naming the backend, engine, fixture and
+  error. A fixture may declare an expected failure via `expected.codegen_errors`, which requires a
+  written reason and fails in both directions: an undeclared failure fails, and a declared failure
+  that now succeeds fails as stale. No fixture currently declares one — measured across all 4993
+  combinations, none fail. (#222)
+
+- **A set-returning function in the select list, and a multi-field `ROW(...)`, passed analysis and
+  then failed every backend with `INTERNAL_ERROR: unknown neutral type: unknown`.**
+  `SELECT jsonb_each(data) FROM documents` and `SELECT array_agg(ROW(o.id, o.total)) FROM orders o`
+  both reported an internal error — "file a bug against scythe" — for input scythe had diagnosed
+  perfectly well. PostgreSQL's anonymous `record` and a bare multi-field row genuinely have no
+  neutral type, but that is a fact to report, not an internal fault. Both now fail at analyze time
+  with `UNRESOLVED_TYPE`, naming the column and the construct; the set-returning-function message
+  points at the `FROM`-clause form (`FROM documents, jsonb_each(data) AS kv`), which already
+  resolves to real `key` and `value` columns. The same treatment covers `json_each_text`, the
+  `json_populate_record` family, `unnest` over a non-array, and nine other expression shapes that
+  previously reached codegen as a bare `"unknown"`. (#223)
+
+- **An unresolved marker wrapped in a container leaked its internal spelling to the user.**
+  `SELECT array_agg(bogus_fn(id)) FROM t` reported
+  `INTERNAL_ERROR: unknown neutral type: __unknown_func__:bogus_fn` — scythe's own internal marker,
+  verbatim. The markers that stand for "ambiguous column", "unknown column" and "unknown function"
+  were matched only at the start of a neutral type, so `array_agg` wrapping one as
+  `array<__unknown_func__:…>` slipped past every check. This is the #173 failure mode the marker
+  family's own doc comment warns about, still live for the container case. It now reports
+  `UNKNOWN_FUNCTION: function "bogus_fn" does not exist`.
+
+- **Two CLI integration tests gated their generated output on its byte count.**
+  `test_generate_pagila_writes_file`'s entire body, after checking the file existed, was
+  `content.len() > 500` — pagila generates 7016 bytes, so the check permitted losing 93% of it, and
+  `test_generate_writes_file`'s `> 100` was no better. Both now assert that every query in the
+  fixture produced a named function, and that the file defines exactly that many and no more; the
+  count is what catches two queries collapsing onto one name, which a presence check cannot see.
+  (#161)
+
+- **A composite-typed query parameter was bound to postgres.js as a whole object, so
+  `typescript-postgres` output did not type-check** (`TS2345: 'TortureAddress | null' is not
+  assignable to 'ParameterOrFragment<never>'`). The codegen that renders `ROW(a, b)::type_name` for
+  a bound composite was already correct but never ran: it looks the composite up in
+  `analyzed.composites`, and the analyzer's composite worklist seeded itself from a query's columns
+  and nested-struct fields but never from its params. A composite bound only as a parameter — an
+  `INSERT` whose composite column never appears in `RETURNING` — therefore never reached that list
+  at all, and the emitter took its silent whole-object fallback. The worklist now chains params the
+  way the enum scan beside it always did. This was the last entry in
+  `scripts/torture-expected-failures.txt`, which is now empty. (#225)
+
+- **A `UNION` whose `NULL`-projecting arm came first failed type resolution instead of widening.**
+  `SELECT id AS tag FROM accounts UNION SELECT NULL AS tag FROM users` compiled; swapping the arms
+  produced `INTERNAL_ERROR: type resolution failed for column 'tag': unknown neutral type: unknown`.
+  `widen_union_arm_type`'s non-nested fallthrough called `widen_type` directly, and `widen_type`
+  returned its left argument for any pair its numeric ladder does not handle — so an `unknown` arm
+  on the left won over the other arm's real type. `widen_type` now absorbs `unknown` from either
+  position, and the call site routes through `widen_neutral_type`, the helper whose own doc comment
+  names it the single rule every widening call site must use (#121) and which every other call site
+  already used. `UNION` is commutative, so both spellings now agree. Reported and fixed by
+  @snowyukitty in #227. (#224)
+
+- **An internal type marker still reached the user, through query parameters.** The fix for this
+  defect covered result columns only. A placeholder inside a function whose result has no nameable
+  type adopts that result as its own type, and nothing rejected it afterwards, so
+  `SELECT id FROM documents WHERE data::text = COALESCE($1, ROW(id, data))::text` reported
+  `INTERNAL_ERROR: type resolution failed for param 'row': unknown neutral type:
+  __untypeable_row__:` -- scythe's internal marker spelling, verbatim, in front of a user. It now
+  reports the same actionable `UNRESOLVED_TYPE` diagnostic the column path does, naming the
+  parameter. `GREATEST`/`LEAST`, `NULLIF` and `CASE` reached it the same way. (#223)
+
+- **Three gates reported success for having checked nothing.** `check-generated-backends.py`,
+  which compile-checks every backend against the torture schema, exits 0 when project discovery
+  returns nothing: its pass/fail flag is only cleared by lists derived from the discovered set. An
+  allowlist entry naming a vanished project used to catch that by accident, and that backstop went
+  inert when the last active entry was deleted. `schema_variant_consistency` compares two schema
+  files through a parser that recognises only a literal `CREATE TABLE` line, so any restyling it
+  stops recognising hits both files at once and reduces the comparison to two empty lists. And
+  `test-generator` warned and exited 0 on zero fixtures, leaving the committed tree untouched so
+  CI's freshness check reported everything fresh — its own vacuity guard counts committed files,
+  which are still there. All three now fail. (#196)
+
+- **A missing interpreter silently deleted two suites' only real check.**
+  `composite_text_escaping_regression.rs` runs the emitted composite parser against the exact text
+  PostgreSQL 16 produces, and `sql_literal_injection_regression.rs` compiles every backend's
+  escaped literal with that language's real compiler — both precisely because the string match they
+  sit next to cannot tell a correct branch from a plausible-looking one. When the interpreter or
+  compiler was absent, both returned early and reported success, degrading to the string match they
+  exist to supersede. Under `SCYTHE_VALIDATE_STRICT` (set for CI's `cargo test --workspace`) the
+  skip is now a failure naming the missing tool; locally it still skips, since nobody has all ten
+  toolchains. (#127)
+
+### Added
+
+- **`javascript-node-sqlite`: a JSDoc emit mode for `typescript-node-sqlite`.** The fifth
+  `javascript-*` backend (alongside `javascript-postgres`, `javascript-pg`, `javascript-mysql2`,
+  `javascript-better-sqlite3`): plain, JSDoc-annotated `.js` output for Node's built-in
+  `node:sqlite` module, checked against real `node --check` and `tsc --checkJs --strict` in CI.
+  `node:sqlite` is synchronous, like `better-sqlite3`, so this mirrors
+  `javascript-better-sqlite3`'s emit shape rather than the `async` pg/postgres.js/mysql2 one, except
+  for `:batch`: `DatabaseSync` has no `.transaction()` helper, so the generated code wraps explicit
+  `BEGIN`/`COMMIT`/`ROLLBACK` statements, matching `typescript-node-sqlite`'s own TS-mode `:batch`
+  shape.
+
+- **The `javascript-*` backends' `:many` output is now type-checked by real `tsc`.** The JS-mode
+  tool-validation fixture built only a `:one` and a `:grouped` query, so the one command whose JSDoc
+  cast is not a plain one-step assertion was pinned by hand-written string matching alone, on all
+  five backends. It now builds a `:many` query too. (#93)
+
+- **`javascript-wasm-sqlite` and `javascript-snowflake`: two more JSDoc emit modes.** The sixth and
+  seventh `javascript-*` backends. `javascript-wasm-sqlite` mirrors `javascript-better-sqlite3`'s
+  synchronous shape (`@sqlite.org/sqlite-wasm`'s OO1 API is sync, and the driver's one-time async
+  `sqlite3InitModule()` stays entirely outside generated code); unlike the sync sqlite backends
+  already shipped, its single-row *and* array casts are both genuine `tsc` `TS2352`s as a TypeScript
+  `as`, but the JSDoc `/** @type {T} */ (...)` spelling of both is accepted, verified against real
+  `tsc --checkJs --strict`, so it never needs the TS path's `unknown` hop. `javascript-snowflake` is
+  the first `javascript-*` backend whose `file_header` is not empty: `normalizeRow`, the runtime
+  helper the generated query bodies call to lowercase Snowflake's uppercase column names, has to stay
+  in JSDoc mode too (re-typed via a JSDoc block), and only the TS-only `import type { Binds,
+  Connection }` line drops. Its `binds` cast is the one JSDoc cast across all seven backends that
+  still needs the `unknown` hop -- `Binds`'s declared type does not admit every parameter type this
+  backend can emit, and that failure reproduces identically whether the cast is written `as` or
+  `/** @type */`. (#93)
+
+- **`json_agg(json_build_object(...))`/`jsonb_agg(jsonb_build_object(...))` now infer an inline
+  nested field list.** The relation-argument form (`json_agg(o.*)`) already synthesized a struct;
+  the inline-object form — what people actually write when the columns they want are not a whole
+  table — fell back to flat `json`. Field names come from the call's own string-literal keys, and
+  field nullability follows each value expression's real type, including outer-join widening.
+  Confirmed against PostgreSQL 16: `json_build_object` is not strict, so the built object is never
+  itself SQL NULL — not even for the phantom all-NULL row a LEFT JOIN miss produces — so unlike the
+  relation-argument form, elements here are never wrapped `nullable<>`; only individual fields are.
+  Also recognizes the standard `FILTER (WHERE {alias}.{col} IS NOT NULL)` idiom (optionally
+  `AND`-conjoined) on the relation-argument form: it provably excludes that phantom row regardless
+  of which column of the relation it names, so the array element is no longer marked nullable when
+  the filter is present. (#78)
+
+### Changed
+
+- **Every integration harness now applies the same schema file its `scythe.toml` generated from.**
+  `schema_file` reached `scythe.toml.jinja` and one Kotlin branch; the other ~16 sites across 11
+  harness templates hardcoded a filename per engine, and `SCHEMA_FILE_OVERRIDES` was keyed by
+  backend name so it covered only the 2 backends that happened to already agree. 7 of 9 Oracle
+  projects and all 14 Redshift projects generated code from `schema.sql` while their harness created
+  the database from `schema_full.sql` / `schema_pg_compat.sql`. The override table is now keyed by
+  engine, which is the thing that actually determines the answer, so it cannot go stale when a
+  backend is added for an engine already listed. No inferred type changes — the two schema variants
+  agree today, which is exactly why this stayed invisible; only the recorded schema hash moves.
+  (#196)
+
+- **The generated-type check now covers 10 of 13 Python and 10 of 10 PHP integration projects**, up
+  from 5 and 2. The three Python projects still excluded use `aiomysql` or `pyodbc`, neither of
+  which ships type information, and are documented in place rather than wired up to a checker that
+  cannot fail on them. Every expected-error count is measured, not assumed, and the eight PHP
+  projects that newly run `composer install` in CI have committed lock files so the install is
+  pinned. `python-duckdb` joins the loop: the comment excluding it claimed it had no
+  `integration_tests/` project directory, which stopped being true several releases ago. (#127)
+
+### Removed
+
+- **`testing_data/00-FIXTURE-SCHEMA.json`**, the JSON Schema `CONTRIBUTING.md` pointed contributors
+  at. It had drifted far enough to reject every current fixture: it required `rust_type` where the
+  loader reads `type`, named `generated_rust` where the loader reads `generated_code`, listed 3
+  engines against the loader's 9, and defined no `lint` key under `additionalProperties: false`. A
+  hand-maintained mirror of the loader is exactly what drifted, so it is gone rather than
+  re-synchronised — `tools/test-generator/src/fixture.rs` is the schema, and its
+  `#[serde(deny_unknown_fields)]` structs already fail a bad fixture by naming the offending key.
+
+- **The `config.naming` and `config.type_overrides` fixture keys.** Both were deserialized and never
+  read. Zero fixtures declared `naming`. One declared `type_overrides` — with `lang_type` and `json`
+  fields that do not exist in the real `[[type_overrides]]` shape `scythe-cli` reads (`column`,
+  `db_type`, `type`), so it was never a silently-ignored feature, just a shape that had never been
+  wired to anything. What that fixture actually proves — a JSON column mapped to a typed struct — is
+  asserted independently through its `@json` annotation. Both keys are now load errors. (#156)
+
 ## [0.15.0] - 2026-08-15
 
 This release is mostly about checks that could not fail. A validator whose only callers were its own
