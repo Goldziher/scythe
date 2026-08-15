@@ -106,6 +106,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cast is not a plain one-step assertion was pinned by hand-written string matching alone, on all
   five backends. It now builds a `:many` query too. (#93)
 
+### Removed
+
+- **`testing_data/00-FIXTURE-SCHEMA.json`**, the JSON Schema `CONTRIBUTING.md` pointed contributors
+  at. It had drifted far enough to reject every current fixture: it required `rust_type` where the
+  loader reads `type`, named `generated_rust` where the loader reads `generated_code`, listed 3
+  engines against the loader's 9, and defined no `lint` key under `additionalProperties: false`. A
+  hand-maintained mirror of the loader is exactly what drifted, so it is gone rather than
+  re-synchronised — `tools/test-generator/src/fixture.rs` is the schema, and its
+  `#[serde(deny_unknown_fields)]` structs already fail a bad fixture by naming the offending key.
+
+- **The `config.naming` and `config.type_overrides` fixture keys.** Both were deserialized and never
+  read. Zero fixtures declared `naming`. One declared `type_overrides` — with `lang_type` and `json`
+  fields that do not exist in the real `[[type_overrides]]` shape `scythe-cli` reads (`column`,
+  `db_type`, `type`), so it was never a silently-ignored feature, just a shape that had never been
+  wired to anything. What that fixture actually proves — a JSON column mapped to a typed struct — is
+  asserted independently through its `@json` annotation. Both keys are now load errors. (#156)
+
 ## [0.15.0] - 2026-08-15
 
 This release is mostly about checks that could not fail. A validator whose only callers were its own

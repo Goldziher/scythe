@@ -1974,7 +1974,7 @@ fn test_json_column() {
 #[test]
 fn test_json_typed_mapping() {
     // From: testing_data/types/json_jsonb/04_json_typed_mapping.json
-    // "Map a JSON column to a strongly-typed Rust struct using @json annotation and type override"
+    // "Map a JSON column to a strongly-typed Rust struct using the @json annotation"
     let schema_sql = &["CREATE TABLE events (id SERIAL PRIMARY KEY, data JSONB NOT NULL);"];
 
     let query_sql =

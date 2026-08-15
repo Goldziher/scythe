@@ -121,7 +121,12 @@ All JSON test fixtures live under `testing_data/`. Do not create fixture directo
 | `testing_data/{category}/` | Fixtures for a specific SQL feature (select, joins, types, lint, etc.) |
 | `testing_data/engines_pending/` | Type mapping fixtures for engines not yet fully implemented (mssql, oracle, redshift, snowflake). Add fixtures here when speccing out new engine support before the implementation lands. |
 
-Fixture IDs must be unique across all files and are used as test function names — use `snake_case`. See `testing_data/00-FIXTURE-SCHEMA.json` for the full fixture schema.
+Fixture IDs must be unique across all files and are used as test function names — use `snake_case`.
+
+There is no standalone JSON Schema for the fixture format: the loader in `tools/test-generator/src/fixture.rs`
+(`Fixture` and friends) is the schema. Every struct carries `#[serde(deny_unknown_fields)]`, so a misspelled or
+stale key fails fixture loading with an error naming the offending key, rather than silently loading as an empty
+default.
 
 Fixture-generated tests: tests are generated from JSON fixtures in `testing_data/` by the `test-generator` tool. CI runs this automatically. To regenerate locally:
 

@@ -4,16 +4,9 @@
     "engine": "postgresql",
     "gen": {
       "target": "sqlx"
-    },
-    "type_overrides": [
-      {
-        "column": "events.data",
-        "json": true,
-        "lang_type": "EventData"
-      }
-    ]
+    }
   },
-  "description": "Map a JSON column to a strongly-typed Rust struct using @json annotation and type override",
+  "description": "Map a JSON column to a strongly-typed Rust struct using the @json annotation",
   "expected": {
     "generated_code": {
       "rust-sqlx": {

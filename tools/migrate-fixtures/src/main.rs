@@ -104,7 +104,6 @@ fn main() {
     let entries: Vec<_> = glob(pattern)
         .expect("Failed to read glob pattern")
         .filter_map(Result::ok)
-        .filter(|path| path.file_name().map(|f| f != "00-FIXTURE-SCHEMA.json").unwrap_or(false))
         .collect();
 
     println!("Found {} fixture files", entries.len());

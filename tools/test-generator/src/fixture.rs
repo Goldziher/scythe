@@ -48,10 +48,6 @@ pub struct FixtureConfig {
     pub engine: Option<Engine>,
     #[serde(default, rename = "gen")]
     pub generation: Option<GenConfig>,
-    #[serde(default)]
-    pub type_overrides: Option<Vec<TypeOverride>>,
-    #[serde(default)]
-    pub naming: Option<NamingConfig>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -118,30 +114,6 @@ pub struct GenConfig {
 pub enum GenTarget {
     Sqlx,
     TokioPostgres,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TypeOverride {
-    #[serde(default)]
-    pub db_type: Option<String>,
-    #[serde(default)]
-    pub lang_type: Option<String>,
-    #[serde(default, rename = "type")]
-    pub neutral_type: Option<String>,
-    #[serde(default)]
-    pub column: Option<String>,
-    #[serde(default)]
-    pub json: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct NamingConfig {
-    #[serde(default)]
-    pub enum_style: Option<String>,
-    #[serde(default)]
-    pub row_suffix: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -406,8 +378,8 @@ pub struct SqlcComparison {
     pub scythe_improvement: Option<String>,
 }
 
-/// Recursively loads all `.json` fixture files from `dir`, excluding
-/// `00-FIXTURE-SCHEMA.json` and any path with an `_`-prefixed directory
+/// Recursively loads all `.json` fixture files from `dir`, excluding any
+/// path with an `_`-prefixed directory
 /// component *below `dir`* (e.g. `_schemas/`, used by `scythe-conformance`
 /// to hold non-fixture data alongside its fixtures) -- such a directory
 /// must never be silently picked up as a JSON fixture. The exclusion check
@@ -423,12 +395,6 @@ pub fn load_fixtures(dir: &Path) -> Result<Vec<Fixture>, Box<dyn std::error::Err
 
     for entry in glob::glob(&pattern)? {
         let path = entry?;
-
-        if let Some(file_name) = path.file_name().and_then(|n| n.to_str())
-            && file_name == "00-FIXTURE-SCHEMA.json"
-        {
-            continue;
-        }
 
         let relative = path.strip_prefix(dir).unwrap_or(&path);
         if relative
@@ -630,6 +596,60 @@ mod tests {
         assert_eq!(
             entry.reason,
             "asyncpg has no mapping for this type as of #222; re-derive before editing"
+        );
+    }
+
+    /// Regression for #156: `config.type_overrides` and `config.naming` were deserialised into
+    /// `FixtureConfig` and never read by anything -- zero fixtures declared `naming`, and the
+    /// lone fixture declaring `type_overrides` used field names (`lang_type`, `json`) that don't
+    /// even match the real `[[type_overrides]]` shape `scythe-cli` reads from `scythe.toml`
+    /// (`column`, `db_type`, `type`). Both keys were removed from `FixtureConfig` rather than
+    /// wired up, since removing them changes nothing a fixture actually asserts. This must now be
+    /// a load error under `deny_unknown_fields`, not a silently-dropped key -- the same failure
+    /// mode `expected.query.columns` had before #156.
+    #[test]
+    fn load_fixtures_rejects_a_config_naming_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let json = r#"{
+  "name": "naming_test",
+  "description": "d",
+  "category": "smoke",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
+  "config": { "naming": { "row_suffix": "Row" } },
+  "expected": { "success": true },
+  "source": "original"
+}"#;
+        std::fs::write(dir.path().join("f.json"), json).unwrap();
+
+        let error = load_fixtures(dir.path())
+            .expect_err("a `config.naming` key must be rejected now that it is unmodeled")
+            .to_string();
+        assert!(
+            error.contains("naming"),
+            "error must name the offending key, got: {error}"
+        );
+    }
+
+    #[test]
+    fn load_fixtures_rejects_a_config_type_overrides_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let json = r#"{
+  "name": "type_overrides_test",
+  "description": "d",
+  "category": "smoke",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
+  "config": { "type_overrides": [{ "column": "t.id", "db_type": "int4", "type": "string" }] },
+  "expected": { "success": true },
+  "source": "original"
+}"#;
+        std::fs::write(dir.path().join("f.json"), json).unwrap();
+
+        let error = load_fixtures(dir.path())
+            .expect_err("a `config.type_overrides` key must be rejected now that it is unmodeled")
+            .to_string();
+        assert!(
+            error.contains("type_overrides"),
+            "error must name the offending key, got: {error}"
         );
     }
 
