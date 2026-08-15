@@ -9,8 +9,9 @@
 //! Scope, since the issue's own numbers overstate it: `catalog_has_nested_aggregates`
 //! only infers a nested aggregate for the PostgreSQL dialect on a postgresql-family
 //! engine, so only the 19 postgresql-engine manifests reach this path at all. Of
-//! those, 4 build a real struct, 8 keep the array shape via `json_array`, and 7
-//! collapse to plain `json` -- `java-jdbc` among them, which is what this test drives.
+//! those, 4 build a real struct, 9 keep the array shape via `json_array` (`ruby-pg`
+//! joined this group once its own `json` decode was fixed), and 6 collapse to plain
+//! `json` -- `java-jdbc` among them, which is what this test drives.
 //!
 //! Reported, not fatal: failing every degrading backend would break working setups.
 //! The point is that the narrowing is visible, not that it stops the build.

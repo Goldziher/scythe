@@ -127,19 +127,42 @@ pub(crate) fn ruby_generated_code_needs_bigdecimal_util(generated: &[GeneratedCo
     })
 }
 
+/// Whether any of a query's generated `.rb` code (row struct, query function, or model
+/// struct) applies the `JSON.parse` coercion `ruby_pg.rs`'s `RubyCoercion::Wrap` emits for a
+/// `json`/`json_array` column whose manifest declares it `Hash`/`Array` (GH #147).
+///
+/// Same purpose as [`ruby_generated_code_needs_bigdecimal_util`], for the stdlib `json`
+/// require instead of `bigdecimal/util`: most generated files never touch JSON at all, so an
+/// unconditional `require "json"` would add a dependency the file never uses.
+pub(crate) fn ruby_generated_code_needs_json(generated: &[GeneratedCode]) -> bool {
+    generated.iter().any(|code| {
+        [
+            code.row_struct.as_deref(),
+            code.query_fn.as_deref(),
+            code.model_struct.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|s| s.contains("JSON.parse("))
+    })
+}
+
 /// Translate a manifest scalar's Ruby documentation name (e.g. `"Hash"`, `"Boolean"`,
 /// `"Time"`) into a valid RBS type.
 ///
 /// Manifest scalars name the Ruby type shown in docs/generated code, not an RBS type, so
-/// they cannot all be read verbatim into a signature: `Hash` alone is not valid RBS (it
-/// needs type arguments), and `Boolean` is not an RBS type at all (RBS spells it `bool`).
-/// This table covers every distinct value that appears across `crates/scythe-codegen/manifests/ruby-*.toml`
-/// `[types.scalars]`: `Boolean`, `Integer`, `Float`, `String`, `BigDecimal`, `Date`,
-/// `Time`, `Hash`. Values that are already valid RBS (`Integer`, `Float`, `String`,
-/// `BigDecimal`, `Date`, `Time`) pass through unchanged; `Boolean` and `Hash` are rewritten.
+/// they cannot all be read verbatim into a signature: `Hash` and `Array` alone are not valid
+/// RBS (they need type arguments), and `Boolean` is not an RBS type at all (RBS spells it
+/// `bool`). This table covers every distinct value that appears across
+/// `crates/scythe-codegen/manifests/ruby-*.toml` `[types.scalars]`: `Boolean`, `Integer`,
+/// `Float`, `String`, `BigDecimal`, `Date`, `Time`, `Hash`, `Array` (the last declared by
+/// `ruby-pg.toml`'s `json_array`, GH #147). Values that are already valid RBS (`Integer`,
+/// `Float`, `String`, `BigDecimal`, `Date`, `Time`) pass through unchanged; `Boolean`, `Hash`
+/// and `Array` are rewritten.
 fn manifest_type_to_rbs(manifest_value: &str) -> String {
     match manifest_value {
         "Hash" => "Hash[String, untyped]".to_string(),
+        "Array" => "Array[untyped]".to_string(),
         "Boolean" => "bool".to_string(),
         other => other.to_string(),
     }
@@ -433,8 +456,17 @@ mod tests {
         assert_eq!(neutral_to_rbs("json", false, &m), "String");
     }
 
-    /// Companion to the sqlite3 regression test: `ruby-pg` (and every other backend that
-    /// decodes JSON into a `Hash`) must keep emitting `Hash[String, untyped]`.
+    /// Companion to the sqlite3 regression test. Before GH #147's fix this comment claimed
+    /// "ruby-pg decodes JSON into a Hash", but nothing did: `ruby_pg.rs`'s `ruby_coercion` had
+    /// no arm for the manifest's `json = "Hash"` at all, so a `json` column reached the row
+    /// struct as `pg`'s raw wire-format `String` while this very assertion claimed the `.rbs`
+    /// signature `Hash[String, untyped]` was correct -- true of the declaration, false of the
+    /// runtime value beside it. `ruby_pg.rs` now emits `JSON.parse(...)` for a `json` column
+    /// (see its `RubyCoercion::Wrap` arm and the `ruby_pg.rs` regression test asserting on the
+    /// generated `.rb` text), so this assertion's value is unchanged but its premise is now
+    /// actually true: this pins the *declared* half of the contract -- that `ruby-pg`'s RBS
+    /// keeps saying `Hash[String, untyped]` -- and relies on the `ruby_pg.rs` test to pin the
+    /// *runtime* half that now backs it.
     #[test]
     fn test_neutral_to_rbs_json_pg_stays_hash() {
         let m = manifest();

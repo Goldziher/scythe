@@ -23,6 +23,7 @@ datetime = "Time"
 datetime_tz = "Time"
 interval = "String"
 json = "Hash"
+json_array = "Array"
 inet = "String"
 
 [types.containers]

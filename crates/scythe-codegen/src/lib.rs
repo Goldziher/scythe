@@ -56,10 +56,12 @@ pub struct GeneratedCode {
     /// Redshift and DuckDB are excluded by name even though `SqlDialect`
     /// maps them onto PostgreSQL -- so only the **19** postgresql-engine
     /// manifests can reach this code at all. Of those, 4 build a real struct
-    /// (`generate_nested_struct_def`), 8 keep the array shape via
-    /// `json_array`, and **7** collapse to plain `json`: csharp-npgsql,
-    /// java-jdbc, java-r2dbc, kotlin-exposed, kotlin-jdbc, kotlin-r2dbc and
-    /// ruby-pg. Failing those 7 by default would break working setups.
+    /// (`generate_nested_struct_def`), 9 keep the array shape via
+    /// `json_array` (including `ruby-pg`, as of GH #147's fix -- its
+    /// `ruby_coercion` now genuinely decodes JSON, so the `json_array`
+    /// marker is honest there too), and **6** collapse to plain `json`:
+    /// csharp-npgsql, java-jdbc, java-r2dbc, kotlin-exposed, kotlin-jdbc and
+    /// kotlin-r2dbc. Failing those 6 by default would break working setups.
     /// But the rewrite is a
     /// silent narrowing (a structured row collapses to an opaque JSON
     /// string or array scalar a caller must parse itself), and before this
@@ -1827,7 +1829,13 @@ mod tests {
     /// `json[]` value and can select a typed SQL-array reader.
     #[test]
     fn test_structural_backends_match_json_array_baseline() {
-        for backend_name in ["typescript-pg", "python-asyncpg", "elixir-postgrex", "php-pdo"] {
+        for backend_name in [
+            "typescript-pg",
+            "python-asyncpg",
+            "elixir-postgrex",
+            "php-pdo",
+            "ruby-pg",
+        ] {
             let backend = get_backend(backend_name, "postgresql").unwrap();
 
             let baseline = make_query(

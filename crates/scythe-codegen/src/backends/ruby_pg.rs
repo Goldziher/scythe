@@ -33,7 +33,41 @@ impl RubyPgBackend {
     }
 }
 
-/// Map a neutral type to a Ruby type coercion method for pg.
+/// A neutral SQL type's `pg` decode step: how to turn `pg`'s raw wire-format text into the
+/// manifest-declared Ruby type.
+///
+/// Two shapes are needed because they compose differently with the nullable path's
+/// `&.then { |v| ... }` block (see every `ruby_coercion(...)` call site below): `Suffix` is
+/// appended after the raw expression (`row["col"].to_i`, or `v.to_i` inside the block), but a
+/// JSON decode has to surround the expression instead -- `row["col"].JSON.parse` is not valid
+/// Ruby. Kept as a two-variant enum rather than a second `&'static str` table so every call site
+/// goes through one `apply`, instead of each needing its own suffix-vs-wrap branch (GH #147).
+enum RubyCoercion {
+    /// The raw `pg` text is already the manifest-declared type; no conversion needed.
+    None,
+    /// Appended directly after the raw expression, e.g. `.to_i`.
+    Suffix(&'static str),
+    /// Wraps the raw expression, e.g. `JSON.parse(...)`.
+    Wrap(&'static str),
+}
+
+impl RubyCoercion {
+    fn is_none(&self) -> bool {
+        matches!(self, RubyCoercion::None)
+    }
+
+    /// Apply this coercion to a Ruby expression -- either the raw column access
+    /// (`row["col"]`) or the nullable block's `v`.
+    fn apply(&self, expr: &str) -> String {
+        match self {
+            RubyCoercion::None => expr.to_string(),
+            RubyCoercion::Suffix(suffix) => format!("{expr}{suffix}"),
+            RubyCoercion::Wrap(func) => format!("{func}({expr})"),
+        }
+    }
+}
+
+/// Map a neutral type to a Ruby type coercion for pg.
 ///
 /// Derived from the manifest's own declared Ruby type for `neutral_type`
 /// (`manifest.types.scalars`) rather than matching `neutral_type` directly, so this table
@@ -44,14 +78,18 @@ impl RubyPgBackend {
 /// -- every column value is the wire-format text `pg` received from the server -- so every
 /// declared type below needs an explicit conversion; `BigDecimal` uses `.to_d`
 /// (`require "bigdecimal/util"`, added to the file header by `file_header_for_results`
-/// only when a generated file actually calls it).
-fn ruby_coercion(neutral_type: &str, manifest: &BackendManifest) -> &'static str {
+/// only when a generated file actually calls it). `Hash` (the manifest's declared type for
+/// `json`) and `Array` (declared for `json_array`, the `json_agg` array shape -- see
+/// `degrade_unsupported_nested_structs`) are the same bug (GH #147, the other live half of
+/// #198): both need `JSON.parse`, gated the same way behind `require "json"`.
+fn ruby_coercion(neutral_type: &str, manifest: &BackendManifest) -> RubyCoercion {
     match manifest.types.scalars.get(neutral_type).map(String::as_str) {
-        Some("Integer") => ".to_i",
-        Some("Float") => ".to_f",
-        Some("BigDecimal") => ".to_d",
-        Some("Boolean") => " == \"t\"",
-        _ => "",
+        Some("Integer") => RubyCoercion::Suffix(".to_i"),
+        Some("Float") => RubyCoercion::Suffix(".to_f"),
+        Some("BigDecimal") => RubyCoercion::Suffix(".to_d"),
+        Some("Boolean") => RubyCoercion::Suffix(" == \"t\""),
+        Some("Hash") | Some("Array") => RubyCoercion::Wrap("JSON.parse"),
+        _ => RubyCoercion::None,
     }
 }
 
@@ -81,7 +119,7 @@ fn ruby_composite_field_from_text(field: &CompositeFieldInfo, raw: &str, manifes
     if let Some(sql_name) = field.neutral_type.strip_prefix("composite::") {
         return format!("{}.from_text({})", composite_type_name(sql_name, &manifest.naming), raw);
     }
-    format!("{raw}{}", ruby_coercion(&field.neutral_type, manifest))
+    ruby_coercion(&field.neutral_type, manifest).apply(raw)
 }
 
 /// Splits a PostgreSQL composite's text form (`"(a,b,c)"`) into its raw field tokens, honoring
@@ -166,19 +204,26 @@ impl CodegenBackend for RubyPgBackend {
     }
 
     fn file_header_for_results(&self, generated: &[GeneratedCode]) -> String {
-        // `require "bigdecimal/util"` only when this file's generated code actually calls
-        // the `.to_d` coercion `ruby_coercion` emits for a `decimal` column -- most files
-        // never touch `BigDecimal` at all, and an unconditional `require` here would add a
-        // stdlib dependency the file never uses. The `.rbs` file needs no counterpart --
-        // see `ruby_rbs.rs`'s `generate_rbs_content` for why a signature naming `BigDecimal`
-        // carries no directive at all.
+        // ~keep Each `require` is added only when this file's generated code actually calls
+        // the coercion it backs -- most files never touch `BigDecimal` or `JSON` at all, and
+        // an unconditional `require` here would add a stdlib dependency the file never uses.
+        // The `.rbs` file needs no counterpart -- see `ruby_rbs.rs`'s `generate_rbs_content`
+        // for why a signature naming `BigDecimal` or `Hash`/`Array` carries no directive at
+        // all.
+        let mut requires = String::new();
         if super::ruby_rbs::ruby_generated_code_needs_bigdecimal_util(generated) {
+            requires.push_str("require \"bigdecimal/util\"\n");
+        }
+        if super::ruby_rbs::ruby_generated_code_needs_json(generated) {
+            requires.push_str("require \"json\"\n");
+        }
+        if requires.is_empty() {
+            self.file_header()
+        } else {
             format!(
-                "require \"bigdecimal/util\"\n\nmodule Queries\n{}",
+                "{requires}\nmodule Queries\n{}",
                 super::ruby_rbs::RECORD_NOT_FOUND_CLASS
             )
-        } else {
-            self.file_header()
         }
     }
 
@@ -260,9 +305,9 @@ impl CodegenBackend for RubyPgBackend {
                         }
                         let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
                         if c.nullable {
-                            format!("{}: {}&.then {{ |v| v{} }}", c.field_name, raw, coercion)
+                            format!("{}: {}&.then {{ |v| {} }}", c.field_name, raw, coercion.apply("v"))
                         } else {
-                            format!("{}: {}{}", c.field_name, raw, coercion)
+                            format!("{}: {}", c.field_name, coercion.apply(&raw))
                         }
                     })
                     .collect::<Vec<_>>()
@@ -283,9 +328,9 @@ impl CodegenBackend for RubyPgBackend {
                         }
                         let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
                         if c.nullable {
-                            format!("{}: {}&.then {{ |v| v{} }}", c.field_name, raw, coercion)
+                            format!("{}: {}&.then {{ |v| {} }}", c.field_name, raw, coercion.apply("v"))
                         } else {
-                            format!("{}: {}{}", c.field_name, raw, coercion)
+                            format!("{}: {}", c.field_name, coercion.apply(&raw))
                         }
                     })
                     .collect::<Vec<_>>()
@@ -321,9 +366,9 @@ impl CodegenBackend for RubyPgBackend {
                         }
                         let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
                         if c.nullable {
-                            format!("{}: {}&.then {{ |v| v{} }}", c.field_name, raw, coercion)
+                            format!("{}: {}&.then {{ |v| {} }}", c.field_name, raw, coercion.apply("v"))
                         } else {
-                            format!("{}: {}{}", c.field_name, raw, coercion)
+                            format!("{}: {}", c.field_name, coercion.apply(&raw))
                         }
                     })
                     .collect::<Vec<_>>()
@@ -411,7 +456,8 @@ impl CodegenBackend for RubyPgBackend {
         let _ = writeln!(out, "    _index = {{}}");
         let _ = writeln!(out, "    _entries = []");
         let _ = writeln!(out, "    result.each do |row|");
-        let _ = writeln!(out, "      key = row[\"{}\"]{}", key_column, key_coercion);
+        let key_expr = key_coercion.apply(&format!("row[\"{}\"]", key_column));
+        let _ = writeln!(out, "      key = {}", key_expr);
         let _ = writeln!(out, "      unless _index.key?(key)");
         let _ = writeln!(out, "        _index[key] = _entries.size");
         let _ = writeln!(out, "        _entries << {{");
@@ -422,14 +468,16 @@ impl CodegenBackend for RubyPgBackend {
                 continue;
             }
             let coercion = ruby_coercion(&col.neutral_type, &self.manifest);
-            if col.nullable && !coercion.is_empty() {
+            if col.nullable && !coercion.is_none() {
                 let _ = writeln!(
                     out,
-                    "          {}: {}&.then {{ |v| v{} }},",
-                    col.field_name, raw, coercion
+                    "          {}: {}&.then {{ |v| {} }},",
+                    col.field_name,
+                    raw,
+                    coercion.apply("v")
                 );
             } else {
-                let _ = writeln!(out, "          {}: {}{},", col.field_name, raw, coercion);
+                let _ = writeln!(out, "          {}: {},", col.field_name, coercion.apply(&raw));
             }
         }
         let _ = writeln!(out, "          children: []");
@@ -447,14 +495,16 @@ impl CodegenBackend for RubyPgBackend {
                 continue;
             }
             let coercion = ruby_coercion(&col.neutral_type, &self.manifest);
-            if col.nullable && !coercion.is_empty() {
+            if col.nullable && !coercion.is_none() {
                 let _ = writeln!(
                     out,
-                    "        {}: {}&.then {{ |v| v{} }},",
-                    col.field_name, raw, coercion
+                    "        {}: {}&.then {{ |v| {} }},",
+                    col.field_name,
+                    raw,
+                    coercion.apply("v")
                 );
             } else {
-                let _ = writeln!(out, "        {}: {}{},", col.field_name, raw, coercion);
+                let _ = writeln!(out, "        {}: {},", col.field_name, coercion.apply(&raw));
             }
         }
         let _ = writeln!(out, "      )");
@@ -529,6 +579,7 @@ impl CodegenBackend for RubyPgBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend_trait::RbsQueryInfo;
     use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
     use scythe_core::parser::QueryCommand;
 
@@ -649,6 +700,109 @@ mod tests {
         assert!(
             query_fn.contains("_index[key]"),
             "must look up key in _index; got:\n{query_fn}"
+        );
+    }
+
+    /// GH #147: `ruby-pg`'s `json = "Hash"` manifest declaration was never backed by a real
+    /// decode -- `ruby_coercion` had no arm for it, so a `json`/`jsonb` column reached the row
+    /// struct as `pg`'s raw wire-format `String` while the `.rbs` this same manifest drives
+    /// said `Hash[String, untyped]` (the `json` sibling of #198's `decimal` bug -- see
+    /// `ruby_coercion`'s doc comment). This pins the fix end to end: the `.rb` field
+    /// expression must call `JSON.parse`, not read the bare `row["..."]`, the nullable path
+    /// must still guard against `nil` before calling it, `file_header_for_results` must add
+    /// `require "json"` once any generated code calls it, and the `.rbs` signature this
+    /// backend generates alongside the `.rb` must agree with what it actually produces.
+    ///
+    /// Reverting `Some("Hash") | Some("Array") => RubyCoercion::Wrap("JSON.parse")` (back to
+    /// the old `_ => RubyCoercion::None` fallback) in `ruby_coercion` fails the first three
+    /// assertions below. Reverting `manifest_type_to_rbs`'s `"Hash" =>
+    /// "Hash[String, untyped]".to_string()` arm (back to passing `"Hash"` through unchanged)
+    /// fails the last two.
+    #[test]
+    fn test_json_column_decodes_via_json_parse_and_agrees_with_rbs() {
+        let backend = RubyPgBackend::new("postgresql").unwrap();
+        let query = AnalyzedQuery::build(|aq| {
+            aq.name = "GetSettings".to_string();
+            aq.command = QueryCommand::One;
+            aq.sql = "SELECT id, payload, extra FROM settings LIMIT 1".to_string();
+            aq.columns = vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "payload".to_string(),
+                    neutral_type: "json".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "extra".to_string(),
+                    neutral_type: "json".to_string(),
+                    nullable: true,
+                    ..Default::default()
+                },
+            ];
+        });
+
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("payload: JSON.parse(row[\"payload\"])"),
+            "a non-nullable `json` column must decode via JSON.parse; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("payload: row[\"payload\"]"),
+            "a `json` column must not reach the row struct as pg's bare wire-format text; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("extra: row[\"extra\"]&.then { |v| JSON.parse(v) }"),
+            "a nullable `json` column must still guard nil before calling JSON.parse; got:\n{query_fn}"
+        );
+
+        let header = backend.file_header_for_results(std::slice::from_ref(&result));
+        assert!(
+            header.contains("require \"json\"\n"),
+            "a file whose generated code calls JSON.parse must require \"json\"; got:\n{header}"
+        );
+
+        let rbs_context = RbsGenerationContext {
+            queries: vec![RbsQueryInfo {
+                func_name: "get_settings".to_string(),
+                struct_name: Some("GetSettingsRow".to_string()),
+                columns: vec![
+                    ResolvedColumn {
+                        name: "payload".to_string(),
+                        field_name: "payload".to_string(),
+                        neutral_type: "json".to_string(),
+                        nullable: false,
+                        ..Default::default()
+                    },
+                    ResolvedColumn {
+                        name: "extra".to_string(),
+                        field_name: "extra".to_string(),
+                        neutral_type: "json".to_string(),
+                        nullable: true,
+                        ..Default::default()
+                    },
+                ],
+                child_columns: Vec::new(),
+                params: vec![],
+                command: QueryCommand::One,
+            }],
+            enums: vec![],
+        };
+        let rbs = backend.generate_rbs_file(&rbs_context).unwrap();
+        assert!(
+            rbs.contains("attr_reader payload: Hash[String, untyped]"),
+            "the .rbs type for `payload` must agree with the Hash JSON.parse actually produces; got:\n{rbs}"
+        );
+        assert!(
+            rbs.contains("attr_reader extra: Hash[String, untyped]?"),
+            "the .rbs type for the nullable `extra` must agree with the .rb code; got:\n{rbs}"
         );
     }
 }

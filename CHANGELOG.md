@@ -180,6 +180,17 @@ direct caller that builds one by struct literal rather than through the parser. 
   in `test-parity-exemptions.txt` with reasons specific to why porting isn't safe or possible yet,
   taking that file from 48 entries to 60. (#195)
 
+- **`ruby-pg` declared a `json`/`jsonb` column `Hash` in its `.rbs` but never decoded it.**
+  `ruby-pg.toml` maps `json = "Hash"`, but `ruby_coercion` had no arm for it, so the generated
+  `.rb` code read the bare `row["col"]` — the `pg` gem does no client-side JSON decoding, so
+  that value was the raw wire-format `String`, contradicting the `Hash[String, untyped]` its
+  own `.rbs` signature promised. This is the `json` sibling of #198's `decimal` bug, left open
+  when that fix only covered `BigDecimal`. `ruby_coercion` now wraps a `json`/`json_array`
+  column's value in `JSON.parse(...)`, gated behind a conditional `require "json"` the same way
+  `.to_d` gates `require "bigdecimal/util"`. `json_array` (the `json_agg` array shape) is a new
+  manifest scalar mapped to `Array`, so a degraded nested aggregate keeps declaring an `Array`
+  instead of falsely claiming `Hash`. (#147)
+
 - **`php-amphp` typed its handle as `SqlConnectionPool`, which made MySQL's generated
   `LAST_INSERT_ID()` lookups unreliable.** Every generated function took
   `\Amp\Sql\SqlConnectionPool`, so a single `MysqlConnection` was rejected outright — but a pool is

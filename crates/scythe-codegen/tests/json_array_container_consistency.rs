@@ -22,6 +22,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use scythe_backend::manifest::load_manifest;
+
 /// Manifests allowed to declare `json_array`, each with why it is honest.
 const JSON_ARRAY_ALLOWLIST: &[(&str, &str)] = &[
     (
@@ -56,6 +58,13 @@ const JSON_ARRAY_ALLOWLIST: &[(&str, &str)] = &[
         "typescript-postgres",
         "postgres.js parses json/jsonb by default, giving the same shape guarantee as node-postgres.",
     ),
+    (
+        "ruby-pg",
+        "ruby_pg.rs's ruby_coercion now emits JSON.parse(...) for a json/jsonb column (GH #147); the pg \
+         gem itself does no client-side JSON decoding, so JSON.parse is scythe's own call, applied \
+         uniformly regardless of the JSON document's top-level shape, and a top-level array becomes a \
+         Ruby Array.",
+    ),
 ];
 
 /// The only manifests whose backend implements `generate_nested_struct_def`.
@@ -71,10 +80,21 @@ fn manifest_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("manifests")
 }
 
-/// Manifest stem -> whether it declares `key` at the start of a line.
+/// Manifest stem -> whether it declares `key` in `[types.scalars]` or `[types.containers]`.
+///
+/// Reads the same parsed `BackendManifest` production code does (`load_manifest`, the entry
+/// point `range_container_consistency.rs` also uses), rather than scanning the raw TOML text
+/// for a `"{key} = "` line prefix. The raw-text scan used to diverge from what
+/// `degrade_unsupported_nested_structs` actually reads
+/// (`backend.manifest().types.scalars.contains_key("json_array")`): a declaration written
+/// `json_array="x"` with no space, indented, or moved under a different table would be
+/// invisible to this scan while still visible (or not) to production, in either direction --
+/// exactly the kind of gate-measures-something-else-than-production gap this suite exists to
+/// close (GH #147). `json_array` lives in `[types.scalars]` and `json_nested` in
+/// `[types.containers]`; checking both tables keeps this function correct for either key
+/// without hardcoding which table each one is in.
 fn declarations_of(key: &str) -> BTreeMap<String, bool> {
     let mut found = BTreeMap::new();
-    let needle = format!("{key} = ");
     for entry in fs::read_dir(manifest_dir()).expect("read manifests dir") {
         let path = entry.expect("dir entry").path();
         if path.extension().and_then(|e| e.to_str()) != Some("toml") {
@@ -85,8 +105,8 @@ fn declarations_of(key: &str) -> BTreeMap<String, bool> {
             .and_then(|s| s.to_str())
             .expect("manifest stem")
             .to_string();
-        let body = fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
-        let declares = body.lines().any(|line| line.starts_with(&needle));
+        let manifest = load_manifest(&path).unwrap_or_else(|e| panic!("{} must parse: {e}", path.display()));
+        let declares = manifest.types.scalars.contains_key(key) || manifest.types.containers.contains_key(key);
         found.insert(stem, declares);
     }
     found
