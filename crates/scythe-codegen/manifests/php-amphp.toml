@@ -23,6 +23,7 @@ datetime = "\\DateTimeImmutable"
 datetime_tz = "\\DateTimeImmutable"
 interval = "string"
 json = "array"
+json_array = "array"
 inet = "string"
 
 [types.containers]

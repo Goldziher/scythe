@@ -325,6 +325,32 @@ pub struct ExpectedGeneratedCode {
     pub enum_def: Option<String>,
     #[serde(default)]
     pub model_struct: Option<String>,
+    /// Expected `scythe_codegen::GeneratedCode::degraded_nested_structs` entries for
+    /// this backend -- the typed record `degrade_unsupported_nested_structs` produces
+    /// when a nested-aggregate column (`json_agg`, `row_to_json`) could not become a
+    /// real struct for this backend (GH #147).
+    ///
+    /// `Option`, not a plain `Vec`, for the same reason as
+    /// `ExpectedQuery::nested_structs`: an omitted key asserts nothing, while an
+    /// explicit `[]` asserts the backend constructed a real nested struct (no
+    /// degradation) -- distinct from silence, and the case a string-content
+    /// assertion on `row_struct`/`model_struct` cannot express without pinning that
+    /// backend's full rendered syntax.
+    #[serde(default)]
+    pub degraded_nested_structs: Option<Vec<ExpectedNestedStructDegradation>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExpectedNestedStructDegradation {
+    /// SQL-level name of the rewritten column, matches
+    /// `scythe_codegen::NestedStructDegradation::column`.
+    pub column: String,
+    /// PascalCase name of the struct the backend declined to generate, matches
+    /// `scythe_codegen::NestedStructDegradation::struct_name`.
+    pub struct_name: String,
+    /// The neutral type the column was rewritten to: `"json"` or `"json_array"`.
+    pub fallback_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

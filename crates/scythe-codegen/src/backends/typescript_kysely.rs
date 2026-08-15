@@ -1000,6 +1000,7 @@ mod tests {
             model_struct: None,
             enum_def: None,
             nested_struct_defs: Vec::new(),
+            ..Default::default()
         }];
 
         let header = backend.file_header_for_results(&generated);
@@ -1020,6 +1021,7 @@ mod tests {
             model_struct: None,
             enum_def: None,
             nested_struct_defs: Vec::new(),
+            ..Default::default()
         }];
 
         let header = backend.file_header_for_results(&generated);
@@ -1922,6 +1924,7 @@ mod tests {
             model_struct: None,
             enum_def: None,
             nested_struct_defs: Vec::new(),
+            ..Default::default()
         }]);
         assert!(!header_for_results.contains("kysely"), "got:\n{header_for_results}");
     }

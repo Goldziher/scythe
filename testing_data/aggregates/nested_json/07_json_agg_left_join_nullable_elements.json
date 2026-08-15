@@ -3,6 +3,37 @@
   "config": { "engine": "postgresql" },
   "description": "json_agg over a LEFT JOIN yields [null] when nothing matched, so the array element is nullable while each field keeps its schema nullability",
   "expected": {
+    "generated_code": {
+      "rust-sqlx": { "degraded_nested_structs": [] },
+      "rust-tokio-postgres": { "degraded_nested_structs": [] },
+      "python-psycopg3": { "degraded_nested_structs": [] },
+      "go-pgx": { "degraded_nested_structs": [] },
+      "elixir-postgrex": {
+        "degraded_nested_structs": [
+          { "column": "orders", "struct_name": "GetUserOrdersOuterRowOrders", "fallback_type": "json_array" }
+        ]
+      },
+      "python-asyncpg": {
+        "degraded_nested_structs": [
+          { "column": "orders", "struct_name": "GetUserOrdersOuterRowOrders", "fallback_type": "json_array" }
+        ]
+      },
+      "typescript-pg": {
+        "degraded_nested_structs": [
+          { "column": "orders", "struct_name": "GetUserOrdersOuterRowOrders", "fallback_type": "json_array" }
+        ]
+      },
+      "php-pdo": {
+        "degraded_nested_structs": [
+          { "column": "orders", "struct_name": "GetUserOrdersOuterRowOrders", "fallback_type": "json_array" }
+        ]
+      },
+      "java-jdbc": {
+        "degraded_nested_structs": [
+          { "column": "orders", "struct_name": "GetUserOrdersOuterRowOrders", "fallback_type": "json" }
+        ]
+      }
+    },
     "query": {
       "columns": [
         { "name": "id", "nullable": false, "type": "int32" },

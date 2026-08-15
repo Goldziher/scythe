@@ -23,6 +23,7 @@ datetime = "NaiveDateTime.t()"
 datetime_tz = "DateTime.t()"
 interval = "String.t()"
 json = "map()"
+json_array = "list(map())"
 inet = "String.t()"
 
 [types.containers]

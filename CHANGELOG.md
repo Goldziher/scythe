@@ -926,6 +926,39 @@ direct caller that builds one by struct literal rather than through the parser. 
   runs once per enum, the variant counterpart of the existing enum/query-type-name check, and rejects
   the query with `DUPLICATE_ALIAS` before any backend renders it. (#136)
 
+- **Four more PostgreSQL manifests lost a nested aggregate's list-ness on degrade, the same way
+  `java-jdbc.toml`'s `json = "String"` collapses `json_agg` down to one opaque string.**
+  `elixir-ecto`, `php-amphp`, `typescript-kysely` and `typescript-postgres` now declare `json_array`
+  for an array-shaped `json_agg`/`row_to_json` result their backend does not construct into a typed
+  struct, each verified against the exact decode path an already-declared sibling manifest relies on:
+  `elixir-postgrex`'s Postgrex/Jason pipeline for `elixir-ecto` (both run raw SQL through the same
+  Postgrex binary protocol, verified live against PostgreSQL 16); `php-pdo`'s generated
+  `json_decode($value, true)` for `php-amphp` (the same call, independently emitted); `typescript-pg`'s
+  `pg` auto-parsing for `typescript-kysely`'s PostgreSQL dialect (documented as running over `pg`
+  unchanged) and for `typescript-postgres`'s `postgres.js` driver (which parses `json`/`jsonb` the same
+  way). Scope, precisely: `catalog_has_nested_aggregates` only infers a nested aggregate for the
+  PostgreSQL dialect on a postgresql-family engine — Redshift and DuckDB are excluded by name — so only
+  the 19 postgresql-engine manifests can reach this path at all, and after this change 4 of them build a
+  real struct, 8 keep the array shape, and 7 still collapse to plain `json` (`csharp-npgsql`,
+  `java-jdbc`, `java-r2dbc`, `kotlin-exposed`, `kotlin-jdbc`, `kotlin-r2dbc`, `ruby-pg`). Those 7 map
+  `json` to a raw string with no driver- or codegen-level array decoding to point to, so a distinct
+  `json_array` marker would carry no real information over `json` itself; `ruby-pg` is the one worth
+  revisiting, since the `pg` gem can decode JSON but nothing in the generated code configures it. `json_nested` (a typed struct, not just array-shape) requires a
+  backend-side decoder — `generate_nested_struct_def` — that a manifest alone cannot add, so it stays at
+  its existing four (`rust-sqlx`, `rust-tokio-postgres`, `go-pgx`, `python-psycopg3`). (#147)
+
+- **A `json_agg`/`row_to_json` column degraded to plain `json` (or `json_array`) on the 15 of 19
+  PostgreSQL backends that do not implement `generate_nested_struct_def`, and nothing said so.**
+  `degrade_unsupported_nested_structs` rewrote the column's neutral type and `scythe generate` exited 0,
+  so a user asking for a structured nested row from, say, `java-jdbc` (`json = "String"`, read back via
+  `rs.getString`) got an opaque string with no indication a struct was ever requested. The function now
+  also returns one `NestedStructDegradation` per rewritten column — the SQL column name, the struct that
+  could not be built, the fallback type it got instead, and the backend — threaded onto
+  `GeneratedCode::degraded_nested_structs`. This is a library-side signal only: `scythe-cli` still needs
+  to turn each entry into a reported finding (`scythe-codegen` cannot install a subscriber or depend on
+  `scythe-cli`/`scythe-lint`). Not a hard error by default — failing every degrading backend outright
+  would break working setups. (#147)
+
 - **A bare `?` placeholder or literal `NULL` projected with no `CAST`/comparison/`COALESCE` to borrow a
   type from reached `analyze()`'s `Ok` result typed `neutral_type: "unknown"`, then surfaced two layers
   down as the backend's `INTERNAL_ERROR: unknown neutral type: unknown`** — the part of #170 the

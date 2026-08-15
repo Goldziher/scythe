@@ -1,7 +1,7 @@
 mod fixture;
 
 use clap::Parser;
-use fixture::{Command, ExpectedCatalog, ExpectedQuery, Fixture};
+use fixture::{Command, ExpectedCatalog, ExpectedGeneratedCode, ExpectedQuery, Fixture};
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::fs;
@@ -443,7 +443,9 @@ fn generate_generated_code_assertions(fixture: &Fixture) -> String {
             ("enum_def", expected.enum_def.as_deref()),
             ("model_struct", expected.model_struct.as_deref()),
         ];
-        if fields.iter().all(|(_, value)| value.is_none()) {
+        let has_field_assertion = fields.iter().any(|(_, value)| value.is_some());
+        let has_degradation_assertion = expected.degraded_nested_structs.is_some();
+        if !has_field_assertion && !has_degradation_assertion {
             continue;
         }
 
@@ -463,9 +465,59 @@ fn generate_generated_code_assertions(fixture: &Fixture) -> String {
                 name = fixture.name,
             );
         }
+        out.push_str(&generate_degraded_nested_structs_assertion(expected, fixture));
         out.push_str("                }\n");
     }
 
+    out
+}
+
+/// Emits an `assert_eq!` against `scythe_codegen::GeneratedCode::degraded_nested_structs`
+/// for one backend, when the fixture declares `expected.degraded_nested_structs` for it.
+///
+/// This targets the typed record `degrade_unsupported_nested_structs` produces (GH #147)
+/// instead of pattern-matching a language-specific rendered field type: doing the latter
+/// for every backend that declares `json_nested`/`json_array` would mean re-deriving each
+/// backend's own type-resolution syntax (container templates, nullable wrapping, field
+/// naming) by hand in fixture data, which is exactly the kind of drift-prone duplication
+/// the manifest-driven resolver exists to avoid. `Some(vec![])` asserts the backend
+/// constructed a real nested struct for every nested-aggregate column (no degradation);
+/// a non-empty vec asserts exactly which column degraded and to which scalar.
+fn generate_degraded_nested_structs_assertion(expected: &ExpectedGeneratedCode, fixture: &Fixture) -> String {
+    let mut out = String::new();
+    let Some(ref degradations) = expected.degraded_nested_structs else {
+        return out;
+    };
+
+    out.push_str(
+        "                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![\n",
+    );
+    for degradation in degradations {
+        out.push_str("                        scythe_codegen::NestedStructDegradation {\n");
+        let _ = writeln!(
+            out,
+            "                            column: {:?}.to_string(),",
+            degradation.column
+        );
+        let _ = writeln!(
+            out,
+            "                            struct_name: {:?}.to_string(),",
+            degradation.struct_name
+        );
+        let _ = writeln!(
+            out,
+            "                            fallback_type: {:?},",
+            degradation.fallback_type
+        );
+        out.push_str("                            backend: (*backend_name).to_string(),\n");
+        out.push_str("                        },\n");
+    }
+    out.push_str("                    ];\n");
+    let _ = writeln!(
+        out,
+        "                    assert_eq!(\n                        generated.degraded_nested_structs, expected_degradations,\n                        \"backend {{}} degraded_nested_structs mismatch for {{}}\\n--- expected ---\\n{{:?}}\\n--- actual ---\\n{{:?}}\",\n                        backend_name, {:?}, expected_degradations, generated.degraded_nested_structs\n                    );",
+        fixture.name
+    );
     out
 }
 
@@ -1056,5 +1108,119 @@ mod tests {
             code.contains("normalize_whitespace(&actual).contains(&normalize_whitespace"),
             "got:\n{code}"
         );
+    }
+
+    /// Regression guard for GH #147's unfalsifiable gate: a fixture that declares
+    /// `expected.query.columns[].type` as `json_nested<...>` but whose generated-code
+    /// assertions only check `row_struct.is_some()` passes identically whether the
+    /// backend rendered a real nested struct or silently collapsed the column to a
+    /// bare scalar. `degraded_nested_structs` is the structural signal that
+    /// distinguishes the two, so a backend entry that declares only that field --
+    /// no `row_struct`/`query_fn`/`enum_def`/`model_struct` -- must still emit an
+    /// `if *backend_name == ...` block, or the assertion is silently dropped exactly
+    /// like the #156 defect this mechanism already fixed once.
+    #[test]
+    fn generate_generated_code_assertions_emits_a_block_for_degradation_only_entries() {
+        let fixture = fixture_from_json(
+            r#"{
+                "name": "degradation_only",
+                "description": "d",
+                "category": "smoke",
+                "schema_sql": ["CREATE TABLE t (id INT)"],
+                "query_sql": "SELECT id FROM t",
+                "expected": {
+                    "success": true,
+                    "generated_code": {
+                        "python-asyncpg": { "degraded_nested_structs": [] }
+                    }
+                },
+                "source": "original"
+            }"#,
+        );
+
+        let code = generate_generated_code_assertions(&fixture);
+        assert!(
+            code.contains(r#"if *backend_name == "python-asyncpg""#),
+            "degradation-only entry must still open its backend block, got:\n{code}"
+        );
+        assert!(code.contains("expected_degradations"), "got:\n{code}");
+    }
+
+    /// `Some(vec![])` asserts the backend produced a real nested struct for every
+    /// nested-aggregate column -- no degradation. This is the falsifiable
+    /// counterpart to the old `row_struct.is_some()` gate: on a backend that
+    /// silently collapsed a `json_agg` column to a scalar, `degraded_nested_structs`
+    /// is non-empty, so this `assert_eq!` fails with the actual fallback recorded.
+    #[test]
+    fn generate_degraded_nested_structs_assertion_asserts_empty_vec_when_declared_empty() {
+        let fixture = fixture_from_json(
+            r#"{
+                "name": "no_degradation_expected",
+                "description": "d",
+                "category": "smoke",
+                "schema_sql": ["CREATE TABLE t (id INT)"],
+                "query_sql": "SELECT id FROM t",
+                "expected": {
+                    "success": true,
+                    "generated_code": {
+                        "rust-sqlx": { "degraded_nested_structs": [] }
+                    }
+                },
+                "source": "original"
+            }"#,
+        );
+
+        let code = generate_generated_code_assertions(&fixture);
+        assert!(
+            code.contains("let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![\n                    ];"),
+            "empty declaration must build an empty expected vec, got:\n{code}"
+        );
+        assert!(
+            code.contains(
+                "assert_eq!(\n                        generated.degraded_nested_structs, expected_degradations,"
+            ),
+            "got:\n{code}"
+        );
+    }
+
+    /// A non-empty declaration must name the exact column, struct and fallback type,
+    /// so a mismatched fallback (a backend degrading to `\"json\"` when the fixture
+    /// expects the richer `\"json_array\"`, or vice versa) fails with both sides
+    /// printed rather than a generic truthiness check.
+    #[test]
+    fn generate_degraded_nested_structs_assertion_emits_exact_fields_for_a_degradation() {
+        let fixture = fixture_from_json(
+            r#"{
+                "name": "one_degradation",
+                "description": "d",
+                "category": "smoke",
+                "schema_sql": ["CREATE TABLE t (id INT)"],
+                "query_sql": "SELECT id FROM t",
+                "expected": {
+                    "success": true,
+                    "generated_code": {
+                        "python-asyncpg": {
+                            "degraded_nested_structs": [
+                                {
+                                    "column": "orders",
+                                    "struct_name": "GetUserOrdersRowOrders",
+                                    "fallback_type": "json_array"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "source": "original"
+            }"#,
+        );
+
+        let code = generate_generated_code_assertions(&fixture);
+        assert!(code.contains(r#"column: "orders".to_string(),"#), "got:\n{code}");
+        assert!(
+            code.contains(r#"struct_name: "GetUserOrdersRowOrders".to_string(),"#),
+            "got:\n{code}"
+        );
+        assert!(code.contains(r#"fallback_type: "json_array","#), "got:\n{code}");
+        assert!(code.contains("backend: (*backend_name).to_string(),"), "got:\n{code}");
     }
 }

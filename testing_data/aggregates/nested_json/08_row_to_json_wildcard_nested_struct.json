@@ -3,6 +3,27 @@
   "config": { "engine": "postgresql" },
   "description": "row_to_json over a relation wildcard infers a nested struct without the array wrapper json_agg adds",
   "expected": {
+    "generated_code": {
+      "rust-sqlx": { "degraded_nested_structs": [] },
+      "rust-tokio-postgres": { "degraded_nested_structs": [] },
+      "python-psycopg3": { "degraded_nested_structs": [] },
+      "go-pgx": { "degraded_nested_structs": [] },
+      "python-asyncpg": {
+        "degraded_nested_structs": [
+          { "column": "payload", "struct_name": "GetOrderPayloadRowPayload", "fallback_type": "json" }
+        ]
+      },
+      "typescript-pg": {
+        "degraded_nested_structs": [
+          { "column": "payload", "struct_name": "GetOrderPayloadRowPayload", "fallback_type": "json" }
+        ]
+      },
+      "java-jdbc": {
+        "degraded_nested_structs": [
+          { "column": "payload", "struct_name": "GetOrderPayloadRowPayload", "fallback_type": "json" }
+        ]
+      }
+    },
     "query": {
       "columns": [
         {

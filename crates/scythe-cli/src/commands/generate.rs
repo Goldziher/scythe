@@ -1364,6 +1364,20 @@ fn generate_for_backend(
     let mut results: Vec<QueryResult> = Vec::new();
     for analyzed in analyzed_queries {
         let code = generate_with_backend_and_overrides(analyzed, backend, overrides)?;
+        // ~keep GH #147: `degrade_unsupported_nested_structs` rewrites a nested-aggregate
+        // column to an opaque `json`/`json_array` scalar when the backend cannot build a
+        // struct for it. That is a real narrowing of what the user asked for, and before
+        // this loop nothing said so -- `generate` wrote the file and exited 0. Reported,
+        // not fatal: of the 19 PostgreSQL manifests only 4 build a real struct, so failing
+        // the rest would break working setups. The user needs to know which of their
+        // columns came back as a string, not to be stopped.
+        for degraded in &code.degraded_nested_structs {
+            eprintln!(
+                "[{config_name}] {}: column '{}' degraded to '{}' -- {} cannot build a nested struct \
+                 ('{}') for it, so the value arrives as opaque JSON the caller must parse",
+                analyzed.name, degraded.column, degraded.fallback_type, degraded.backend, degraded.struct_name
+            );
+        }
 
         // `analyzed.enums` covers enums reachable from the top-level
         // columns/params *and* from nested-aggregate fields. Emitting one
@@ -1605,9 +1619,12 @@ fn generate_rbs_if_supported(
             let (degraded_parent, degraded_child) = if analyzed.nested_structs.is_empty() {
                 (None, None)
             } else {
-                let (dp, _) =
+                // ~keep The degradation list is discarded here on purpose: this is the RBS
+                // signature path, and the main generation path for the same query has already
+                // reported it (see the note above about the .rb path running first).
+                let (dp, _, _) =
                     degrade_unsupported_nested_structs(&group_by.parent_columns, &analyzed.nested_structs, backend)?;
-                let (dc, _) =
+                let (dc, _, _) =
                     degrade_unsupported_nested_structs(&group_by.child_columns, &analyzed.nested_structs, backend)?;
                 (Some(dp), Some(dc))
             };
@@ -1645,7 +1662,7 @@ fn generate_rbs_if_supported(
             let degraded_columns = if analyzed.nested_structs.is_empty() {
                 None
             } else {
-                let (cols, _defs) =
+                let (cols, _defs, _) =
                     degrade_unsupported_nested_structs(&analyzed.columns, &analyzed.nested_structs, backend)?;
                 Some(cols)
             };

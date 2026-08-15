@@ -45,6 +45,30 @@ pub struct GeneratedCode {
     /// identity attached, so the name has to survive alongside the code for
     /// the writer to dedupe on. See `scythe-cli`'s `generate_for_backend`.
     pub nested_struct_defs: Vec<NestedStructDef>,
+    /// One entry per column [`degrade_unsupported_nested_structs`] rewrote
+    /// because `backend` did not opt the referenced struct into
+    /// [`CodegenBackend::generate_nested_struct_def`] (GH #147).
+    ///
+    /// Populated even though the rewrite itself is not an error. Counting by
+    /// all 102 manifests overstates the reach: `catalog_has_nested_aggregates`
+    /// (`scythe-core`, `analyzer/expressions.rs`) only infers a nested
+    /// aggregate for the PostgreSQL dialect on a postgresql-family engine --
+    /// Redshift and DuckDB are excluded by name even though `SqlDialect`
+    /// maps them onto PostgreSQL -- so only the **19** postgresql-engine
+    /// manifests can reach this code at all. Of those, 4 build a real struct
+    /// (`generate_nested_struct_def`), 8 keep the array shape via
+    /// `json_array`, and **7** collapse to plain `json`: csharp-npgsql,
+    /// java-jdbc, java-r2dbc, kotlin-exposed, kotlin-jdbc, kotlin-r2dbc and
+    /// ruby-pg. Failing those 7 by default would break working setups.
+    /// But the rewrite is a
+    /// silent narrowing (a structured row collapses to an opaque JSON
+    /// string or array scalar a caller must parse itself), and before this
+    /// field existed nothing told the caller it happened at all: `scythe
+    /// generate` exited 0 either way. A caller (`scythe-cli`) is expected to
+    /// turn each entry into a reported finding; see
+    /// [`degrade_unsupported_nested_structs`]'s doc comment for exactly what
+    /// each field means.
+    pub degraded_nested_structs: Vec<NestedStructDegradation>,
 }
 
 impl GeneratedCode {
@@ -84,6 +108,29 @@ pub struct NestedStructDef {
     pub name: String,
     /// The backend's rendered definition.
     pub code: String,
+}
+
+/// One nested-aggregate column [`degrade_unsupported_nested_structs`]
+/// rewrote to a scalar JSON fallback because `backend` could not construct
+/// a real struct for it. See [`GeneratedCode::degraded_nested_structs`] for
+/// why this is surfaced at all rather than left as an internal rewrite
+/// (GH #147).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NestedStructDegradation {
+    /// SQL-level name of the rewritten column
+    /// ([`scythe_core::analyzer::AnalyzedColumn::name`]).
+    pub column: String,
+    /// PascalCase name of the struct that could not be generated -- matches
+    /// [`nested_struct_shape`]'s decoded `name`, not the snake_case
+    /// [`scythe_core::analyzer::NestedStructInfo::name`] it was cased from.
+    pub struct_name: String,
+    /// The neutral type the column was rewritten to: `"json"` or, when the
+    /// manifest declares the `json_array` scalar and the shape was an
+    /// array, `"json_array"`.
+    pub fallback_type: &'static str,
+    /// [`scythe_backend::manifest::BackendManifest::name`] of the backend
+    /// that declined the struct.
+    pub backend: String,
 }
 
 /// Simple singularization: remove trailing 's'.
@@ -177,11 +224,12 @@ pub fn generate_with_backend_and_overrides(
     // `&analyzed.columns` it always was -- degrade_unsupported_nested_structs
     // would otherwise clone every column, String fields included, on every
     // call regardless of whether the feature is in use.
-    let (degraded_columns, nested_struct_defs) = if analyzed.nested_structs.is_empty() {
-        (None, Vec::new())
+    let (degraded_columns, nested_struct_defs, nested_degradations) = if analyzed.nested_structs.is_empty() {
+        (None, Vec::new(), Vec::new())
     } else {
-        let (cols, defs) = degrade_unsupported_nested_structs(&analyzed.columns, &analyzed.nested_structs, backend)?;
-        (Some(cols), defs)
+        let (cols, defs, degradations) =
+            degrade_unsupported_nested_structs(&analyzed.columns, &analyzed.nested_structs, backend)?;
+        (Some(cols), defs, degradations)
     };
     let nested_refs = NestedTypeRefs::collect(analyzed, &nested_struct_defs);
 
@@ -256,6 +304,7 @@ pub fn generate_with_backend_and_overrides(
         }
     }
     result.nested_struct_defs = nested_struct_defs;
+    result.degraded_nested_structs = nested_degradations;
 
     if analyzed.command == QueryCommand::Grouped {
         let group_by = analyzed.group_by.as_ref().ok_or_else(|| {
@@ -283,10 +332,12 @@ pub fn generate_with_backend_and_overrides(
         let (degraded_parent, degraded_child) = if analyzed.nested_structs.is_empty() {
             (None, None)
         } else {
-            let (dp, _) =
+            let (dp, _, parent_degradations) =
                 degrade_unsupported_nested_structs(&group_by.parent_columns, &analyzed.nested_structs, backend)?;
-            let (dc, _) =
+            let (dc, _, child_degradations) =
                 degrade_unsupported_nested_structs(&group_by.child_columns, &analyzed.nested_structs, backend)?;
+            result.degraded_nested_structs.extend(parent_degradations);
+            result.degraded_nested_structs.extend(child_degradations);
             (Some(dp), Some(dc))
         };
         let parent_cols = resolve::resolve_columns(
@@ -743,17 +794,31 @@ pub(crate) fn nested_struct_shape(neutral_type: &str) -> Option<NestedColumnShap
 ///   column and may select a typed SQL-array reader.
 /// - `Err(_)`: a genuine failure, propagated rather than degraded.
 ///
-/// Returns the (possibly rewritten) columns and one [`NestedStructDef`] per
-/// struct the backend supports. Skip calling this entirely when
-/// `nested_structs` is empty (the common case) to keep that path zero-copy
-/// -- see the callers in this file for the pattern.
+/// Returns the (possibly rewritten) columns, one [`NestedStructDef`] per
+/// struct the backend supports, and one [`NestedStructDegradation`] per
+/// column that was rewritten instead (GH #147). The third element is the
+/// only channel that says a rewrite happened at all: before it existed, a
+/// column silently lost its structured shape and nothing -- not the return
+/// value, not a log line -- told the caller. Every caller is expected to
+/// surface it; [`GeneratedCode::degraded_nested_structs`] is where
+/// [`generate_with_backend_and_overrides`] threads it for its own calls
+/// below, and any other direct caller must do the same rather than drop it.
+///
+/// Skip calling this entirely when `nested_structs` is empty (the common
+/// case) to keep that path zero-copy -- see the callers in this file for
+/// the pattern.
+/// What [`degrade_unsupported_nested_structs`] returns: the columns after any
+/// rewrite, the struct definitions the backend did produce, and one record per
+/// column that lost its shape (GH #147).
+pub type DegradedNestedStructs = (Vec<AnalyzedColumn>, Vec<NestedStructDef>, Vec<NestedStructDegradation>);
+
 pub fn degrade_unsupported_nested_structs(
     columns: &[AnalyzedColumn],
     nested_structs: &[NestedStructInfo],
     backend: &dyn CodegenBackend,
-) -> Result<(Vec<AnalyzedColumn>, Vec<NestedStructDef>), ScytheError> {
+) -> Result<DegradedNestedStructs, ScytheError> {
     if nested_structs.is_empty() {
-        return Ok((columns.to_vec(), Vec::new()));
+        return Ok((columns.to_vec(), Vec::new(), Vec::new()));
     }
 
     use ahash::AHashSet;
@@ -773,11 +838,13 @@ pub fn degrade_unsupported_nested_structs(
     }
 
     if unsupported.is_empty() {
-        return Ok((columns.to_vec(), defs));
+        return Ok((columns.to_vec(), defs, Vec::new()));
     }
 
     let supports_json_array = backend.manifest().types.scalars.contains_key("json_array");
+    let backend_name = backend.name().to_string();
 
+    let mut degradations: Vec<NestedStructDegradation> = Vec::new();
     let degraded = columns
         .iter()
         .cloned()
@@ -785,18 +852,24 @@ pub fn degrade_unsupported_nested_structs(
             if let Some(shape) = nested_struct_shape(&col.neutral_type)
                 && unsupported.contains(shape.name)
             {
-                col.neutral_type = if shape.is_array && supports_json_array {
+                let fallback_type = if shape.is_array && supports_json_array {
                     "json_array"
                 } else {
                     "json"
-                }
-                .to_string();
+                };
+                degradations.push(NestedStructDegradation {
+                    column: col.name.clone(),
+                    struct_name: shape.name.to_string(),
+                    fallback_type,
+                    backend: backend_name.clone(),
+                });
+                col.neutral_type = fallback_type.to_string();
             }
             col
         })
         .collect();
 
-    Ok((degraded, defs))
+    Ok((degraded, defs, degradations))
 }
 
 /// Backward-compatible: generate code using the default sqlx backend.
@@ -1604,7 +1677,7 @@ mod tests {
             },
         ];
 
-        let (degraded, defs) = degrade_unsupported_nested_structs(&columns, &[nested], &backend).unwrap();
+        let (degraded, defs, degradations) = degrade_unsupported_nested_structs(&columns, &[nested], &backend).unwrap();
 
         assert_eq!(
             degraded[0].neutral_type, "int32",
@@ -1622,6 +1695,23 @@ mod tests {
             defs.is_empty(),
             "an unsupported backend must not emit a struct definition"
         );
+
+        // ~keep GH #147: the rewrite above must not be silent. Every column it
+        // touched must produce a diagnostic naming the column, the struct
+        // that could not be generated, the fallback it got instead, and the
+        // backend responsible -- an unrelated column ("id") must not.
+        assert_eq!(degradations.len(), 2, "only the two nested columns were rewritten");
+        assert_eq!(degradations[0].column, "posts");
+        assert_eq!(degradations[0].struct_name, "GetUserPostsRowPosts");
+        assert_eq!(degradations[0].fallback_type, "json");
+        assert_eq!(
+            degradations[0].backend, "stub-backend",
+            "the backend the user configured, from CodegenBackend::name -- not the manifest it borrows"
+        );
+        assert_eq!(degradations[1].column, "profile");
+        assert_eq!(degradations[1].struct_name, "GetUserPostsRowPosts");
+        assert_eq!(degradations[1].fallback_type, "json");
+        assert_eq!(degradations[1].backend, "stub-backend");
     }
 
     #[test]
@@ -1643,11 +1733,20 @@ mod tests {
             },
         ];
 
-        let (degraded, defs) = degrade_unsupported_nested_structs(&columns, &[nested], &*backend).unwrap();
+        let (degraded, defs, degradations) =
+            degrade_unsupported_nested_structs(&columns, &[nested], &*backend).unwrap();
 
         assert_eq!(degraded[0].neutral_type, "json_array");
         assert_eq!(degraded[1].neutral_type, "json");
         assert!(defs.is_empty());
+
+        // ~keep The `json_array` marker path must be reported with the fallback it
+        // actually used, not a hardcoded "json" -- a caller reporting this
+        // finding needs to say what the column *became*.
+        assert_eq!(degradations.len(), 2);
+        assert_eq!(degradations[0].fallback_type, "json_array");
+        assert_eq!(degradations[0].backend, "typescript-pg");
+        assert_eq!(degradations[1].fallback_type, "json");
     }
 
     /// Minimal backend that opts into nested-struct support, to prove the
@@ -1707,7 +1806,7 @@ mod tests {
             ..Default::default()
         }];
 
-        let (degraded, defs) = degrade_unsupported_nested_structs(&columns, &[nested], &backend).unwrap();
+        let (degraded, defs, degradations) = degrade_unsupported_nested_structs(&columns, &[nested], &backend).unwrap();
 
         assert_eq!(
             degraded[0].neutral_type, "json_nested<array<GetUserPostsRowPosts>>",
@@ -1716,6 +1815,10 @@ mod tests {
         assert_eq!(defs.len(), 1);
         assert_eq!(defs[0].name, "get_user_posts_row_posts");
         assert_eq!(defs[0].code, "struct GetUserPostsRowPosts {}");
+        assert!(
+            degradations.is_empty(),
+            "a supported struct must not be reported as degraded"
+        );
     }
 
     /// Backends whose drivers expose a JSON document as a structural value

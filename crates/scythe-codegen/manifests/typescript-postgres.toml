@@ -23,6 +23,7 @@ datetime = "Date"
 datetime_tz = "Date"
 interval = "string"
 json = "Record<string, unknown>"
+json_array = "Record<string, unknown>[]"
 inet = "string"
 
 [types.containers]
