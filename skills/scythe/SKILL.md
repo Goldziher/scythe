@@ -14,7 +14,7 @@ metadata:
 
 # Scythe SQL-to-Code Generator
 
-Scythe compiles annotated SQL into type-safe database access code. You write SQL queries with annotations, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 10 databases with 56 backends. Built-in linting (58 rules) and formatting catch SQL bugs before they ship.
+Scythe compiles annotated SQL into type-safe database access code. You write SQL queries with annotations, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 10 databases with 56 backends. Built-in linting (59 rules) and formatting catch SQL bugs before they ship.
 
 Use this skill when:
 

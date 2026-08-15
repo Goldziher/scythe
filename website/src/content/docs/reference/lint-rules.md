@@ -6,7 +6,7 @@ description: All 58 built-in scythe rules plus the check-time provenance and dri
 Scythe includes 23 built-in lint rules and integrates sqruff for additional SQL style and formatting
 rules. `default_registry()` -- the registry `scythe lint` and `scythe audit --list-rules` both read
 from -- also carries the 35 `scythe audit` rules (`SC-SEC*`, `SC-RLS*`, `SC-MIG*`, `SC-CHK01`), so all
-58 rules run under `scythe lint` too. See the [audit guide](/scythe/guide/audit/) for the audit-only
+59 rules run under `scythe lint` too. See the [audit guide](/scythe/guide/audit/) for the audit-only
 catalog.
 
 Two further families ship in their own registries and are **not** counted in that 58: the 11 `SC-PRV*`

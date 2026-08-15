@@ -1053,4 +1053,4 @@ final class Queries {
 - [Configuration](/scythe/guide/configuration/) -- full scythe.toml reference
 - [Annotations](/scythe/guide/annotations/) -- all nine annotation types
 - [Type Inference](/scythe/guide/type-inference/) -- how nullability analysis works
-- [Linting](/scythe/guide/linting/) -- 58 built-in rules (23 lint + 35 audit) plus sqruff integration
+- [Linting](/scythe/guide/linting/) -- 59 built-in rules (24 lint + 35 audit) plus sqruff integration

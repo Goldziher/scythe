@@ -128,6 +128,12 @@ pub fn default_registry() -> RuleRegistry {
     reg.register(Box::new(rules::codegen::ExecWithReturning));
     reg.register(Box::new(rules::codegen::DuplicateQueryNames));
 
+    // ~keep `SC-PARSE03` lives in `rules::parse` (its id keeps that file's `SC-PARSE`
+    // prefix), not `rules::codegen` — see its own doc comment for why it is
+    // still registered here in `default_registry` rather than
+    // `parse_registry`, unlike `SC-PARSE01`/`SC-PARSE02`.
+    reg.register(Box::new(rules::parse::MisspelledAnnotation));
+
     reg.register(Box::new(rules::naming::PreferSnakeCaseColumns));
     reg.register(Box::new(rules::naming::PreferSnakeCaseTables));
     reg.register(Box::new(rules::naming::QueryNameConvention));
@@ -174,8 +180,9 @@ pub fn default_registry() -> RuleRegistry {
 /// to offer. Putting them in the default registry would have
 /// `scythe audit --list-rules` (via `load_registry_for_discovery`) and
 /// `scythe lint` advertise eleven rules that neither command can ever emit,
-/// and would move the documented "58 built-in rules" figure that appears
-/// across the README, the website, and the skills bundle.
+/// and would move the documented "59 built-in rules" figure (58 before
+/// `SC-PARSE03`, #152/#167) that appears across the README, the website, and
+/// the skills bundle.
 ///
 /// A registry rather than a bare list because that is what makes them
 /// configurable: `scythe check` calls [`RuleRegistry::apply_config`] on this
@@ -306,14 +313,15 @@ mod tests {
         assert_eq!(reg.active_rules().len(), 1);
     }
 
-    /// 23 SQL lint rules + 35 canonical audit rules. This is the "58
-    /// built-in rules" figure quoted across the README, the website, and the
-    /// skills bundle, so it moves only when a rule a user can actually
-    /// trigger is added or removed.
+    /// 24 SQL lint rules (23 plus `SC-PARSE03`, added for #152/#167) + 35
+    /// canonical audit rules. This was the "58 built-in rules" figure quoted
+    /// across the README, the website, and the skills bundle; it is now 59
+    /// there too (out of this crate's territory to update). It moves only
+    /// when a rule a user can actually trigger is added or removed.
     #[test]
-    fn default_registry_has_58_rules() {
+    fn default_registry_has_59_rules() {
         let reg = default_registry();
-        assert_eq!(reg.rules.len(), 58);
+        assert_eq!(reg.rules.len(), 59);
     }
 
     /// `all_rules` is the source `scythe audit --list-rules` and `--explain`
@@ -342,8 +350,8 @@ mod tests {
         );
         assert_eq!(
             all_ids.len(),
-            58,
-            "the default registry still holds the documented 58 built-in rules"
+            59,
+            "the default registry now holds 59 built-in rules (58 + SC-PARSE03, #152/#167)"
         );
     }
 
@@ -517,15 +525,43 @@ mod tests {
         assert!(reg.active_rules().is_empty());
     }
 
-    /// `SC-PARSE*` rules must stay out of the default registry, for the same
-    /// reason the provenance and drift families do: no consumer of
-    /// `default_registry` reaches them through `check_query`/`check_catalog`.
+    /// `SC-PARSE01`/`SC-PARSE02` — the two structural rules with no working
+    /// `check_query`/`check_catalog` — must stay out of the default
+    /// registry, for the same reason the provenance and drift families do:
+    /// no consumer of `default_registry` reaches a no-op `check_query`
+    /// through anything. `SC-PARSE03` is deliberately excluded from this
+    /// assertion: unlike the other two, it has a real `check_query` (see
+    /// `rules::parse::MisspelledAnnotation`'s doc) and belongs in
+    /// `default_registry` for exactly that reason — asserted by
+    /// `default_registry_includes_sc_parse03` below.
     #[test]
     fn default_registry_excludes_parse_rules() {
         let reg = default_registry();
+        for id in ["SC-PARSE01", "SC-PARSE02"] {
+            assert!(
+                !reg.rules.iter().any(|r| r.id() == id),
+                "{id} belongs to parse_registry(), not default_registry()"
+            );
+        }
+    }
+
+    /// `SC-PARSE03` is the one `SC-PARSE`-prefixed rule with a real
+    /// `check_query`, so — unlike `SC-PARSE01`/`SC-PARSE02` — it must be
+    /// reachable the same way every other `default_registry` rule is: via
+    /// `active_rules`, `[lint.rules]` overrides, and `scythe audit
+    /// --list-rules`.
+    #[test]
+    fn default_registry_includes_sc_parse03() {
+        let reg = default_registry();
         assert!(
-            !reg.rules.iter().any(|r| r.id().starts_with("SC-PARSE")),
-            "parse rules belong to parse_registry(), not default_registry()"
+            reg.rules.iter().any(|r| r.id() == "SC-PARSE03"),
+            "SC-PARSE03 has a real check_query and must run through default_registry"
+        );
+        assert!(
+            reg.active_rules()
+                .iter()
+                .any(|(r, sev)| r.id() == "SC-PARSE03" && *sev == Severity::Warn),
+            "SC-PARSE03 must be active (Warn) by default"
         );
     }
 
@@ -533,7 +569,11 @@ mod tests {
     fn parse_registry_has_every_registered_rule() {
         let reg = parse_registry();
         let ids: Vec<&str> = reg.rules.iter().map(|r| r.id()).collect();
-        assert_eq!(ids, vec!["SC-PARSE01", "SC-PARSE02"]);
+        assert_eq!(
+            ids,
+            vec!["SC-PARSE01", "SC-PARSE02"],
+            "SC-PARSE03 must not be here — it runs through default_registry's check_query dispatch instead"
+        );
     }
 
     /// The whole reason `SC-PARSE01`/`SC-PARSE02` moved into a registry:
@@ -744,7 +784,7 @@ mod tests {
     /// gaining or losing a `dialects` restriction must be a deliberate,
     /// visible change.
     #[test]
-    fn canonical_rules_gated_to_postgres_is_28_of_58() {
+    fn canonical_rules_gated_to_postgres_is_28_of_59() {
         let reg = default_registry();
 
         let skipped_on_mysql = reg.rules_inapplicable_to(SqlDialect::MySQL);
@@ -758,13 +798,14 @@ mod tests {
             "no rule is gated away from PostgreSQL"
         );
 
-        // 58 registered, of which 56 are on by default (SC-A02 and SC-C01
-        // default to `Off`), of which 28 are PostgreSQL-gated.
-        assert_eq!(reg.active_rules().len(), 56);
+        // ~keep 59 registered, of which 57 are on by default (SC-A02 and SC-C01
+        // default to `Off`; SC-PARSE03 defaults to `Warn`, so it counts as
+        // on), of which 28 are PostgreSQL-gated.
+        assert_eq!(reg.active_rules().len(), 57);
         let active_on_mysql = reg.active_rules().len() - skipped_on_mysql.len();
         assert_eq!(
-            active_on_mysql, 28,
-            "a MySQL audit runs 28 of the 56 on-by-default rules; that gap is what the summary must disclose"
+            active_on_mysql, 29,
+            "a MySQL audit runs 29 of the 57 on-by-default rules; that gap is what the summary must disclose"
         );
     }
 

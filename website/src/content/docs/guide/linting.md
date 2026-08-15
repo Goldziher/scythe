@@ -5,7 +5,7 @@ description: Scythe's 23 built-in lint rules plus sqruff integration for SQL sty
 
 Scythe includes 23 built-in lint rules plus sqruff integration for SQL style and formatting. The same
 `default_registry()` also carries the 35 `scythe audit` rules (`SC-SEC*`, `SC-RLS*`, `SC-MIG*`,
-`SC-CHK01`), so `scythe lint` runs all 58 built-in rules together -- see [Audit](/scythe/guide/audit/)
+`SC-CHK01`), so `scythe lint` runs all 59 built-in rules together -- see [Audit](/scythe/guide/audit/)
 for the audit-only catalog.
 
 The 11 `SC-PRV*` provenance rules and the 7 `SC-DRF*` schema drift rules are not part of that 58. They
@@ -137,7 +137,7 @@ performance = "off"     # Disable all performance rules
 | `provenance` | `SC-PRV` | Check-time only: generated artifact vs. current schema/engine/backend/version. Not reachable from `scythe lint`. |
 | `drift` | `SC-DRF` | Check-time only: committed DDL vs. a live database. Not reachable from `scythe lint`. |
 
-`security` and `migration` between them cover 34 of the 58 built-in rules. `provenance` (11 rules) and
+`security` and `migration` between them cover 34 of the 59 built-in rules. `provenance` (11 rules) and
 `drift` (7 rules) are counted separately and only fire from `scythe check`; see the
 [lint rules reference](/scythe/reference/lint-rules/).
 

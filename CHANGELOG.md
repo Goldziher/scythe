@@ -998,6 +998,26 @@ direct caller that builds one by struct literal rather than through the parser. 
   generated code is correct); `rustfmt` spawning and then rejecting the input is reported with its
   own stderr and, since Rust has no other tool-based validator, now counts as a `--validate-output`
   finding the same way every other backend's real-compiler check already does. (#167)
+- **A misspelled annotation still reported success — nothing consumed the `suggested_keyword` signal
+  #152 added to `CustomAnnotation`.** A typo like `@nullible` parsed clean, analyzed clean, and
+  `scythe generate`/`check`/`lint` all exited 0 while the nullability override it named silently
+  never took effect. New rule `SC-PARSE03` (`misspelled-annotation`) fires when
+  `suggested_keyword` is set, naming both the annotation as written and the suggested keyword (e.g.
+  `@nullible` → did you mean `@nullable`?). `Warn` by default, not `Error`: the same escape hatch
+  the signal rides on is a deliberate extension point with legitimate shipping usage (`@http`,
+  `@http_auth`), and `suggested_keyword` is a heuristic, not proof the annotation is wrong. Lives in
+  `default_registry` rather than `parse_registry` (unlike `SC-PARSE01`/`SC-PARSE02`): it has a real,
+  already-analyzed `LintContext` to inspect, so it needs no additional `scythe check` wiring beyond
+  registration. The default registry now holds 59 built-in rules, up from 58. (#152, #167)
+- **`scythe migrate` parsed sqlc's top-level `plugins:` array and each `gen.<lang>.package` field
+  and discarded both with no diagnostic.** Neither has a `scythe.toml` equivalent — scythe has no
+  wasm/process plugin system to receive `plugins:`, and no backend supports overriding the
+  generated-code package/module name (every scythe Go file hardcodes `package queries`) — so there
+  is no config key `migrate` could fill in for either. Both are now a `warning:` on stderr naming
+  what was dropped, rather than silence. Left as warnings, not `invalid_config` errors like an
+  unsupported `gen.<lang>` target: a hard error on the mere presence of `plugins:` would fail
+  ordinary, fully-convertible v2 configs that declare it only to satisfy sqlc's own plugin
+  resolution alongside an otherwise-unremarkable `gen.go` block. (#152)
 
 ### Added
 

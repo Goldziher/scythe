@@ -18,8 +18,9 @@
 //!   `load_registry_for_discovery` — evaluates rules through `check_query` /
 //!   `check_catalog`. Listing eleven rules there that neither command can
 //!   ever emit would advertise a capability that does not exist, and would
-//!   move the documented "58 built-in rules" figure that appears across the
-//!   README, the website, and the skills bundle.
+//!   move the documented "59 built-in rules" figure (58 before `SC-PARSE03`,
+//!   #152/#167) that appears across the README, the website, and the skills
+//!   bundle.
 //! - In a registry at all, rather than a bare list, because that is what
 //!   makes them configurable. `scythe check` applies the same `[lint]` table
 //!   to this registry that it applies to the default one, then resolves each

@@ -16,7 +16,6 @@ struct SqlcConfig {
     #[serde(default)]
     version: Option<String>,
     #[serde(default)]
-    #[allow(dead_code)]
     plugins: Vec<SqlcPlugin>,
     #[serde(default)]
     sql: Vec<SqlcSqlEntry>,
@@ -26,7 +25,6 @@ struct SqlcConfig {
 
 #[derive(Debug, Deserialize)]
 struct SqlcPlugin {
-    #[allow(dead_code)]
     name: String,
     #[serde(default)]
     #[allow(dead_code)]
@@ -131,7 +129,6 @@ struct SqlcGenTarget {
     #[serde(default)]
     out: Option<String>,
     #[serde(default)]
-    #[allow(dead_code)]
     package: Option<String>,
 }
 
@@ -295,6 +292,30 @@ fn default_driver_for(lang: &str, engine: &str) -> Result<&'static str, ScytheEr
 fn convert_config(sqlc: &SqlcConfig, base_dir: &Path) -> Result<String, ScytheError> {
     let mut sql_blocks: Vec<ScytheSqlBlock> = Vec::new();
 
+    // ~keep A warning, not `invalid_config`: unlike an unsupported `gen.<lang>` target
+    // (which names a whole generation target `scythe generate` would otherwise
+    // silently never produce), `plugins:` is sqlc's own wasm/process-plugin
+    // bootstrap registry -- name plus a fetch URL/hash for a binary sqlc itself
+    // runs. scythe has no plugin-execution model to receive that at all, so
+    // there is no `scythe.toml` key migrate could ever fill in for it, and a
+    // hard error here would fail plenty of ordinary, fully-convertible v2
+    // configs that declare `plugins: [{ name = "golang", wasm = {...} }]`
+    // purely to satisfy sqlc's own plugin resolution alongside an otherwise
+    // unremarkable `gen.go` block. Any plugin actually referenced by an
+    // unsupported `gen`/`codegen` language already fails migration on its own,
+    // above -- see `SqlcGen::other` and `default_driver_for`. See #152.
+    if !sqlc.plugins.is_empty() {
+        let mut names: Vec<&str> = sqlc.plugins.iter().map(|p| p.name.as_str()).collect();
+        names.sort_unstable();
+        names.dedup();
+        eprintln!(
+            "warning: sqlc plugin(s) [{}] declared under `plugins:` were not migrated -- scythe has no \
+             equivalent to sqlc's wasm/process plugin system; each plugin's actual `gen`/`codegen` usage \
+             was already converted (or reported as unsupported) independently of this declaration",
+            names.join(", ")
+        );
+    }
+
     let version = sqlc.version.as_deref().unwrap_or("2");
 
     if version == "1" || (!sqlc.packages.is_empty() && sqlc.sql.is_empty()) {
@@ -419,25 +440,43 @@ fn convert_config(sqlc: &SqlcConfig, base_dir: &Path) -> Result<String, ScytheEr
                 let targets: Vec<(&str, &Option<SqlcGenTarget>)> =
                     vec![("go", &g.go), ("kotlin", &g.kotlin), ("python", &g.python)];
                 for (lang, target_opt) in targets {
-                    if let Some(t) = target_opt
-                        && let Some(out) = &t.out
-                    {
-                        if output.is_empty() {
-                            output = out.clone();
+                    if let Some(t) = target_opt {
+                        // ~keep Warned, not migrated: `scythe.toml`'s `[sql.gen.<lang>]`
+                        // has no field for the generated code's package/module
+                        // name -- every scythe Go file hardcodes `package
+                        // queries` (see `go_common::go_file_header`), and
+                        // neither the Kotlin nor Python backends expose one
+                        // either. Checked independent of `t.out` below so a
+                        // `package` set without `out` (unusual, but not
+                        // impossible in a hand-edited sqlc config) still gets
+                        // named. See #152.
+                        if let Some(pkg) = &t.package {
+                            eprintln!(
+                                "warning: sqlc gen.{lang}.package = '{pkg}' has no scythe equivalent and was \
+                                 not migrated -- scythe does not support customizing the generated \
+                                 package/module name for {lang}; update generated-code references manually \
+                                 if they depend on '{pkg}'"
+                            );
                         }
-                        // `target` must be a real driver suffix (e.g.
-                        // "pgx"), never the bare language name -- `scythe
-                        // generate` builds the backend as
-                        // `format!("{lang}-{target}")`, so `target = lang`
-                        // produced unusable names like "go-go" (issue #97).
-                        let driver = default_driver_for(lang, &engine)?;
-                        gen_map.insert(
-                            lang.to_string(),
-                            ScytheGenTarget {
-                                target: driver.to_string(),
-                                derive: Vec::new(),
-                            },
-                        );
+
+                        if let Some(out) = &t.out {
+                            if output.is_empty() {
+                                output = out.clone();
+                            }
+                            // `target` must be a real driver suffix (e.g.
+                            // "pgx"), never the bare language name -- `scythe
+                            // generate` builds the backend as
+                            // `format!("{lang}-{target}")`, so `target = lang`
+                            // produced unusable names like "go-go" (issue #97).
+                            let driver = default_driver_for(lang, &engine)?;
+                            gen_map.insert(
+                                lang.to_string(),
+                                ScytheGenTarget {
+                                    target: driver.to_string(),
+                                    derive: Vec::new(),
+                                },
+                            );
+                        }
                     }
                 }
 

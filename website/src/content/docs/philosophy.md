@@ -53,7 +53,7 @@ Scythe's type inference engine handles the SQL features that ORMs struggle with:
 
 SQL is the source of truth. It deserves the same quality tooling as application code:
 
-- **58 built-in rules** — correctness checks (UPDATE without WHERE, ambiguous columns, NULL comparisons with `=` instead of `IS`), performance warnings (ORDER BY without LIMIT, leading wildcard LIKE, SELECT *), and style enforcement
+- **59 built-in rules** — correctness checks (UPDATE without WHERE, ambiguous columns, NULL comparisons with `=` instead of `IS`), performance warnings (ORDER BY without LIMIT, leading wildcard LIKE, SELECT *), and style enforcement
 - **Integrated formatting** — consistent indentation, keyword capitalization, and spacing via sqruff integration
 
 Scythe runs linting and formatting as part of the compilation pipeline. Bad SQL is caught before code generation, not at runtime.
