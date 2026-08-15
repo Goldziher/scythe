@@ -1,0 +1,132 @@
+# Engine test-parity exemptions.
+#
+# Read by tools/integration-test-generator/tests/engine_test_parity.rs, which
+# runs under `cargo test --workspace`.
+#
+# GH #196/#195: java.java.jinja and kotlin.kt.jinja each have one whole
+# duplicated test program per SQL engine branch. An assertion added to one
+# branch (almost always postgresql, the richest branch) reaches none of the
+# others, and the branches drift apart silently -- the Redshift branches in
+# particular ended up with fewer than half the postgresql branch's test
+# functions. This file is the parity gate's ratcheting allowlist, modeled on
+# coverage-exemptions.txt: it ratchets in BOTH directions and there is no
+# tolerance mode.
+#
+#   * a (template, engine) branch missing a test function the postgresql
+#     branch of the same template has, with no entry here, fails the build
+#     (regression -- the drift got worse);
+#   * an entry here for a test function the branch now DOES have also fails
+#     the build (stale -- the gap was closed, delete the line).
+#
+# Format: <template>|<engine>|<test-function-name> : <reason>
+#
+# Two reason shapes appear below, and they mean different things:
+#
+#   - "no equivalent query exists in <engine>'s queries/*.sql fixture" --
+#     the postgresql-only test calls a generated Queries method (an enum
+#     parameter, or a nullable composite-column read for board #197) that
+#     has no equivalent query defined for this engine at all. Closing this
+#     requires designing a per-engine equivalent query, not copying an
+#     assertion.
+#   - "... but this engine's harness branch was never wired up to call it"
+#     -- the underlying query already exists in this engine's queries
+#     fixture (proven by grep against integration_tests/sql/<engine>/queries/)
+#     and other engines' branches call it successfully. This is a real,
+#     closeable coverage gap left for a follow-up change, not a structural
+#     incompatibility. It is exempted here rather than silently passing so
+#     the gap stays visible and deliberate, per GH #196/#195: "the point is
+#     that the gap becomes visible and deliberate, not that a number goes up."
+#
+# Blank lines and lines starting with `#` are ignored.
+
+java|duckdb|testCountUsersByStatus : no equivalent query exists in duckdb's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
+java|duckdb|testGetOrderTotal : duckdb's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|duckdb|testGetUserOrders : no equivalent query exists in duckdb's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
+java|duckdb|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; duckdb has no equivalent column or query
+java|duckdb|testSearchUsers : duckdb's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|duckdb|testUpdateUserEmail : duckdb's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|mariadb|testCountUsersByStatus : no equivalent query exists in mariadb's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
+java|mariadb|testGetUserOrders : no equivalent query exists in mariadb's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
+java|mariadb|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; mariadb has no equivalent column or query
+java|mariadb|testSearchUsers : mariadb's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|mariadb|testUpdateUserEmail : mariadb's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|mssql|testCountUsersByStatus : no equivalent query exists in mssql's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
+java|mssql|testGetOrderTotal : mssql's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|mssql|testGetUserOrders : no equivalent query exists in mssql's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
+java|mssql|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; mssql has no equivalent column or query
+java|mssql|testSearchUsers : mssql's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|mssql|testUpdateUserEmail : mssql's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|mysql|testCountUsersByStatus : no equivalent query exists in mysql's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
+java|mysql|testGetUserOrders : no equivalent query exists in mysql's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
+java|mysql|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; mysql has no equivalent column or query
+java|mysql|testSearchUsers : mysql's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|mysql|testUpdateUserEmail : mysql's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|oracle|testCountUsersByStatus : no equivalent query exists in oracle's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
+java|oracle|testGetUserOrders : no equivalent query exists in oracle's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
+java|oracle|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; oracle has no equivalent column or query
+java|oracle|testSearchUsers : oracle's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|oracle|testUpdateUserEmail : oracle's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|redshift|testCountUsersByStatus : no equivalent query exists in redshift's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
+java|redshift|testGetOrderTotal : redshift's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|redshift|testGetUserOrders : no equivalent query exists in redshift's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
+java|redshift|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; redshift has no equivalent column or query
+java|redshift|testListActiveUsers : redshift's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|redshift|testSearchUsers : redshift's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|redshift|testUpdateUserEmail : redshift's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|snowflake|testCountUsersByStatus : no equivalent query exists in snowflake's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
+java|snowflake|testGetOrderTotal : snowflake's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|snowflake|testGetUserOrders : no equivalent query exists in snowflake's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
+java|snowflake|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; snowflake has no equivalent column or query
+java|snowflake|testSearchUsers : snowflake's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|snowflake|testUpdateUserEmail : snowflake's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|sqlite|testCountUsersByStatus : no equivalent query exists in sqlite's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
+java|sqlite|testGetOrderTotal : sqlite's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|sqlite|testGetUserOrders : no equivalent query exists in sqlite's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
+java|sqlite|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; sqlite has no equivalent column or query
+java|sqlite|testSearchUsers : sqlite's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+java|sqlite|testUpdateUserEmail : sqlite's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|duckdb|testCountUsersByStatus : no equivalent query exists in duckdb's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
+kotlin|duckdb|testGetOrderTotal : duckdb's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|duckdb|testGetUserOrders : no equivalent query exists in duckdb's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
+kotlin|duckdb|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; duckdb has no equivalent column or query
+kotlin|duckdb|testSearchUsers : duckdb's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|duckdb|testUpdateUserEmail : duckdb's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|mariadb|testCountUsersByStatus : no equivalent query exists in mariadb's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
+kotlin|mariadb|testGetUserOrders : no equivalent query exists in mariadb's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
+kotlin|mariadb|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; mariadb has no equivalent column or query
+kotlin|mariadb|testSearchUsers : mariadb's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|mariadb|testUpdateUserEmail : mariadb's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|mssql|testCountUsersByStatus : no equivalent query exists in mssql's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
+kotlin|mssql|testGetOrderTotal : mssql's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|mssql|testGetUserOrders : no equivalent query exists in mssql's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
+kotlin|mssql|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; mssql has no equivalent column or query
+kotlin|mssql|testSearchUsers : mssql's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|mssql|testUpdateUserEmail : mssql's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|mysql|testCountUsersByStatus : no equivalent query exists in mysql's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
+kotlin|mysql|testGetUserOrders : no equivalent query exists in mysql's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
+kotlin|mysql|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; mysql has no equivalent column or query
+kotlin|mysql|testSearchUsers : mysql's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|mysql|testUpdateUserEmail : mysql's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|oracle|testCountUsersByStatus : no equivalent query exists in oracle's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
+kotlin|oracle|testGetUserOrders : no equivalent query exists in oracle's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
+kotlin|oracle|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; oracle has no equivalent column or query
+kotlin|oracle|testSearchUsers : oracle's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|oracle|testUpdateUserEmail : oracle's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|redshift|testCountUsersByStatus : no equivalent query exists in redshift's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
+kotlin|redshift|testGetOrderTotal : redshift's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|redshift|testGetUserOrders : no equivalent query exists in redshift's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
+kotlin|redshift|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; redshift has no equivalent column or query
+kotlin|redshift|testListActiveUsers : redshift's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|redshift|testSearchUsers : redshift's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|redshift|testUpdateUserEmail : redshift's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|snowflake|testCountUsersByStatus : no equivalent query exists in snowflake's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
+kotlin|snowflake|testGetOrderTotal : snowflake's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|snowflake|testGetUserOrders : no equivalent query exists in snowflake's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
+kotlin|snowflake|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; snowflake has no equivalent column or query
+kotlin|snowflake|testSearchUsers : snowflake's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|snowflake|testUpdateUserEmail : snowflake's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|sqlite|testCountUsersByStatus : no equivalent query exists in sqlite's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
+kotlin|sqlite|testGetUserOrders : no equivalent query exists in sqlite's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
+kotlin|sqlite|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; sqlite has no equivalent column or query
+kotlin|sqlite|testSearchUsers : sqlite's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility
+kotlin|sqlite|testUpdateUserEmail : sqlite's queries fixture defines this query and it is callable, but this engine's harness branch was never wired up to call it -- untested gap (GH #196/#195), not a structural incompatibility

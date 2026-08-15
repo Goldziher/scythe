@@ -936,6 +936,19 @@ direct caller that builds one by struct literal rather than through the parser. 
   `jsonb_each`/`json_each` record column (legitimately `"unknown"` — PostgreSQL's `record` pseudo-type
   has no neutral-type representation), are both unaffected. (#170)
 
+- **The Java and Kotlin integration-test generators had no way to notice their per-engine harness
+  branches drifting apart.** `java.java.jinja` and `kotlin.kt.jinja` duplicate a whole test program
+  per SQL engine, and nothing compared what one branch tests against another — the redshift branches
+  quietly ended up with fewer than half the postgresql branch's test functions. A new parity gate
+  (`tests/engine_test_parity.rs`) now fails the build when an engine branch is missing a test
+  function the postgresql branch of the same template has, unless it is named in the new
+  `test-parity-exemptions.txt` ratcheting allowlist with a reason; the allowlist also fails on stale
+  entries, so it can only shrink. Separately, `oracle/schema_full.sql` and
+  `redshift/schema_pg_compat.sql` are runtime-only schema variants that harness templates apply
+  independently of the (possibly different) file `scythe.toml` generated queries from — safe only as
+  long as both files agree on table/column shape, which nothing checked; a new
+  `tests/schema_variant_consistency.rs` now checks it. (#196, #195)
+
 
 ### Added
 
