@@ -288,6 +288,54 @@ fn r2dbc_bind_expr(param: &ResolvedParam) -> String {
     }
 }
 
+/// ~keep The `Class<*>` literal to hand `bindNull(index, Class<*>)` for a nullable, non-enum
+/// `param`. Same boxing rule `r2dbc_row_class` already applies to a read result --
+/// `Statement.bindNull` is generic the same way `Row.get` is.
+fn r2dbc_bind_null_class(param: &ResolvedParam) -> String {
+    jvm_common::kotlin_boxed_class_literal(&param.lang_type)
+}
+
+/// A top-level private helper (see [`KotlinR2dbcBackend::query_class_header`]) that binds a
+/// nullable, non-enum parameter through whichever of `bind`/`bindNull` the value actually needs.
+///
+/// R2DBC's `Statement.bind(index, Any value)` rejects a null `value` outright --
+/// `bindNull(index, Class<*>)` is the only legal way to send SQL NULL (see `io.r2dbc.spi.Statement`
+/// javadoc). Every generated bind site used `bind` unconditionally before this fix, so any query
+/// called with a null argument for a nullable parameter threw `IllegalArgumentException` at the
+/// bind call, not at the database. Centralized here rather than open-coded at each call site so
+/// every ordinary nullable parameter routes through one `if`. See `java_r2dbc.rs`'s twin constant
+/// for why this file has no enclosing class to nest it in when `extension_functions = false`, and
+/// [`write_r2dbc_bind`] for why a nullable enum cannot route through it at all.
+const KOTLIN_R2DBC_BIND_NULLABLE_HELPER: &str = "private fun bindNullable(stmt: Statement, index: Int, value: \
+Any?, type: Class<*>) {\n    if (value == null) {\n        stmt.bindNull(index, type)\n    } else {\n        \
+stmt.bind(index, value)\n    }\n}";
+
+/// ~keep Emit one R2DBC bind statement for `param` at placeholder `index` on `stmt`.
+///
+/// A nullable enum parameter cannot route through [`KOTLIN_R2DBC_BIND_NULLABLE_HELPER`]: its bind
+/// expression is `field.value` (see [`r2dbc_bind_expr`]), and Kotlin refuses to compile a
+/// property access on a nullable receiver without `?.`/`!!` -- there is no way to pass "the raw
+/// field, unread" into a helper and still have it type-check. It gets its own inline `if`/`else`
+/// instead: Kotlin smart-casts `field` to non-null inside the `else` branch, so `field.value`
+/// there needs no extra operator.
+fn write_r2dbc_bind(out: &mut String, indent: &str, index: usize, param: &ResolvedParam) {
+    let expr = r2dbc_bind_expr(param);
+    if !param.nullable {
+        let _ = writeln!(out, "{indent}stmt.bind({index}, {expr})");
+        return;
+    }
+    if param.neutral_type.starts_with("enum::") {
+        let _ = writeln!(out, "{indent}if ({} == null) {{", param.field_name);
+        let _ = writeln!(out, "{indent}    stmt.bindNull({index}, String::class.java)");
+        let _ = writeln!(out, "{indent}}} else {{");
+        let _ = writeln!(out, "{indent}    stmt.bind({index}, {expr})");
+        let _ = writeln!(out, "{indent}}}");
+    } else {
+        let class = r2dbc_bind_null_class(param);
+        let _ = writeln!(out, "{indent}bindNullable(stmt, {index}, {expr}, {class})");
+    }
+}
+
 /// ~keep Append an explicit `::<enum type>` cast to each PostgreSQL placeholder whose parameter
 /// is an enum.
 ///
@@ -383,6 +431,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
             "package generated\n\
              \n\
              import io.r2dbc.spi.Connection\n\
+             import io.r2dbc.spi.Statement\n\
              import kotlinx.coroutines.flow.Flow\n\
              import kotlinx.coroutines.reactive.asFlow\n\
              import kotlinx.coroutines.reactive.awaitFirst\n\
@@ -401,6 +450,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
             "package generated\n\
              \n\
              import io.r2dbc.spi.ConnectionFactory\n\
+             import io.r2dbc.spi.Statement\n\
              import kotlinx.coroutines.flow.Flow\n\
              import kotlinx.coroutines.reactive.asFlow\n\
              import kotlinx.coroutines.reactive.awaitFirst\n\
@@ -416,6 +466,15 @@ impl CodegenBackend for KotlinR2dbcBackend {
              import java.util.UUID\n"
                 .to_string()
         }
+    }
+
+    /// See [`KOTLIN_R2DBC_BIND_NULLABLE_HELPER`]. Emitted unconditionally (every engine this
+    /// backend supports goes through R2DBC's `bind`/`bindNull` split) rather than gated on
+    /// whether any query in the file actually has a nullable parameter -- an unused private
+    /// function is harmless, and gating it would need every call site to also thread through
+    /// whether it's needed.
+    fn query_class_header(&self) -> String {
+        KOTLIN_R2DBC_BIND_NULLABLE_HELPER.to_string()
     }
 
     fn generate_struct_decl(
@@ -459,9 +518,14 @@ impl CodegenBackend for KotlinR2dbcBackend {
 
         let mut out = String::new();
 
-        let write_binds = |out: &mut String, indent: &str| {
+        let write_binds = |out: &mut String, prefix: &str| {
+            // ~keep Every call site passes indentation whitespace with a trailing "stmt" (the
+            // variable every bind targets) baked in, e.g. "    stmt" -- stripping it back off
+            // here means `write_r2dbc_bind` gets pure indentation without touching any of those
+            // call sites.
+            let indent = prefix.strip_suffix("stmt").unwrap_or(prefix);
             for (i, param) in params.iter().enumerate() {
-                let _ = writeln!(out, "{}.bind({}, {})", indent, i, r2dbc_bind_expr(param));
+                write_r2dbc_bind(out, indent, i, param);
             }
         };
 
@@ -992,7 +1056,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
             }
             let _ = writeln!(out, "    val stmt = createStatement(\"{sql}\")");
             for (i, param) in params.iter().enumerate() {
-                let _ = writeln!(out, "    stmt.bind({i}, {})", r2dbc_bind_expr(param));
+                write_r2dbc_bind(&mut out, "    ", i, param);
             }
         } else if use_multiline_params {
             let _ = writeln!(out, "suspend fun {}(", func_name);
@@ -1005,7 +1069,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
             let _ = writeln!(out, "    try {{");
             let _ = writeln!(out, "        val stmt = conn.createStatement(\"{sql}\")");
             for (i, param) in params.iter().enumerate() {
-                let _ = writeln!(out, "        stmt.bind({i}, {})", r2dbc_bind_expr(param));
+                write_r2dbc_bind(&mut out, "        ", i, param);
             }
         } else {
             let _ = writeln!(out, "suspend fun {}(cf: ConnectionFactory){ret} {{", func_name);
@@ -1090,11 +1154,13 @@ impl CodegenBackend for KotlinR2dbcBackend {
 mod tests {
     use std::collections::HashMap;
 
-    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, GroupByConfig};
+    use scythe_core::analyzer::{
+        AnalyzedColumn, AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, GroupByConfig,
+    };
     use scythe_core::parser::QueryCommand;
 
-    use super::KotlinR2dbcBackend;
-    use crate::backend_trait::CodegenBackend;
+    use super::{KotlinR2dbcBackend, write_r2dbc_bind};
+    use crate::backend_trait::{CodegenBackend, ResolvedParam};
 
     fn make_grouped_query() -> AnalyzedQuery {
         let parent_cols = vec![
@@ -1310,6 +1376,125 @@ mod tests {
         assert!(
             def.contains("val internalId: Int"),
             "composite field name must still camelCase a plain snake_case field; got:\n{def}"
+        );
+    }
+
+    fn make_scalar_param(field_name: &str, lang_type: &str, neutral_type: &str, nullable: bool) -> ResolvedParam {
+        ResolvedParam {
+            name: field_name.to_string(),
+            field_name: field_name.to_string(),
+            lang_type: lang_type.to_string(),
+            full_type: lang_type.to_string(),
+            borrowed_type: lang_type.to_string(),
+            neutral_type: neutral_type.to_string(),
+            nullable,
+        }
+    }
+
+    /// board #229: `Statement.bind(index, Any)` throws `IllegalArgumentException` for a null
+    /// value -- `bindNull(index, Class<*>)` is the only legal way to send SQL NULL. Reverting
+    /// `write_r2dbc_bind` to always emit `stmt.bind(...)` (dropping the `param.nullable` branch)
+    /// makes this assertion fail: it would produce `stmt.bind(0, name)` instead.
+    #[test]
+    fn test_write_r2dbc_bind_nullable_scalar_routes_through_bind_nullable_helper() {
+        let param = make_scalar_param("name", "String", "string", true);
+        let mut out = String::new();
+        write_r2dbc_bind(&mut out, "    ", 0, &param);
+        assert_eq!(out, "    bindNullable(stmt, 0, name, String::class.java)\n");
+    }
+
+    #[test]
+    fn test_write_r2dbc_bind_non_nullable_scalar_still_uses_plain_bind() {
+        let param = make_scalar_param("id", "Int", "int32", false);
+        let mut out = String::new();
+        write_r2dbc_bind(&mut out, "    ", 1, &param);
+        assert_eq!(out, "    stmt.bind(1, id)\n");
+    }
+
+    /// A nullable enum's bind expression is `field.value`; Kotlin refuses to compile a property
+    /// access on a nullable receiver without `?.`/`!!`, so this cannot route through
+    /// `bindNullable` at all -- it must stay an inline `if`/`else` that smart-casts `field` to
+    /// non-null in the `else` branch.
+    #[test]
+    fn test_write_r2dbc_bind_nullable_enum_checks_raw_field_before_value_access() {
+        let param = make_scalar_param("status", "UserStatus", "enum::user_status", true);
+        let mut out = String::new();
+        write_r2dbc_bind(&mut out, "    ", 2, &param);
+        assert_eq!(
+            out,
+            "    if (status == null) {\n        \
+             stmt.bindNull(2, String::class.java)\n    \
+             } else {\n        \
+             stmt.bind(2, status.value)\n    \
+             }\n"
+        );
+    }
+
+    fn make_query_with_mixed_nullability_params() -> AnalyzedQuery {
+        AnalyzedQuery::build(|q| {
+            q.name = "UpdateWidget".to_string();
+            q.command = QueryCommand::Exec;
+            q.sql = "UPDATE widgets SET name = $1 WHERE id = $2".to_string();
+            q.columns = vec![];
+            q.params = vec![
+                AnalyzedParam {
+                    name: "name".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: true,
+                    position: 1,
+                    ..Default::default()
+                },
+                AnalyzedParam {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    position: 2,
+                    ..Default::default()
+                },
+            ];
+            q.deprecated = None;
+            q.source_table = None;
+            q.composites = vec![];
+            q.enums = vec![];
+            q.optional_params = vec![];
+            q.group_by = None;
+            q.custom = vec![];
+        })
+    }
+
+    /// End-to-end check that the real `generate_query_fn` path (not just `write_r2dbc_bind` in
+    /// isolation) reaches the null-aware bind for a nullable parameter and leaves the
+    /// non-nullable one alone.
+    #[test]
+    fn test_generated_query_fn_binds_nullable_param_through_helper() {
+        let backend = crate::backends::get_backend("kotlin-r2dbc", "postgresql").unwrap();
+        let query = make_query_with_mixed_nullability_params();
+        let result = crate::generate_with_backend(&query, &*backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("bindNullable(stmt, 0, name, String::class.java)"),
+            "nullable param must bind through bindNullable, not a bare stmt.bind; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("stmt.bind(1, id)"),
+            "non-nullable param must still use plain stmt.bind; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("stmt.bind(0, name)"),
+            "nullable param must never reach a bare stmt.bind that would throw on null; got:\n{query_fn}"
+        );
+    }
+
+    /// The `bindNullable` helper itself must actually be emitted somewhere in the file, or the
+    /// call the test above found would fail to compile.
+    #[test]
+    fn test_query_class_header_emits_bind_nullable_helper() {
+        let backend = KotlinR2dbcBackend::new("postgresql").unwrap();
+        let header = backend.query_class_header();
+        assert!(
+            header.contains("private fun bindNullable(stmt: Statement, index: Int, value: Any?, type: Class<*>)"),
+            "query_class_header must declare the bindNullable helper; got:\n{header}"
         );
     }
 }

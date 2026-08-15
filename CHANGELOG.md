@@ -873,6 +873,17 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   `SELECT CAST(? AS CHAR) AS tag, name FROM users WHERE age = ?` bound the WHERE placeholder first.
   Projection is now analyzed before `WHERE`/`HAVING`, and the `Expr::Value` placeholder arm resolves
   through `resolve_placeholder_position` for both `$N` and `?`. (#170)
+- **`java-r2dbc` and `kotlin-r2dbc` threw `IllegalArgumentException` on any null argument.** R2DBC's
+  `Statement.bind(index, value)` rejects null outright — `bindNull(index, Class<?>)` is the only way
+  to send SQL NULL — and both backends emitted `bind` for every parameter regardless of nullability,
+  so a nullable parameter failed at the bind call rather than reaching the database. Ordinary
+  nullable parameters now route through a generated `bindNullable` helper; a nullable enum gets an
+  inline null check instead, because its bind expression calls `.getValue()`/`.value` on the field
+  and would throw before any helper could test it. Both PostgreSQL harnesses gained a call that
+  passes a real null, which is what makes the regression catchable: reverting the fix now fails them
+  with the driver's own "value must not be null". The `Batch` bind sites are untouched and still have
+  a separate pre-existing gap — a batch enum parameter binds the raw enum object with no
+  `.getValue()`/`.value` call.
 
 ### Added
 

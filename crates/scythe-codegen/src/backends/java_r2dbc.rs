@@ -383,6 +383,53 @@ fn r2dbc_bind_expr(param: &ResolvedParam) -> String {
     }
 }
 
+/// ~keep The `Class<?>` literal to hand `bindNull(index, Class<?>)` for a nullable, non-enum
+/// `param`. Reuses the same boxing rule `r2dbc_row_class` already applies to a read result --
+/// `Statement.bindNull` is generic in the same way `Row.get` is, so the boxed class is what the
+/// driver expects here too.
+fn r2dbc_bind_null_class(param: &ResolvedParam) -> String {
+    jvm_common::java_class_literal(box_primitive(&param.lang_type))
+}
+
+/// A private static helper nested in the generated `Queries` class (see
+/// [`JavaR2dbcBackend::query_class_header`]) that binds a nullable, non-enum parameter through
+/// whichever of `bind`/`bindNull` the value actually needs.
+///
+/// R2DBC's `Statement.bind(index, Object value)` rejects a null `value` outright --
+/// `bindNull(index, Class<?>)` is the only legal way to send SQL NULL (see `io.r2dbc.spi.Statement`
+/// javadoc). Every generated bind site used `bind` unconditionally before this fix, so any query
+/// called with a null argument for a nullable parameter threw `IllegalArgumentException` at the
+/// bind call, not at the database. Centralized here rather than open-coded at each call site so
+/// every ordinary nullable parameter routes through one `if`.
+const JAVA_R2DBC_BIND_NULLABLE_HELPER: &str = "    private static void bindNullable(Statement stmt, int index, \
+Object value, Class<?> type) {\n        if (value == null) {\n            stmt.bindNull(index, type);\n        } \
+else {\n            stmt.bind(index, value);\n        }\n    }";
+
+/// ~keep Emit one R2DBC bind statement for `param` at placeholder `index` on `stmt`.
+///
+/// A nullable enum parameter cannot route through [`JAVA_R2DBC_BIND_NULLABLE_HELPER`]: its bind
+/// expression calls `.getValue()` on the field itself (see [`r2dbc_bind_expr`]), and Java
+/// evaluates that call before the helper ever runs, so a null field would NPE on the way to the
+/// null check it was supposed to hit. It gets its own inline `if`/`else` instead, checking the raw
+/// field before `.getValue()` is ever called on it.
+fn write_r2dbc_bind(out: &mut String, indent: &str, index: usize, param: &ResolvedParam) {
+    let expr = r2dbc_bind_expr(param);
+    if !param.nullable {
+        let _ = writeln!(out, "{indent}stmt.bind({index}, {expr});");
+        return;
+    }
+    if param.neutral_type.starts_with("enum::") {
+        let _ = writeln!(out, "{indent}if ({} == null) {{", param.field_name);
+        let _ = writeln!(out, "{indent}    stmt.bindNull({index}, String.class);");
+        let _ = writeln!(out, "{indent}}} else {{");
+        let _ = writeln!(out, "{indent}    stmt.bind({index}, {expr});");
+        let _ = writeln!(out, "{indent}}}");
+    } else {
+        let class = r2dbc_bind_null_class(param);
+        let _ = writeln!(out, "{indent}bindNullable(stmt, {index}, {expr}, {class});");
+    }
+}
+
 /// ~keep Append an explicit `::<enum type>` cast to each PostgreSQL placeholder whose parameter
 /// is an enum.
 ///
@@ -477,6 +524,7 @@ impl CodegenBackend for JavaR2dbcBackend {
          import io.r2dbc.spi.ConnectionFactory;\n\
          import io.r2dbc.spi.Row;\n\
          import io.r2dbc.spi.RowMetadata;\n\
+         import io.r2dbc.spi.Statement;\n\
          import java.math.BigDecimal;\n\
          import java.time.LocalDate;\n\
          import java.time.LocalTime;\n\
@@ -493,6 +541,15 @@ impl CodegenBackend for JavaR2dbcBackend {
 
     fn file_footer(&self) -> String {
         "}\n".to_string()
+    }
+
+    /// See [`JAVA_R2DBC_BIND_NULLABLE_HELPER`]. Emitted unconditionally (every engine this
+    /// backend supports goes through R2DBC's `bind`/`bindNull` split) rather than gated on
+    /// whether any query in the file actually has a nullable parameter -- an unused private
+    /// static method is harmless, and gating it would need every call site to also thread
+    /// through whether it's needed.
+    fn query_class_header(&self) -> String {
+        JAVA_R2DBC_BIND_NULLABLE_HELPER.to_string()
     }
 
     fn generate_struct_decl(
@@ -544,9 +601,14 @@ impl CodegenBackend for JavaR2dbcBackend {
 
         let mut out = String::new();
 
-        let write_binds = |out: &mut String, indent: &str| {
+        let write_binds = |out: &mut String, prefix: &str| {
+            // ~keep Every call site passes indentation whitespace with a trailing "stmt" (the
+            // variable every bind targets) baked in, e.g. "            stmt" -- stripping it back
+            // off here means `write_r2dbc_bind` gets pure indentation without touching any of
+            // those call sites.
+            let indent = prefix.strip_suffix("stmt").unwrap_or(prefix);
             for (i, param) in params.iter().enumerate() {
-                let _ = writeln!(out, "{}.bind({}, {});", indent, i, r2dbc_bind_expr(param));
+                write_r2dbc_bind(out, indent, i, param);
             }
         };
 
@@ -968,7 +1030,7 @@ impl CodegenBackend for JavaR2dbcBackend {
         let _ = writeln!(out, "        conn -> {{");
         let _ = writeln!(out, "            var stmt = conn.createStatement(\"{sql}\");");
         for (i, param) in params.iter().enumerate() {
-            let _ = writeln!(out, "            stmt.bind({i}, {});", r2dbc_bind_expr(param));
+            write_r2dbc_bind(&mut out, "            ", i, param);
         }
         let _ = writeln!(out, "            return Flux.from(stmt.execute())");
         let _ = writeln!(
@@ -1044,11 +1106,13 @@ impl CodegenBackend for JavaR2dbcBackend {
 mod tests {
     use std::collections::HashMap;
 
-    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, GroupByConfig};
+    use scythe_core::analyzer::{
+        AnalyzedColumn, AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, GroupByConfig,
+    };
     use scythe_core::parser::QueryCommand;
 
-    use super::JavaR2dbcBackend;
-    use crate::backend_trait::CodegenBackend;
+    use super::{JavaR2dbcBackend, write_r2dbc_bind};
+    use crate::backend_trait::{CodegenBackend, ResolvedParam};
 
     fn make_grouped_query() -> AnalyzedQuery {
         let parent_cols = vec![
@@ -1265,6 +1329,125 @@ mod tests {
         assert!(
             def.contains("int internalId"),
             "composite field name must still camelCase a plain snake_case field; got:\n{def}"
+        );
+    }
+
+    fn make_scalar_param(field_name: &str, lang_type: &str, neutral_type: &str, nullable: bool) -> ResolvedParam {
+        ResolvedParam {
+            name: field_name.to_string(),
+            field_name: field_name.to_string(),
+            lang_type: lang_type.to_string(),
+            full_type: lang_type.to_string(),
+            borrowed_type: lang_type.to_string(),
+            neutral_type: neutral_type.to_string(),
+            nullable,
+        }
+    }
+
+    /// board #229: `Statement.bind(index, Object)` throws `IllegalArgumentException` for a null
+    /// value -- `bindNull(index, Class<?>)` is the only legal way to send SQL NULL. Reverting
+    /// `write_r2dbc_bind` to always emit `stmt.bind(...)` (dropping the `param.nullable` branch)
+    /// makes this assertion fail: it would produce `stmt.bind(0, name);` instead.
+    #[test]
+    fn test_write_r2dbc_bind_nullable_scalar_routes_through_bind_nullable_helper() {
+        let param = make_scalar_param("name", "String", "string", true);
+        let mut out = String::new();
+        write_r2dbc_bind(&mut out, "    ", 0, &param);
+        assert_eq!(out, "    bindNullable(stmt, 0, name, String.class);\n");
+    }
+
+    #[test]
+    fn test_write_r2dbc_bind_non_nullable_scalar_still_uses_plain_bind() {
+        let param = make_scalar_param("id", "int", "int32", false);
+        let mut out = String::new();
+        write_r2dbc_bind(&mut out, "    ", 1, &param);
+        assert_eq!(out, "    stmt.bind(1, id);\n");
+    }
+
+    /// A nullable enum's bind expression is `field.getValue()`; a `bindNullable(stmt, i, expr,
+    /// class)` call would evaluate that `.getValue()` before the helper ever ran, NPE-ing on a
+    /// null field on the way to the null check it needed. This must stay an inline `if`/`else`
+    /// that checks the raw field first.
+    #[test]
+    fn test_write_r2dbc_bind_nullable_enum_checks_raw_field_before_get_value() {
+        let param = make_scalar_param("status", "UserStatus", "enum::user_status", true);
+        let mut out = String::new();
+        write_r2dbc_bind(&mut out, "    ", 2, &param);
+        assert_eq!(
+            out,
+            "    if (status == null) {\n        \
+             stmt.bindNull(2, String.class);\n    \
+             } else {\n        \
+             stmt.bind(2, status.getValue());\n    \
+             }\n"
+        );
+    }
+
+    fn make_query_with_mixed_nullability_params() -> AnalyzedQuery {
+        AnalyzedQuery::build(|q| {
+            q.name = "UpdateWidget".to_string();
+            q.command = QueryCommand::Exec;
+            q.sql = "UPDATE widgets SET name = $1 WHERE id = $2".to_string();
+            q.columns = vec![];
+            q.params = vec![
+                AnalyzedParam {
+                    name: "name".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: true,
+                    position: 1,
+                    ..Default::default()
+                },
+                AnalyzedParam {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    position: 2,
+                    ..Default::default()
+                },
+            ];
+            q.deprecated = None;
+            q.source_table = None;
+            q.composites = vec![];
+            q.enums = vec![];
+            q.optional_params = vec![];
+            q.group_by = None;
+            q.custom = vec![];
+        })
+    }
+
+    /// End-to-end check that the real `generate_query_fn` path (not just `write_r2dbc_bind` in
+    /// isolation) reaches the null-aware bind for a nullable parameter and leaves the
+    /// non-nullable one alone.
+    #[test]
+    fn test_generated_query_fn_binds_nullable_param_through_helper() {
+        let backend = crate::backends::get_backend("java-r2dbc", "postgresql").unwrap();
+        let query = make_query_with_mixed_nullability_params();
+        let result = crate::generate_with_backend(&query, &*backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("bindNullable(stmt, 0, name, String.class);"),
+            "nullable param must bind through bindNullable, not a bare stmt.bind; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("stmt.bind(1, id);"),
+            "non-nullable param must still use plain stmt.bind; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("stmt.bind(0, name)"),
+            "nullable param must never reach a bare stmt.bind that would throw on null; got:\n{query_fn}"
+        );
+    }
+
+    /// The `bindNullable` helper itself must actually be emitted somewhere in the file, or the
+    /// call the test above found would fail to compile.
+    #[test]
+    fn test_query_class_header_emits_bind_nullable_helper() {
+        let backend = JavaR2dbcBackend::new("postgresql").unwrap();
+        let header = backend.query_class_header();
+        assert!(
+            header.contains("private static void bindNullable(Statement stmt, int index, Object value, Class<?> type)"),
+            "query_class_header must declare the bindNullable helper; got:\n{header}"
         );
     }
 }

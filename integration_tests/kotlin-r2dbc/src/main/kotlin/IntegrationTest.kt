@@ -79,6 +79,11 @@ fun main() {
         testGetUserOrders(cf)
         testCountUsersByStatus(cf)
         testSearchUsers(cf)
+        // ~keep Runs after every order-counting assertion and immediately before the delete that
+        // cleans both orders up: it adds a second order, and `orders.user_id` has no ON DELETE
+        // CASCADE, so it cannot run any later than this without stranding a row that DeleteUser
+        // would then trip over.
+        testCreateOrderWithNullNotes(cf)
         testDeleteOrdersByUser(cf)
         testDeleteUser(cf)
     }
@@ -186,6 +191,27 @@ suspend fun testCreateOrder(cf: ConnectionFactory) {
     }
 }
 
+// ~keep board #229: `notes` is a nullable String param bound through R2DBC's
+// `Statement.bind`/`bindNull` split. `Statement.bind(index, Any)` throws
+// `IllegalArgumentException` for a null value -- only `bindNull(index, Class<*>)` may send SQL
+// NULL -- so a generator that always emits `bind` regardless of nullability throws here, not at
+// the database, the moment a caller passes null. Every other harness call above always passes a
+// non-null literal for every nullable parameter, so none of them can catch that regression; this
+// is the one call in the file that actually exercises the null path.
+suspend fun testCreateOrderWithNullNotes(cf: ConnectionFactory) {
+    val name = "CreateOrderWithNullNotes"
+    try {
+        val order = createOrder(cf, createdUserId, BigDecimal("50.00"), null)
+        if (order.notes != null) {
+            fail(name, "expected notes null, got ${order.notes}")
+            return
+        }
+        pass(name)
+    } catch (e: Exception) {
+        fail(name, e)
+    }
+}
+
 suspend fun testGetOrdersByUser(cf: ConnectionFactory) {
     val name = "GetOrdersByUser"
     try {
@@ -281,8 +307,10 @@ suspend fun testDeleteOrdersByUser(cf: ConnectionFactory) {
     val name = "DeleteOrdersByUser"
     try {
         val count = deleteOrdersByUser(cf, createdUserId)
-        if (count != 1L) {
-            fail(name, "expected 1 deleted order, got $count")
+        // ~keep Two, not one: testCreateOrderWithNullNotes adds a second order just above.
+        // Asserting the exact count is what makes this the cleanup step for both.
+        if (count != 2L) {
+            fail(name, "expected 2 deleted orders, got $count")
             return
         }
         pass(name)
