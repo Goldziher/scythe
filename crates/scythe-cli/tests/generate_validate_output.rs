@@ -29,20 +29,28 @@ fn stderr(output: &Output) -> String {
 const SCHEMA_SQL: &str = "CREATE TABLE widgets (id bigint PRIMARY KEY, name text NOT NULL);\n";
 const QUERY_SQL: &str = "-- @name GetWidget\n-- @returns :one\nSELECT id, name FROM widgets WHERE id = $1;\n";
 
+/// Writes a minimal project targeting `backend` and returns the
+/// `scythe.toml` path.
+fn write_project(dir: &std::path::Path, backend: &str) -> String {
+    std::fs::write(dir.join("schema.sql"), SCHEMA_SQL).unwrap();
+    std::fs::write(dir.join("queries.sql"), QUERY_SQL).unwrap();
+    let config = format!(
+        "[scythe]\nversion = \"1\"\n\n\
+        [[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
+        schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n\
+        [[sql.gen]]\nbackend = \"{backend}\"\noutput = \"out\"\n"
+    );
+    let config_path = dir.join("scythe.toml");
+    std::fs::write(&config_path, config).unwrap();
+    config_path.to_string_lossy().into_owned()
+}
+
 /// Writes a minimal project targeting the `python-psycopg3` backend (its
 /// only real-tool checker is `poly`, wired through
 /// `scythe_codegen::validation::validate_python_tools`) and returns the
 /// `scythe.toml` path.
 fn write_python_project(dir: &std::path::Path) -> String {
-    std::fs::write(dir.join("schema.sql"), SCHEMA_SQL).unwrap();
-    std::fs::write(dir.join("queries.sql"), QUERY_SQL).unwrap();
-    let config = "[scythe]\nversion = \"1\"\n\n\
-        [[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
-        schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n\
-        [[sql.gen]]\nbackend = \"python-psycopg3\"\noutput = \"out\"\n";
-    let config_path = dir.join("scythe.toml");
-    std::fs::write(&config_path, config).unwrap();
-    config_path.to_string_lossy().into_owned()
+    write_project(dir, "python-psycopg3")
 }
 
 /// `scythe generate` without `--validate-output` must never run the
@@ -140,5 +148,41 @@ fn generate_validate_output_reports_skipped_when_the_tool_is_absent() {
         !err.contains("generated-code validation VALIDATED"),
         "a skip must never be reported as validated -- that is exactly the gate-that-cannot-fail \
          this flag exists to close; stderr: {err}"
+    );
+}
+
+/// `scythe generate --validate-output` against `rust-sqlx` -- a backend
+/// `validate_with_tools`'s trailing `_ => return ToolValidation::Unsupported`
+/// arm covers, i.e. one whose language was never wired to a real-tool
+/// checker at all -- must report SKIPPED and name the backend, regardless of
+/// what happens to be on `PATH`.
+///
+/// Distinct from `generate_validate_output_reports_skipped_when_the_tool_is_absent`
+/// above: that test exercises a backend *with* a validator whose tool is
+/// merely missing from `PATH`; this one exercises a backend with no
+/// validator wired up in the first place, which `ValidationOutcome::Unsupported`
+/// -- not `Passed` with an empty `tools_run` -- represents.
+#[test]
+fn generate_validate_output_reports_skipped_for_a_backend_with_no_validator() {
+    let dir = TempDir::new().unwrap();
+    let config_path = write_project(dir.path(), "rust-sqlx");
+
+    let output = scythe_bin()
+        .args(["generate", "--config", &config_path, "--validate-output"])
+        .output()
+        .expect("run scythe generate");
+
+    let err = stderr(&output);
+    assert!(
+        output.status.success(),
+        "a backend with no validator at all must not move the exit code; stderr: {err}"
+    );
+    assert!(
+        err.contains("generated-code validation SKIPPED (no tool-based validator for backend 'rust-sqlx')"),
+        "must name the backend and say no validator exists for it; stderr: {err}"
+    );
+    assert!(
+        !err.contains("generated-code validation VALIDATED"),
+        "a backend with no validator must never be reported as validated; stderr: {err}"
     );
 }

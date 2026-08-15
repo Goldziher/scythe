@@ -2815,6 +2815,26 @@ fn format_rust_code_if_possible(code: &str) -> String {
 mod tests {
     use super::*;
 
+    /// A real tool that finds a genuine problem must make
+    /// `report_generated_code_validation` return `true` -- the signal
+    /// `generate_for_backend`/`run_generate` use to move `generate`'s exit
+    /// code to 2 (board #231). Feeds syntactically invalid Python straight
+    /// in, rather than trying to coax `scythe generate` into emitting broken
+    /// code from valid SQL, so `poly`'s bundled `ruff` genuinely fails on
+    /// content this test controls directly.
+    #[test]
+    fn report_generated_code_validation_returns_true_on_a_real_tool_failure() {
+        let broken_python = "def broken(:\n    pass\n";
+
+        let failed =
+            report_generated_code_validation("main", Path::new("queries.py"), "python-psycopg3", broken_python);
+
+        assert!(
+            failed,
+            "a real tool failure must report true so the caller moves generate's exit code to 2"
+        );
+    }
+
     #[test]
     fn test_split_query_file_basic() {
         let content = "\
