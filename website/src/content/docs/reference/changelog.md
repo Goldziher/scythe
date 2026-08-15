@@ -7,6 +7,1245 @@ Scythe follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Ver
 
 For the latest changes, see the [CHANGELOG.md](https://github.com/Goldziher/scythe/blob/main/CHANGELOG.md) in the repository root.
 
+## [0.15.0] - 2026-08-15
+
+This release is mostly about checks that could not fail. A validator whose only callers were its own
+tests, an allowlist nobody reconciled, a CI step whose assertion was vacuous, a fixture that asserted
+only that *something* was generated — each one reported success while measuring nothing, and several
+had done so since the feature they guarded shipped. Auditing them found real defects underneath:
+generated Rust whose bytes depended on whether `rustfmt` happened to be on `PATH`, two queries whose
+names collapsed onto one function, a nested aggregate quietly degraded to an opaque string, and a
+`ruby-pg` signature promising a `Hash` for a value that was the driver's raw wire text.
+
+A second shape recurred often enough to name: the test that pins the bug. Several tests asserted the
+*defective* output verbatim, so they failed when someone fixed the thing they were named after. Those
+are inverted here, each with a doc comment stating what it now guards.
+
+Nullability, JVM enum round-trips, `?` placeholder counting and Oracle's LOB reads were all measured
+against live PostgreSQL, MySQL, MariaDB and Oracle rather than against scythe's own model. Four
+backends that had never executed anywhere — `kotlin-exposed` among them — now run in CI, and running
+them found seven defects no string-matching test could reach.
+
+**Upgrading**: three changes can turn a config that used to be accepted into an error. `[lint.sqruff]`
+is now actually read, so a table that was previously inert may now fail the run; keys in a `[[sql]]`
+block that scythe does not define are now rejected instead of ignored; and Ruby `.rbs` output changes,
+so committed signatures need regenerating. `scythe-codegen`'s public `generate_from_catalog` stub is
+also removed (#132) — a breaking change for any direct caller, though it had none in this repository.
+Two lint-crate suppression and audit APIs also changed shape (see **Fixed**): `SuppressionSet` is now
+keyed by statement index instead of source line, and `LintRule` gained `cwe()` / `is_applicable_to()`
+methods with safe defaults. `scythe-lint` also drops four `sqruff_adapter` free functions in favour of
+building a `SqruffLinter` once (see **Removed**). `scythe-core`'s public `CustomAnnotation` struct
+gained a `suggested_keyword: Option<String>` field (see **Fixed**, #152) — a breaking change for any
+direct caller that builds one by struct literal rather than through the parser. Details below.
+
+### Security
+
+- **`SC-RLS02` (`policy-always-permissive`) reported a deny-all RLS policy as granting
+  unconditional access.** `WITH CHECK (NULL)` / `USING (NULL)` reject every row — NULL is not
+  TRUE — but the rule's tautology check folded `NULL` in alongside `true` and `1=1`, so the most
+  restrictive policy possible was flagged at `error` severity with remediation advice ("replace
+  the tautology with an actual predicate") that would have *loosened* security in response to a
+  security finding. `NULL` is no longer treated as a tautology by this rule; `SC-CHK01`
+  (`check-constraint-always-true`), where `NULL` genuinely does satisfy a CHECK constraint, is
+  unaffected. (#139)
+- **Every Python integration harness created an order and never checked it was the one returned.**
+  `test_create_order` returns the new row's id, but `test_get_orders_by_user` ignored it and only
+  asserted the first result's `notes`, so a query that returned someone else's order (or the wrong
+  row) would still pass. `test_get_orders_by_user` now takes the created `order_id` and asserts it
+  is present in the returned rows, in all 13 Python harnesses. (#112)
+
+- **`java.java.jinja` and `kotlin.kt.jinja`'s non-postgresql engine branches were missing tests for
+  queries their own fixtures already defined.** GH #195/#196's parity gate (`10066723`) made the
+  drift visible via `test-parity-exemptions.txt` but left the 44 "never wired up" gaps open;
+  `UpdateUserEmail` and `SearchUsers` are now called from every engine branch in both templates,
+  `GetOrderTotal` from every branch that didn't already have it (duckdb, mssql, redshift,
+  snowflake, sqlite), and `ListActiveUsers` from redshift's. Redshift's `SearchUsers` and
+  `ListActiveUsers` queries filter by `status`, not a name `LIKE` pattern like every other engine —
+  its ported tests call them with a status value rather than `"%Alice%"`, matching what
+  `queries/users.sql` actually defines for that engine. The 44 closed exemption lines are deleted;
+  the 48 remaining entries are all structural (a `UserStatus` enum parameter or the nullable
+  composite-column read from board #197 with no per-engine equivalent) and are unchanged.
+
+### Added
+
+- **`kotlin-exposed` has a running integration project, and running it found seven defects.** The
+  backend had shipped since 0.6.0 with nothing ever executing its output, and none of the seven was
+  reachable by a string-matching test: the generated file declared no `package generated`, so any
+  caller importing it failed outright; an enum parameter was bound as the Kotlin enum object rather
+  than its SQL spelling; those parameters then needed an explicit `::<enum type>` cast, because
+  Exposed sends a typed `character varying` that PostgreSQL will not coerce to a user enum;
+  `:exec_rows` and `:exec_result` read a row count off `Transaction.exec`, which returns `Unit`, so
+  they never compiled; a `RETURNING` query ran as an `INSERT` and the driver raised "A result was
+  returned when none was expected", now fixed with an explicit `StatementType.SELECT`; the bind list
+  was an unannotated `listOf(...)` whose type inference collapsed on a heterogeneous parameter set;
+  and `UUIDColumnType` was emitted but never imported. The project runs 14 assertions in CI,
+  including the composite-escaping and nullable-enum reads. (#213, #214)
+
+- **`java-r2dbc` and `kotlin-r2dbc` have running integration projects on PostgreSQL.** Both backends
+  shipped with nothing executing their output, and running them found defects no string-matching
+  test could see: an enum parameter was bound as the Java/Kotlin enum object, which
+  r2dbc-postgresql cannot encode, and once bound as its SQL spelling the server rejected the
+  untyped `character varying` against a `user_status` column. Enum placeholders now carry an
+  explicit `::<enum type>` cast on PostgreSQL, so the generated code needs no `EnumCodec`
+  registration from the caller. The MySQL, MariaDB and SQLite pairs stay uncovered, each with a
+  measured reason recorded in `tools/integration-test-generator/coverage-exemptions.txt`.
+
+- **`php-amphp` on MySQL and `typescript-kysely` on Redshift now have integration projects that
+  actually run in CI.** Both manifests shipped with nothing exercising them. `php-amphp-mysql`
+  immediately found two real defects — the harness's `MysqlConfig::fromArray()` does not exist, and
+  the generated pool type made `LAST_INSERT_ID()` unreliable (see **Fixed**) — which is the whole
+  point of the exemption list these two came off. `typescript-kysely-redshift` gates the queries
+  Redshift's fixture does not define and reads `status` as a varchar rather than an enum, matching
+  what the `pg` and `postgres` drivers already did for that engine.
+
+- **`rust-tokio-postgres` can read and write range columns.** The manifest previously declared no
+  `range` mapping at all, because `postgres-types` ships no `Range<T>` with a `FromSql`/`ToSql`
+  impl the way `sqlx-postgres` does, and the mapping it used to carry (`String`) could not decode:
+  `String`'s `accepts()` matches no range OID, so `row.get` panicked before `from_sql` ran. The
+  backend now emits a hand-rolled `PgRange<T>` built on `postgres_protocol::types::range_from_sql`
+  / `range_to_sql` — the same wire-format primitives `postgres-types` uses internally for arrays —
+  gated on a generated fragment actually naming `PgRange<`, so a file with no range column does not
+  carry it. `Empty` is a distinct variant from a fully-unbounded range rather than collapsed into
+  it, because the two are different values on the wire and collapsing them would make an empty
+  range decode as if it contained everything. Verified against live PostgreSQL across bounded,
+  empty, unbounded and both binding directions; note that no schema in this repository has a range
+  column yet, so no CI job compiles the emitted wrapper. (unfiled)
+
+- **Integration coverage for nullable enum and nullable composite columns.** No integration project
+  had ever selected a composite column, so the entire runtime read path was unexercised while
+  codegen compiled green. The PostgreSQL schema gains a `user_address` composite and two nullable
+  columns, and a `GetUserProfile` query asserts both a present value and a SQL NULL — the shape
+  that catches a reader which decodes NULL as a zero-valued variant or an all-default struct.
+
+  Running it revealed that composite decoding is implemented in only four of the fifteen PostgreSQL
+  backends: `rust-sqlx` and `rust-tokio-postgres`, which get it from their drivers' derive macros,
+  and `java-jdbc` and `kotlin-jdbc`, which parse the composite text form. In the other eleven the
+  generated row type declares the composite struct while the driver's raw value is assigned straight
+  through, so the annotation is wrong at runtime — `php-pdo`, `php-amphp` and `csharp-npgsql` throw,
+  and `python-psycopg3`, `python-asyncpg`, the `typescript-pg` family, `ruby-pg`, `elixir-postgrex`,
+  `elixir-ecto` and `go-pgx` return a raw string, a driver record, or `undefined` with no error at
+  all. The new assertions are therefore scoped to the four backends that work, with each excluded
+  language's template carrying a note to restore them once that backend learns to parse a composite,
+  so the gap is explicit rather than a green suite that proves nothing. (unfiled)
+
+- **`scythe inspect` now has a real MySQL/MariaDB driver.** Live inspection was PostgreSQL-only;
+  every other engine fell through to a stub that reported itself as `mysql` regardless of what the
+  user asked for. `MySqlDriver` (backed by `mysql_async`) ships four checks driven by its own
+  `mysql/checks.toml`, merged into the canonical registry alongside PostgreSQL's: `SC-INS-MY01`
+  (no primary key), `SC-INS-MY02` (duplicate index), `SC-INS-MY03` (`AUTO_INCREMENT` past 70% of its
+  type range), `SC-INS-MY04` (`MEMORY` storage engine). The two check sets are deliberately not
+  symmetric — PostgreSQL's row-level-security, extension and `SECURITY DEFINER` search-path checks
+  have no MySQL equivalent and are not approximated — and `verify_queries` stays PostgreSQL-only
+  because it depends on the extended-query protocol's describe response. SQLite, MSSQL, Oracle,
+  Snowflake and Redshift still get `UnsupportedDriver`, which names the engine the user actually
+  asked for and refuses rather than returning an empty finding set. (#131, partial)
+
+- **`scythe generate --validate-output`** runs the generated code through the real compiler or linter
+  for its language and reports, per target, whether it was `VALIDATED`, `SKIPPED`, or `FAILED`.
+  `validate_generated_code` previously had no production caller at all — every call site outside
+  `validation.rs` was a test — so `generate` never checked its own output. Off by default because it
+  shells out to toolchains that may not be installed. A run where the validator found no tool to
+  invoke is reported as `SKIPPED`, never as success: reporting it as validated would recreate the
+  unfalsifiable gate the flag exists to close. A `FAILED` target exits 2, matching the exit-code
+  contract `check`/`lint`/`fmt --check` follow, where exit 1 stays reserved for operational failure.
+  (unfiled)
+
+- **DuckDB integration coverage.** `python-duckdb`, `typescript-duckdb`, `java-jdbc-duckdb` and
+  `kotlin-jdbc-duckdb` now run in a new `integration-duckdb` CI job, against the schema and query
+  set added earlier in this release. DuckDB is embedded, so the job needs no service container.
+  `go-database-sql-duckdb` exists and its harness is written, but stays exempt: `go-duckdb` cannot
+  bind a nil pointer, and the backend emits `*T` for a nullable parameter, so any NULL argument
+  fails at runtime — measured against the driver, tracked as board #228. (#126)
+
+- **`scythe-inspect` can read a SQLite or MySQL catalog.** A new `SchemaCatalogDriver` trait gives
+  catalog reading the engine seam it never had — `fetch_live_schema` was a bare function hardcoded to
+  `tokio_postgres::Client`. `SqliteCatalogSource` reads `sqlite_master` plus `PRAGMA table_info` and
+  needs no server, so it is tested in-process; `MySqlCatalogSource` reads `information_schema`, with
+  live tests gated the way the PostgreSQL ones already are. `ColumnDescription` gained `primary_key`.
+  At the time this landed, the `SC-INS` health checks were still PostgreSQL-only hand-written
+  `pg_catalog` SQL and the CLI was not wired to either source, so `scythe inspect`'s user-facing
+  behaviour was unchanged — MySQL/MariaDB got a real `SC-INS` driver and honest CLI dispatch
+  separately (see the "`scythe inspect` now has a real MySQL/MariaDB driver" entry above). What this
+  entry's `SchemaCatalogDriver` sources still are not wired into is schema drift: nothing yet feeds
+  `SqliteCatalogSource` or `MySqlCatalogSource` output into `diff_schemas` the way `fetch_live_schema`
+  is for PostgreSQL, so drift detection stays PostgreSQL-only.
+- **Generated Python and PHP are type-checked in CI.** A new `validate-generated-types` job installs
+  each project's real driver, then runs `pyrefly check -p strict` over five Python backends and
+  PHPStan over both PHP ones. Every step was proven able to fail by injecting a defect first. The
+  `strict` preset is load-bearing — pyrefly's default `basic` preset misses a wrong return-type
+  annotation entirely — and the job already catches one real pre-existing bug. Ruby and Elixir were
+  investigated and deliberately left out rather than given a step that cannot fail: no Ruby driver
+  has signatures in `gem_rbs_collection` (and `rbs validate` returns 0 even for a nonexistent class),
+  and Dialyzer needs `dialyxir`'s translation layer, which no integration project depends on.
+
+### Fixed
+
+- **The java/kotlin engine-test-parity gate never measured five of its twelve branches, and one
+  measured branch silently overwrote another's count.** `branch_test_names` only recognised a
+  top-level `if`/`elif engine == "..."` line, so `driver == "r2dbc"`-conditioned branches and
+  `backend == "kotlin-exposed"` were invisible to it entirely — 21 java and 35 kotlin test
+  functions sat outside every window it built and were excluded from every comparison without a
+  trace, leaving `integration_tests/java-r2dbc`, `kotlin-r2dbc`, and `kotlin-exposed` with zero
+  parity coverage. Separately, a nested column-0 `{% if engine == "mariadb" %}` inside
+  `kotlin.kt.jinja`'s r2dbc branch was mistaken for a real top-level branch, and its measured test
+  set was overwritten by the real `mariadb` branch's via a plain `BTreeMap::insert` with no
+  warning. Branch discovery now derives a key from every quoted literal a top-level condition
+  compares against (`r2dbc-postgresql`, `r2dbc-mysql-mariadb`, `kotlin-exposed`, alongside the
+  existing per-engine keys), a duplicate derived key is now a hard `panic!` naming both branch
+  starts instead of a silent overwrite, and a new assertion fails if any test function falls
+  outside every measured branch range. The newly measured `kotlin-exposed` gap was closed by
+  renaming a test to match its postgresql counterpart; the remaining genuine gaps (all in the two
+  `r2dbc` branches, one of which — mysql/mariadb — has no generated project to run it) are recorded
+  in `test-parity-exemptions.txt` with reasons specific to why porting isn't safe or possible yet,
+  taking that file from 48 entries to 60. (#195)
+
+- **`ruby-pg` declared a `json`/`jsonb` column `Hash` in its `.rbs` but never decoded it.**
+  `ruby-pg.toml` maps `json = "Hash"`, but `ruby_coercion` had no arm for it, so the generated
+  `.rb` code read the bare `row["col"]` — the `pg` gem does no client-side JSON decoding, so
+  that value was the raw wire-format `String`, contradicting the `Hash[String, untyped]` its
+  own `.rbs` signature promised. This is the `json` sibling of #198's `decimal` bug, left open
+  when that fix only covered `BigDecimal`. `ruby_coercion` now wraps a `json`/`json_array`
+  column's value in `JSON.parse(...)`, gated behind a conditional `require "json"` the same way
+  `.to_d` gates `require "bigdecimal/util"`. `json_array` (the `json_agg` array shape) is a new
+  manifest scalar mapped to `Array`, so a degraded nested aggregate keeps declaring an `Array`
+  instead of falsely claiming `Hash`. (#147)
+
+- **`php-amphp` typed its handle as `SqlConnectionPool`, which made MySQL's generated
+  `LAST_INSERT_ID()` lookups unreliable.** Every generated function took
+  `\Amp\Sql\SqlConnectionPool`, so a single `MysqlConnection` was rejected outright — but a pool is
+  the wrong thing to pass on MySQL: `GetLastInsertUser` resolves `LAST_INSERT_ID()`, which is scoped
+  to the connection that ran the `INSERT`, so the pool routes the follow-up `SELECT` to a different
+  connection and it finds no row. The parameter is now `\Amp\Sql\SqlExecutor`, the narrowest
+  interface carrying the `prepare()` the generated code actually calls; both the pool and the bare
+  connection implement it on PostgreSQL and MySQL alike. This is a widening — callers already
+  passing a pool are unaffected. Found by running the new `php-amphp-mysql` integration project.
+
+- **`go-database-sql` on DuckDB failed at runtime on every nullable parameter.** The manifest maps a
+  nullable parameter to `*{T}`, and `go-duckdb` cannot bind a typed pointer at all: measured against
+  v2.3.3, both a nil and a *non-nil* `*string` fail with `could not bind parameter / unsupported data
+  type: unknown type`, while an untyped nil and a bare value both bind. So this was never limited to
+  NULL arguments — any query with a nullable parameter was unusable. Pointer-typed arguments are now
+  dereferenced at the bind site (nil becoming an untyped nil) by a generated helper, leaving the
+  public function signature unchanged. The other `database/sql` engines bind pointers natively and
+  are untouched. `go-database-sql-duckdb` now runs in the `integration-duckdb` CI job, which is what
+  surfaced this. (#228)
+
+- **`ruby-oci8` handed back a LOB locator where the generated row type declared a `String`.**
+  OCI8 returns a lazy `OCI8::CLOB` / `NCLOB` / `BLOB` / `BFILE` handle rather than a materialized
+  value, so a LOB-backed field held the locator instead of its contents. Both CLOB and VARCHAR2
+  resolve to the neutral type `string` (and BLOB and RAW to `bytes`), so nothing at the neutral
+  level could tell them apart — the fix dispatches on the column's raw `sql_type`, matching what
+  `rust_sibyl.rs` already does for the same problem on the same engine. Applied at all seven
+  column-read sites, deliberately **not** to the grouped-query grouping key: a LOB's read position
+  hits EOF after the first `#read`, so wrapping the key would blank the field read afterwards.
+  Found by `ruby-oci8-oracle`'s first CI run that got far enough to execute queries. Its step is
+  restored and now runs last in the Oracle job, so a failure there costs only its own coverage.
+  Applied to the `cursor.fetch` reads only: a `RETURNING ... INTO` output bind is declared to OCI8
+  up front as `bind_param(n, nil, String)` and OCI8 materializes the value into that class, so
+  `cursor[n]` there is already a `String` and wrapping it raised `undefined method 'read' for an
+  instance of String` in `create_order`. The test covering that path had asserted the wrapped
+  spelling, so it guarded the defect instead of against it; it is inverted. (#225)
+
+- **`ruby-oci8` called a cursor method on an integer for `:exec_rows` and `:exec_result`.**
+  `OCI8#exec` is polymorphic in its return: an `OCI8::Cursor` for a `SELECT`, but the number of
+  rows processed — a plain `Integer` — for `INSERT`/`UPDATE`/`DELETE`. The generated code bound the
+  result and called `.row_count` on it, which is a `Cursor` method, so `delete_orders_by_user`
+  raised `undefined method 'row_count' for an instance of Integer`. For DML the count is already
+  the return value. Surfaced by the Oracle CI job only after the LOB fix above let it run that
+  far. (#225)
+
+- **A harness executing the shared schema could send several statements as one.** Every generated
+  harness splits `schema.sql` on `;` and runs the fragments; the split was not SQL-aware, so a
+  semicolon inside a string literal or a `$$`-quoted body split mid-statement. All eight templates
+  now split with a small state machine that tracks `'...'`, `"..."`, `$$...$$` **and `--` line
+  comments** — the last of those is not optional: without it an apostrophe in a comment
+  (`schema.sql's`) opens a phantom literal and swallows every following semicolon, which is
+  strictly worse than the naive split it replaced. Block comments are not handled, and each
+  splitter says so; no schema under `integration_tests/sql/` uses them. (#224)
+
+- **`csharp` and `elixir` harnesses printed `PASS` for a test whose assertions had just failed.**
+  Same defect fixed for typescript in this release. `python`, `php` and `ruby` turned out **not**
+  to share it — their assertion helpers raise or throw, so the `PASS` line after a failure is
+  unreachable — and `go`, `java` and `kotlin` already use a passed/failed counter. In every case
+  the run still exited non-zero; the damage was to whoever reads the log. (#227)
+
+- **`elixir-jamdb` generated code could not run at all.** Four independent defects, each hidden
+  behind the last, found by giving `elixir-jamdb-oracle` its first CI step and then fixed and
+  verified against a local Oracle 21c:
+
+  - Every generated function called `Jamdb.Oracle.query/3` on the value `Jamdb.Oracle.start_link/1`
+    returns. That is a `DBConnection` **pool**, and `query/3` sends a `{:sql_query, ...}`
+    `GenServer` call only a raw connection process answers, so the first call raised
+    `FunctionClauseError`. The backend's own `@spec` already said `DBConnection.conn()`. Queries now
+    execute through `DBConnection.execute/3`.
+  - `DBConnection.execute/3` returns `{:ok, query, result}`, so every result match gained the
+    middle element.
+  - **`RETURNING ... INTO` returns rows column-wise** — one single-element list per OUT parameter.
+    `INSERT ... RETURNING id, name INTO :2, :3` yields `%{rows: [[1], ["Alice"]]}`, not
+    `[[1, "Alice"]]`, so the old `[row | _]` match bound only the first column and destructured it
+    across every field. A plain `SELECT` is row-wise, so only the `RETURNING` path transposes.
+  - jamdb returns an Oracle `NUMBER` as an Elixir **float** whatever its scale — `1.0` for an
+    integer key, `99.99` for a `NUMBER(10,2)` — while the manifest declares those columns
+    `integer()` and `Decimal.t()`. `Decimal.equal?/2` rejects a float outright, which is how this
+    surfaced; the integer case was quieter and merely wrong. Numeric columns are now converted to
+    the type the struct declares.
+
+  `elixir-postgrex` and `elixir-ecto` were unaffected throughout. The CI step is restored, and
+  `elixir-jamdb-oracle` now passes end-to-end. (#223)
+
+- **A composite value containing a double quote came back truncated, with every field after it
+  shifted.** PostgreSQL's `record_out` escapes a literal `"` inside a quoted composite field by
+  *doubling* it (`ROW('he said "hi"', 'back\slash')` renders as `("he said ""hi""","back\\slash")`),
+  but every composite text parser scythe emits recognized only the backslash spelling. On a doubled
+  quote each one took the first `"` for the field's closing quote — truncating that field's value and
+  then resynchronizing on the wrong character, so unrelated later fields silently received wrong
+  values. Fixed in all nine emitted parsers (`java-jdbc`, `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`,
+  `kotlin-exposed`, `python-psycopg3`, `typescript-pg`, `typescript-postgres`, `typescript-kysely`);
+  the five JVM ones shipped with the defect, the rest inherited it from `java_jdbc.rs` as the model.
+  Covered by `composite_text_escaping_regression.rs`, which runs the emitted python parser against
+  the exact text PostgreSQL 16 produced. (#204)
+
+- **A nullable composite column decoded to the driver's raw value while the generated type claimed
+  otherwise.** `python-psycopg3` and `python-asyncpg` declared `address: UserAddress | None` and the
+  three typescript backends declared the composite interface, but all five assigned the driver's raw
+  value straight through — a `str` for psycopg3, an `asyncpg.Record` for asyncpg, `undefined` fields
+  for the typescript drivers. psycopg3 and typescript now parse PostgreSQL's composite text form
+  through a generated `_from_text` / `parse{Name}`; asyncpg reads the `Record` it already decodes
+  through `_from_record`. A nullable enum column likewise now reads as `None if raw is None else T(raw)`
+  rather than calling the enum constructor on `None`. Verified live against PostgreSQL 16, which is
+  how the defect was found in the first place.
+
+  The remaining seven PostgreSQL backends are now fixed too, each according to what its driver
+  actually does — established by reading the vendored driver source rather than assuming:
+  `elixir-postgrex` and `elixir-ecto` get a `from_tuple` conversion, because Postgrex already
+  decodes a composite into a natively-typed positional tuple and never hands back text; `ruby-pg`,
+  `php-pdo`, `php-amphp`, `csharp-npgsql` and `go-pgx` get a text parser, because their drivers do
+  hand back `record_out` text. `csharp-npgsql` additionally sets `UnknownResultTypeList` for the
+  composite column, since Npgsql's native `MapComposite<T>` needs a registration the generated code
+  cannot perform on the caller's behalf; `go-pgx` is the same story for pgx's type map. PHP's parser
+  is emitted once per file as a shared class rather than copied into each composite. (#204)
+
+  All seven integration harnesses now select a composite column and assert on it — a present value,
+  a SQL NULL, a nullable enum, and a field containing `"` and `,`. That last case is the one that
+  matters: an assertion using only plain values passes identically against the pre-fix parser, which
+  is how the doubled-quote defect survived in nine backends. Confirmed falsifiable by reverting the
+  fix in `ruby-pg` and watching the new assertion catch it —
+  `expected "12 \"Main\", Apt 3", got "12 "`. (#204, #226)
+
+- **The generated python composite parser did not type-check, and cast a NULL sub-field away.**
+  `_from_text` fed `_parse_composite_fields`' `str | None` tokens straight into fields declared
+  `str`, which pyrefly rejects — and PostgreSQL does permit a NULL sub-field, so the value really
+  can arrive. Silencing the checker with a cast would have traded a type error for a value that
+  lies at runtime, so the str-typed fields now route through a `_require_composite_field` guard that
+  raises naming the field that was NULL. asyncpg's `_from_record` also gained an `Any` annotation on
+  its `record` parameter, which pyrefly rejected outright as unannotated. (#204)
+
+- **A composite whose field named another composite emitted the two definitions in the wrong order.**
+  The analyzer discovers composites breadth-first, so a type reached only through another composite's
+  field list landed *after* the type that references it. Languages whose declarations hoist never
+  noticed; python evaluates `@dataclass` annotations when the class body runs, so the generated module
+  raised `NameError` on import. Definitions are now emitted in dependency order. (#204)
+
+- **Four integration projects had their generated output checked for freshness but never executed.**
+  `elixir-jamdb-oracle` and `ruby-oci8-oracle` now run in `integration-oracle`, `kotlin-jdbc-ext` and
+  `php-pdo-namespace` in `integration-pg`. Each already had a `test:*` Taskfile target and needed no
+  new infrastructure — only the missing workflow step. `php-pdo-snowflake` stays exempt, with its
+  reason corrected: `pdo_snowflake` ships as neither a PECL nor an apt package and must be built from
+  source against Snowflake's C driver, which is infrastructure work rather than a missing step. This
+  is the gap that let the csharp-snowflake parameter-binding bug survive from v0.6.0 to 0.14.0. (#118)
+
+- **A semicolon inside a SQL comment broke every harness that executes the shared schema.** Each
+  generated harness runs `sql/<engine>/schema.sql` by splitting it into single statements on the
+  semicolon character, and that split is not comment-aware — so a semicolon inside a `--` comment
+  ended the fragment there and left the rest of the comment line to be sent as bare SQL.
+  `elixir-postgrex` failed with `ERROR 42601 syntax error at or near "this"`. Only elixir surfaced
+  it, because the postgres job fails fast and the harnesses ahead of it happen not to split that
+  schema. The comment is rewritten and a `schema_sql_comments_contain_no_semicolon` generator test
+  now enforces the fixture side of the contract; the naive splitting itself is tracked separately.
+
+- **`ruby-oci8`'s teardown called a method that does not exist.** The generated harness ended with
+  `conn&.close`, but `OCI8` disconnects via `#logoff` — so the `ensure` block raised
+  `NoMethodError` and masked whatever the real failure had been.
+
+- **Generated Ruby raised `LoadError` on Ruby 3.4+.** `bigdecimal` stopped shipping as a default gem
+  in Ruby 3.4.0, and `ruby-pg`, `ruby-mysql2` and `ruby-trilogy` emit `require "bigdecimal/util"`
+  whenever a query's generated code applies `.to_d` to a `decimal` column — so on 3.4 that `require`
+  failed unless something else in the bundle happened to depend on the gem. The generated `Gemfile`
+  for those three drivers now declares `bigdecimal` explicitly. `ruby-oci8` declares it too, for a
+  second and independent reason: ruby-oci8's own `lib/oci8/bindtype.rb` requires `bigdecimal` lazily
+  when it decodes an Oracle `NUMBER` column and does not declare that dependency in its gemspec, so
+  reading any numeric column raises `LoadError` regardless of what scythe emits. `ruby-sqlite3` and
+  `ruby-tiny-tds` need neither and are unaffected. CI pinned Ruby 3.3 — a version predating the
+  change — so it structurally could not observe any of this; the integration workflow now pins 3.4.
+
+- **An enum reachable only through an array column generated with no variants.** The analyzer's
+  enum-discovery loop matched the bare `enum::x` neutral type, so a column typed `mood[]` — neutral
+  type `array<enum::mood>` — was never recognized as referencing `mood`. `scythe-codegen`, which
+  unwraps containers on its own, then found the type reachable but had no `EnumInfo` for it and fell
+  back to a stub with an empty variant list, emitting an enum declaration with no variants. (#165)
+
+- **An explicit but empty `[sql.gen]` table silently generated a `rust-sqlx` target.** A legacy
+  `[sql.gen]` block naming none of `rust`/`python`/`typescript`/`go`/`kotlin` resolved to a default
+  `rust-sqlx` target rather than an error — the same silent-fallback shape #97 removed for an
+  *unresolvable* target, left open for a block that resolves to *nothing*. Omitting the `gen` key
+  entirely still defaults to `rust-sqlx`, which is documented and intended. (#165)
+
+- **A `derive` backend option repeating a base derive produced code that would not compile.**
+  `SqlxBackend::derive_line` appended every `extra_derives` entry unconditionally, so naming `Debug`
+  (always in the base set) or `serde::Serialize` alongside `serde = true` emitted a duplicate derive
+  token — `E0119`, conflicting trait implementations, in the generated file. (#165)
+
+- **A typo'd case name in a `[naming]` manifest overlay installed silently.** `apply_case` passes an
+  unrecognized case name through unchanged, which is safe for the compiled-in manifests but not for an
+  overlay, the one path a case name reaches it from outside. `struct_case = "PascalCse"` was accepted
+  and then emitted every affected identifier uncased. Overlays are now validated against the four real
+  case names. (#165)
+
+- **`scythe lint <file>` ignored `[lint.sqruff]`.** Explicit-file mode built its sqruff linter with
+  `None` in place of the config's rule table, unconditionally — the same gap #206 closed for `fmt`,
+  left open in `lint`. A `[lint.sqruff]` that config-mode `lint` rejects was silently accepted when
+  the same config was paired with a file argument. (#206)
+
+- **A `column = "table.col"` override that could only ever match a *parameter* was never flagged.**
+  The unmatched-override preflight built its known-references set from columns alone, so a qualified
+  override naming a real parameter reference but no column passed silently — as did a typo'd one,
+  since neither could be distinguished from an override that simply never fires. `resolve::param_references`
+  is now chained into the same set, feeding the existing diagnostic rather than adding a second. (#189)
+
+- **`SC-PRV09`, `SC-PRV10`, `SC-PARSE01` and `SC-PARSE02` could not be configured, counted, or
+  discovered.** All four were ad hoc `Error`-severity findings `scythe-cli` constructed directly at
+  the point of failure (an unconstructable `[[sql.gen]]` target, a query file with zero recognized
+  blocks, a query that fails to parse, a query that fails semantic analysis), never as registered
+  `LintRule`s — so `[lint.rules]` and `[lint.categories]` had no effect on any of the four, and the
+  documented "8 provenance rules" undercounted the 11 that actually exist by two. `SC-PRV09`
+  (`gen-target-invalid`) and `SC-PRV10` (`empty-query-file`) now join `SC-PRV01`-`08`/`SC-PRV11` in
+  `scythe_lint::provenance_registry`; `SC-PARSE01` (`unparseable-query`) and `SC-PARSE02`
+  (`unanalyzable-query`) get a new `scythe_lint::parse_registry` and `RuleCategory::Parse`, since they
+  fire from `check`, `lint`, and `audit` alike rather than a single check-time command. All four are
+  zero-behavior `LintRule`s exactly like the rest of the provenance family: the finding itself is
+  still built where the failure is detected, but its severity is now resolved from the registry
+  instead of hardcoded. (#216)
+
+- **A schema-qualified enum or composite generated two different names for the same type.** The
+  declaration side spelled the type through `enum_type_name` / `composite_type_name`, which strip
+  characters an identifier cannot hold; the reference side — the type as it appears in a column,
+  parameter or composite-field annotation — called `to_pascal_case` directly. So
+  `CREATE TYPE app.point` was declared as `AppPoint` and referred to as `App.point`, a `.` inside
+  a type position that no target language parses, and the reference never matched the declaration
+  it named. Both paths now share one helper. The same call also hardcoded PascalCase instead of
+  honouring the manifest's `struct_case`; that half was latent only because all manifests currently
+  set PascalCase, and is fixed alongside. Separately, the composite declaration itself inlined
+  `to_pascal_case(&composite.sql_name)` in roughly sixty backend call sites rather than sharing one
+  place, including five nested-composite reference sites that disagreed with their own declaration.
+  (unfiled)
+
+- **A composite reachable only as another composite's field was never emitted.** The analyzer
+  collected composites by scanning selected columns and nested field types, and never looked inside
+  a composite's own fields, so selecting a column whose type nests another composite produced code
+  referring to a type that was never defined. Codegen gated emission on the same incomplete check,
+  so collecting it in the analyzer alone would not have been enough. Both now walk the full
+  reachability closure, with a visited set that also serves as the diamond and cycle guard. This
+  was documented as a known gap when the JVM composite reader landed; it is now closed. (unfiled)
+
+- **A qualified `column = "table.col"` type override was silently ignored for parameters outside
+  `SELECT *`.** The per-parameter match key was built from a query-level table name that only ever
+  exists for a single-table `SELECT *`, so on any explicit select list the override matched nothing
+  and was dropped without a word — the parameter half of the defect whose column half was fixed
+  earlier. Parameters bound by a direct `col op $N` comparison now carry their own owning relation,
+  taken from the real table name rather than an alias. Parameters with no single owning column (an
+  `IN` list, a `LIKE` pattern, a literal comparison) deliberately carry none and keep their previous
+  behaviour rather than guessing. (#189)
+
+- **Every JVM backend read a composite column through `getObject(col, T.class)`, which throws at
+  runtime.** pgjdbc registers no type map for a user-defined composite, so `PSQLException:
+  conversion to class T ... not supported` was raised the first time any generated JVM reader
+  touched one — code that compiled and then failed on first use. Composites now read as text and
+  parse through a generated `fromText` factory implementing PostgreSQL's composite text-form rules:
+  an empty unquoted field is NULL, a field needing quoting is wrapped in `"` with `"` and `\`
+  backslash-escaped inside, and a nested composite arrives quoted and recurses. Five assertions that
+  pinned the broken `getObject` shape as correct were inverted. Still unhandled and documented
+  rather than dropped: array-typed composite fields, per-field NULL into a primitive-typed field,
+  and a composite reachable only as another composite's field, which the analyzer never collects.
+  (unfiled)
+
+- **`rust-tokio-postgres` could not bind or read a composite column at all.** The generated struct
+  derived neither `ToSql` nor `FromSql`, so `row.get` and the bind path both failed to resolve.
+  Composites now derive `postgres_types::ToSql`/`FromSql` with `#[postgres(name = "...")]`, since
+  postgres-derive matches the Postgres type name exactly while scythe PascalCases the identifier.
+  `postgres-types` is a transitive dependency of `tokio-postgres`, but its `derive` feature is not
+  forwarded, so it is now declared directly in the integration scaffolding. (unfiled)
+
+- **A `column = "table.col"` type override was a silent no-op unless the query was `SELECT *`.**
+  Column resolution built one qualified name from a query-level source table populated only for a
+  star expansion, so an explicit select list had nothing to qualify against. Columns now carry their
+  own source relation — the real table name, not the alias — and `None` where there genuinely is
+  one (a computed expression, literal, or function result). Two silent halves went with it: a
+  combined `column` + `db_type` entry returned `false` the moment `column` missed instead of falling
+  through to `db_type`, and an override matching nothing produced no diagnostic whatsoever. It is
+  now a hard error before generation starts. A qualified override on a *parameter* is still inert
+  outside `SELECT *`; that needs analyzer work and is tracked, not quietly half-fixed. (#189)
+
+- **A schema-qualified table emitted a `.` inside its model struct name.** `SELECT * FROM
+  app.widgets` produced `pub struct App.widget`, the same defect fixed for enums earlier. Row struct
+  names are unaffected — `@name` is already restricted to ASCII identifier characters, verified
+  rather than assumed. Separately, two different queries in one output file whose generated types
+  collapse onto one identifier emitted two declarations of that name; collisions are now keyed by
+  name *and* rendered body, so the identical-body case remains the intended dedupe. Composite struct
+  names still carry the dot bug across 56 inlined call sites and are tracked separately. (#136)
+
+- **`scythe migrate` passed a malformed annotation straight through and still reported success.** A
+  wrong-case return-type keyword, a missing return type, or whitespace inside `sqlc.arg( name )`
+  missed the strict pattern and was emitted unconverted. Malformed input is now reported, and the
+  final output is scanned for residual `sqlc.arg(`/`sqlc.narg(`. (#152, partial)
+
+- **`scythe lint` and `scythe audit` accepted an unknown `[[sql]] engine` and silently analyzed it as
+  PostgreSQL.** `SqlDialect::from_str(&engine).unwrap_or(SqlDialect::PostgreSQL)` in both
+  `lint_cmd.rs` (config mode and explicit-file mode, two separate call sites) and `audit.rs`
+  (config mode) turned a typo like `mysql8` into a silent PostgreSQL run — wrong catalog parsing,
+  wrong dialect-gated rule set, no diagnostic — while `scythe generate` already rejected the same
+  config outright. A new `scythe_lint::parse_engine_dialect`, sharing one alias list with
+  `audit --dialect`'s existing validation, now errors naming the offending value and the accepted
+  aliases. (#165, item 3)
+
+- **`scythe check` passed on stale output after a `[[sql.gen]]` option changed.** The provenance
+  header fingerprinted the schema and the queries but not the options that decide what is generated
+  from them, so switching `row_type` from `pydantic` to `msgspec`, or editing the contents of a
+  manifest overlay, left the header byte-identical and `check` reported the artifact fresh. A sixth
+  `options=` field now covers the target's resolved `[[sql.gen]]` options together with the *contents*
+  of its manifest overlay, and `SC-PRV11` reports a mismatch as its own finding rather than folding
+  into the existing header rules. A header written before this field existed is still read as
+  complete — absence means "generated by an older scythe", not "drifted" — and a target with no
+  options and no overlay produces bytes identical to the old five-field header. All 111 committed
+  integration artifacts are regenerated to carry it. Fingerprinting uses FNV-1a rather than the
+  `ahash` used elsewhere: ahash's "fixed" keys are regenerated per process from OS randomness, so it
+  cannot produce a value that is stable across the write and the later verify. (#155)
+
+- **Two queries selecting the same composite column emitted its model struct twice.** Enum
+  definitions were already deduplicated when assembling an output file; the composite/model structs
+  beside them were not, so a second query selecting the same composite produced a duplicate type
+  declaration — a compile error in every target with a one-definition rule. Deduplicated on the
+  rendered struct text, the same way enums already are, and not scoped to the JVM. (unfiled)
+
+- **A schema-qualified enum emitted a `.` inside the generated type name, and two names colliding in
+  one file went undetected.** `CREATE TYPE app.status AS ENUM (...)` carries its qualifier into
+  `EnumInfo::sql_name`, and case conversion alone does not remove it, so `app.status` became
+  `App.status` — `pub enum App.status`, a syntax error in every target that shares this path. Enum
+  type names now go through the same `sanitize_for_identifier` the variant labels already used.
+  Separately, `to_pascal_case` returned the empty string when every `_`-delimited part was empty (a
+  bare `"_"`, or the underscore run a symbols-only label sanitizes to), emitting a type with no name;
+  it now falls back to its sanitized input, matching what `to_camel_case` already did. Two generated
+  *type* names that collapse onto one identifier — two enums, or an enum and the query's own row type
+  — are now rejected with `DuplicateAlias` instead of emitting two declarations of the same name.
+  (#136)
+
+- **Parameters were bound by declaration order rather than by where they appear in the SQL, so a
+  repeated or out-of-order placeholder bound the wrong argument.** `java-jdbc`, `kotlin-jdbc`,
+  `kotlin-exposed` and `php-amphp` emitted one `?` per *declared* parameter and then set them
+  `1..n` in declaration order. A query writing `$2` before `$1` therefore bound the caller's first
+  argument to the second slot — silently wrong results, no error — and a query repeating `$1` emitted
+  fewer binds than the rewritten SQL contained, which the driver rejects at execute time. Placeholder
+  rewriting now returns the sequence of parameter positions it actually emitted, and each backend
+  binds from that sequence. `preprocess_oracle_sql` and `preprocess_mssql_sql` were also collapsing
+  `:N` / `@pN` to a bare `?` before parsing, discarding which N each referred to; they now emit `$N`,
+  which sqlparser's `OracleDialect` and `MsSqlDialect` both tokenize as `Token::Placeholder` through
+  the default `supports_dollar_placeholder` impl. (#149)
+
+- **SQL-text cleanup and placeholder rewriting were dialect-blind, corrupting MySQL and MSSQL
+  identifiers.** The comment stripper and placeholder rewriter knew only PostgreSQL quoting, so a
+  MySQL backtick-quoted identifier containing `--` had the rest of the query deleted, a MySQL `#`
+  line comment was left in place, and an MSSQL `[bracketed]` identifier containing a comment marker
+  was truncated the same way. `SqlDialect` is now threaded through the whole SQL-text pipeline, and
+  backtick and bracket spans are recognised as quoted regions alongside PostgreSQL's. Bare `?` under
+  PostgreSQL was previously governed by a heuristic — rewrite `?` only if the query contains no
+  `$<digit>` anywhere — which corrupted a zero-parameter query using the JSONB `?` operator; the
+  decision is now made from the dialect instead of from a scan of the text. This is the last of
+  #186's items; the JSONB `?` operator, dollar-quoted strings and `NOT LIKE` were fixed earlier.
+  (#186)
+
+- **`:one` and `:opt` rendered identical code on 53 backends, so one of the two contracts was always
+  silently wrong.** `:one` means "exactly one row, error if absent"; `:opt` means "zero or one". Every
+  affected backend matched `QueryCommand::One | QueryCommand::Opt` in a single arm, so whichever
+  behaviour that arm happened to implement won for both. Each language now gets an error path built
+  from its own idiom — a raised `ScytheNoRowsError` / `RecordNotFound` / `RecordNotFoundException`, a
+  thrown `NoSuchElementException` or `InvalidOperationException`, `Mono.error` on the reactive
+  backends, the driver's own `ErrNoRows` in Go, `{:error, :not_found}` in Elixir, and `Err` in Rust —
+  while `:opt` keeps its existing shape everywhere. Ruby `.rbs` signatures and PHP return-type
+  declarations were narrowed to match, so signatures no longer over-promise nullability. (#197)
+
+  The direction was not uniform, and the earlier census recorded it wrongly for 10 of the 53. On the
+  `go-*` and `elixir-*` backends `:one` was already correct — `sql.ErrNoRows` propagates through
+  `row.Scan`, and Elixir already returned `{:error, :not_found}` — and it was `:opt` that wrongly
+  errored on a legitimately absent row. `go-godror` folded the permissive way while its three Go
+  siblings did not, so even same-family behaviour was not safe to assume.
+
+- **`python-snowflake` declared `:execrows` as `-> int` while returning `cur.rowcount`, which the
+  DB-API types `int | None`.** Narrowed at the call site rather than widening the annotation:
+  psycopg, aiosqlite, aiomysql and oracledb all type `rowcount` as plain `int`, so snowflake was the
+  lone outlier and widening would have spread the imprecision to seven backends. (unfiled)
+
+- **`typescript-postgres` could not bind a composite-typed parameter.** postgres.js serialises only
+  values it recognises, and a plain object standing for a PostgreSQL composite is not one, so the
+  generated tagged template failed to type-check. Composite parameters are now expanded to
+  `ROW(${field}, ...)::type_name` — one binding per scalar field, recursing through nested composites
+  — instead of being interpolated whole. (unfiled)
+
+- **A `rust-sqlx` `:grouped` query selecting a non-identifier column produced code that could not
+  compile.** The grouped path reads its flat rows through the untyped `sqlx::query!` macro, whose row
+  field names come from sqlx's own expansion of the raw column names rather than from this backend's
+  `sanitize_field_names` convention. sqlx's `parse_ident` requires the driver-reported name to be a
+  valid Rust identifier and otherwise fails macro expansion outright, so a quoted `"my col"` was a
+  hard compile error, not a silent mismatch. Such columns now get an explicit `AS "field_name"` so the
+  macro sees a name scythe chose. Note this is a different mechanism from the `#[sqlx(rename)]`
+  attribute added earlier for `FromRow`: both `query!` and `query_as!` build their row type directly
+  and never consult `FromRow`, so that attribute has no effect on either macro path. (unfiled)
+
+- **The same `rust-sqlx` defect was live on the plain `:one`/`:many`/`:opt` path, and its enum
+  aliasing emitted a stray backslash into the SQL.** `generate_query_fn` selected a non-identifier
+  column unaliased, so `parse_ident` failed macro expansion there too; and a column whose name is a
+  valid identifier but differs in shape from this backend's `field_name` (case, or
+  `sanitize_field_names` reshaping) failed against a struct-literal field spelled differently, since
+  `quote_query_as` builds `#out_ty { #ident: #var_name }` from the driver-reported name. Separately,
+  `rewrite_sql_for_enums` hand-wrote its alias as `\"…\"` in Rust source — a literal backslash and
+  quote — and then passed it through `escape_rust_string`, which escaped both again, so the SQL sqlx
+  saw at compile time contained a backslash nobody asked for. Both paths now share one
+  `rewrite_sql_for_row_columns`, which aliases whenever `field_name` differs from the column name or
+  an enum override applies, writes the alias as a single plain `"…"`, and is escaped exactly once.
+  (unfiled)
+
+- **`check` printed "All queries valid." for a query file it had not checked at all.** A file whose
+  annotations were never recognised — a mistyped `--name:`, or every statement commented out — yields
+  zero query blocks, and `has_unannotated_sql` deliberately ignores it, so the run reported success
+  having examined nothing. A non-empty file that produces no query blocks is now an `SC-PRV10` error
+  naming the file. A genuinely empty or whitespace-only file is still accepted: there is nothing there
+  that could have been misrecognised. (unfiled)
+
+- **`VARBINARY(MAX)` resolved to the invalid neutral type `varbinary(max)`, which no manifest maps.**
+  SQL Server's unbounded binary type parses to `DataType::Varbinary(Some(BinaryLength::Max))`, for
+  which `normalize_data_type` had no arm at all, so it fell to the catch-all that stringifies through
+  `Display`. `strip_precision` only strips a trailing `(<digits>)`, so `max` survived, never matched
+  the bare `varbinary` arm, and the column resolved to a type name rather than `bytes`. The sibling
+  `VARCHAR(MAX)`/`NVARCHAR(MAX)` spellings were already correct — their arms route
+  `CharacterLength::Max` through a `_ => "text"` fallback — and all ten mssql-capable manifests
+  already mapped `bytes`, so no manifest changed. `BINARY` needs no equivalent arm: sqlparser types
+  it `Option<u64>`, making `BINARY(MAX)` unrepresentable. (unfiled)
+
+- **A literal `%` in SQL broke every `%`-paramstyle Python driver at execute time.** `WHERE name LIKE
+  'a%'` reaches psycopg3 and aiomysql as a format string, and `%'` is not a valid placeholder, so the
+  driver raised before the statement was ever sent. The `%` is now doubled — but only for a query that
+  actually binds parameters. psycopg3 and PyMySQL run `%`-formatting exclusively from
+  `execute(query, params)`; a parameterless `execute(query)` passes the string through untouched, so
+  doubling it there would have replaced a driver-side error with a silently wrong `LIKE 'a%%'` that
+  matches nothing. `python-snowflake` additionally emits
+  `snowflake.connector.paramstyle = "qmark"` to match the `?` it generates — previously the only
+  `paramstyle` assignment in the tree was a hand-written compensation inside the integration harness,
+  so every consumer of the generated module got none. (#201)
+- **`python-aiomysql` rewrote a `?` inside a SQL string literal.** A blind `.replace('?', "%s")` ran
+  *after* the literal-aware `rewrite_pg_placeholders`, so `WHERE note = 'really?'` became
+  `'really%s'` — a silent wrong answer, not an error. GH #153 was closed with this half unfixed.
+- **`scythe lint <file>` ran no scythe rules at all.** Explicit-file mode built a sqruff linter and
+  never constructed a `LintEngine`, so every `SC-*` rule was skipped — `scythe lint queries.sql`
+  silently checked far less than `scythe lint` with the same config, and the code said so in a
+  comment. It now builds a catalog from the config's first `[[sql]]` block and runs the native rules
+  with suppressions honoured, falling back to sqruff-only when there is genuinely no schema to build
+  from. `scythe fmt <file>` likewise dropped `[lint.sqruff]` entirely, honouring only the dialect
+  half of #206.
+- **`scythe check` green-lit an `output` path that `scythe generate` refuses.** `check` never applied
+  #207's containment rule, so a config could pass the check and then fail the thing the check exists
+  to predict. (#206, #207)
+- **A `CREATE VIEW` with an explicit column list got no types at all.** The branch handling
+  `CREATE VIEW v (a, b) AS SELECT …` never ran the analyzer: `sql_type` fell back to the literal
+  string `"unknown"` and `nullable` was hardcoded `true`, so the same view declared with and without
+  a column list produced different — and wrong — columns. It now analyzes the body and overlays the
+  declared names. A declared list whose arity disagrees with the body is now an error rather than
+  silently mismatched output, mirroring how a `WITH t(a,b) AS …` alias list is already handled.
+- **`ALTER TABLE … RENAME TO` on an unknown table did nothing, silently.** Every sibling operation —
+  `AddColumn`, `DropColumn`, `RenameColumn`, `AlterColumn`, `AddConstraint` — errors on a missing
+  table; `RenameTable` alone fell through with no `else`, so a typo'd migration was indistinguishable
+  from a correct one. It now follows the same precedent.
+- **`json_each` and friends were typed `string` in select-list position.** They return `SETOF record`,
+  not text. The neutral type vocabulary cannot name an anonymous record — `composite::{name}` needs a
+  catalog entry and the `json_nested` machinery assumes the value on the wire is JSON text, which a
+  native composite is not — so they now resolve to `unknown`, following the precedent
+  `json_populate_record` already set, rather than to a confidently wrong scalar.
+  `json_array_elements`/`jsonb_array_elements` previously hit the unknown-function error path and now
+  resolve to `json`, matching what the FROM-position handling already assigned.
+- **`rust-sqlx`'s `:opt` output never compiled.** The return type said `{Struct}` while the body's
+  `has_row_struct` guard excluded `Opt`, so it emitted the anonymous-record `sqlx::query!` instead of
+  `sqlx::query_as!` — the declared type and the produced type disagreed on every `:opt` query the
+  backend has ever generated. `:opt` now returns `Option<{Struct}>` and fetches with
+  `.fetch_optional`, which is what the command means. `rust-tiberius`'s `:opt` likewise stopped
+  emitting `.expect("expected one row")`, a panic in generated code on exactly the absent row `:opt`
+  exists to handle. (#197)
+- **`rust-sqlx` mapped a mangled field back to the wrong column.** The backend derives
+  `sqlx::FromRow`, which looks a column up *by the Rust field name*, and #215's
+  `sanitize_field_names` renames any non-identifier column — so `my col` became a field `my_col` that
+  `FromRow` then searched for under that name and could not find. A compile fix bought at the cost of
+  a runtime one. Fields whose generated name differs from the SQL column now carry
+  `#[sqlx(rename = "…")]`. The other Rust backends were checked and are unaffected: tokio-postgres
+  and tiberius look up by the raw SQL name, sibyl reads positionally.
+- **`typescript-duckdb` typed a `bytes` column as something the driver never returns.** The manifest
+  declared `Uint8Array`; `@duckdb/node-api` hands a BLOB back as `DuckDBBlobValue`. Verified against
+  the published package rather than inferred — 1.5.5-r.4 ships
+  `class DuckDBBlobValue { readonly bytes: Uint8Array }` and lists it in the `DuckDBValue` union. The
+  read direction had no test at all, which is why this survived. Note the manifest has no read/bind
+  split, so the bind-position type changed too: construct one with the driver's
+  `blobValue(Uint8Array | string)`.
+- **The tool-validation schemas contained no container or user-defined type.** The ~20 PostgreSQL
+  backend tests that compile generated code with a real compiler — the strongest gate in the project
+  — never asked one to accept an array, an enum, an array of enums, a composite, a `uuid` or a
+  `jsonb` column, which is why the JSDoc and JVM enum defects above survived. The schemas now carry
+  all of them, and every added column is selected by the query each test runs; a widened schema with
+  an unwidened query would have added columns no generated file reaches. MySQL gains an inline
+  `ENUM(...)` column for the same reason. (#146)
+- **The two `SC-INS09` live tests raced each other.** Both trusted `CREATE EXTENSION IF NOT EXISTS`
+  to tell them where an extension landed; they now verify against `pg_extension`/`pg_namespace`. (#144)
+- **`SC-N02` (`table-naming`) could not see a CamelCase table name.** The catalog stores tables under
+  a lowercased lookup key, so by the time the rule read the name every table looked snake_case and
+  `CREATE TABLE "UserProfile"` passed. `Table` now keeps the DDL's own spelling in `raw_name`
+  alongside the lookup key, and the rule reads that. The existing test asserted the miss verbatim —
+  it guarded the bug rather than against it — and is inverted here. (#145)
+- **A placeholder inside a `LIKE` pattern or an `IS NULL` operand was dropped from the generated
+  signature.** `WHERE name LIKE '%' || $1 || '%'` and `WHERE $1 IS NULL` both bind a parameter, but
+  the analyzer only collected one from a `LIKE` whose pattern was a bare literal and never descended
+  into `IS NULL` / `IS NOT NULL` at all — so the generated function took fewer arguments than the
+  statement needs. Placeholder positions are now memoised by source span, which keeps a parameter
+  repeated across several expressions from being counted more than once. (#171)
+- **`go-pgx` emitted a static import block that omitted imports its own types needed.** A query
+  selecting a `json` or `uuid` column produced `*json.RawMessage` and `uuid.UUID` with neither import,
+  so the file did not compile; the generated header conceded as much by advising `goimports -w .`.
+  #100 fixed the opposite direction — an import emitted but unused. Imports are now derived from the
+  types actually emitted, via the `[imports.rules]` table every Go manifest already declared and
+  nothing read. `go-pgx` consequently passes the torture gate and has been removed from the
+  expected-failure allowlist. The PHP casts likewise come from the manifest instead of a hardcoded
+  table that contradicted it. (#198)
+- **A JVM enum whose SQL spelling was not the uppercase of its variant threw on every read.** Binding
+  emitted `.getValue()` / `.value` — the SQL value — while reading emitted
+  `valueOf(rs.getString(col).toUpperCase())` — the variant *name*. For a value like `in-active` with
+  variant `IN_ACTIVE`, `toUpperCase()` yields `IN-ACTIVE`, which `valueOf` rejects with
+  `IllegalArgumentException`; case-folding is not the same operation as sanitising. The generated
+  `value`/`getValue()` accessor that makes this exact was emitted and consulted by no reader. Reads
+  now match on the declared SQL value. The existing tests asserted the `toUpperCase()` spelling
+  verbatim, so they pinned the defect and changed with the fix. (#213)
+- **Every `javascript-*` file containing an enum failed `tsc --checkJs`.** The generated
+  `/** @type {const} */` sat on the declaration, where it is `TS2304: Cannot find name 'const'`. The
+  valid position is the initializer expression — `= /** @type {const} */ ({…})` — which also narrows
+  to literal types as intended. The same spelling existed as three byte-identical copies across
+  `typescript-pg`, `typescript-postgres` and `typescript-mysql2`; they now share one
+  `generate_js_enum_def`, so the next fix here lands once instead of three times.
+- **A non-identifier column name was spliced raw into a JSDoc `@property`.** `@property {string} my
+  col` is `TS1003: Identifier expected`, and unlike the TypeScript emit path the JSDoc row typedef
+  cannot mangle the name — a generated row type is cast onto the driver's rows, so its key must stay
+  the column's own spelling. The typedef now switches to JSDoc's quoted type-literal form
+  (`@typedef {{ "my col": string }}`) when any key is not a bare name, and keeps the `@property` form
+  otherwise. `@param` mangling is unaffected and remains correct: a binding is a JavaScript
+  parameter, which has no quoted form.
+- **`javascript-better-sqlite3`'s `:batch` path never type-checked.** `db.transaction((items) => …)`
+  with an unannotated parameter makes TypeScript infer `never` from better-sqlite3's variadic
+  signature, giving TS2488 and TS2345. The TypeScript emit path annotates it as `(items: T[])`; the
+  js_mode path now carries the equivalent inline `@param`. This was invisible until the enum fix
+  above stopped `tsc` short-circuiting on an earlier error.
+- **`typescript-postgres`'s single-parameter `:batch` rewrote `${field}` inside a SQL string
+  literal.** A blind `String::replace` matched the tail of an escaped `\${field}`. #219 covered the
+  `$N` form only.
+- **A `:grouped` query's `.rbs` described a class the `.rb` file never defines.** The RBS producer
+  resolved the flat column list where the Ruby producer splits parent from child, so the signature
+  declared one class with neither the `children` reader nor the child class `Data.define` actually
+  emits — `steep check` against a correct `.rb` failed on the signature, not the code. The RBS path
+  now performs the same split. `RbsQueryInfo` carries the child columns in their own field; an
+  earlier revision smuggled them through a sentinel in `ResolvedColumn.full_type`, which is the shape
+  that leaked `__unknown_col__` into user-visible output in #173. (#203)
+- **Eight `.rbs` files were rejected outright by `rbs parse`.** The Ruby backend emitted
+  `library "bigdecimal"` ahead of any signature referencing `BigDecimal`, but `library` is Steepfile
+  and CLI syntax, not an RBS declaration, so the parser failed at the first token with "cannot start
+  a declaration". A signature naming `BigDecimal` needs no directive at all. The `.rb` side keeps its
+  `require "bigdecimal/util"`, which is genuinely needed for `.to_d`.
+- `elixir-exqlite` releases its prepared statement on every exit path, not just the success one;
+  `elixir-tds` types `bytes` and `time`/`time_tz` parameters instead of falling through to `:string`;
+  and a `:grouped` query with no parent columns no longer emits `defstruct [, :children]`, which is
+  not valid Elixir. (#202)
+- **A column named `my col`, `with-dash` or `2fa` reached a field declaration verbatim in every
+  language but TypeScript.** `pub my col: String`, `my col: str`, `My col string`, `String my col` —
+  none of them parse, and no gate caught it because the torture schema has no such column. #215 fixed
+  this for TypeScript by quoting (`"my col": string`, `row["my col"]`), which is the right answer
+  *there* and only there: a generated TypeScript row type is cast onto the driver's rows, so its key
+  has to stay the column's own spelling. The other nine targets have no quoted form for a field and
+  never read a column back by the generated name — they use the position or the raw SQL name
+  (`rs.getString("my col")`) — so their 85 manifests now set `[naming] sanitize_field_names`, and
+  `field_name` replaces the characters an identifier cannot hold. A leading digit takes a `col_`
+  prefix rather than a bare `_`, because `to_pascal_case` drops a leading underscore and go-pgx and
+  the C# backends case the field name a second time, which handed the digit straight back. The SQL
+  text is untouched. (#215)
+- **`IDENTITY` preprocessing ate the whitespace after the keyword and rewrote its case.** The catalog
+  strips `IDENTITY(seed, step)` before parsing; when the keyword was *not* followed by a clause, the
+  branch that put it back pushed a literal uppercase `"IDENTITY"` and resumed from the position it had
+  already advanced past the whitespace, so `GENERATED ALWAYS AS IDENTITY PRIMARY KEY` became
+  `IDENTITYPRIMARY KEY` and a column named `identity` became `IDENTITYTEXT NOT NULL`. The original
+  characters are now copied through unchanged. Thanks to @fzlzjerry. (#154)
+- **An unsupported nested `json_agg` degraded to a single JSON object even where the driver could
+  describe the array.** The degradation pass rewrote every column referencing a nested struct the
+  backend did not implement to plain `json`. A distinct `json_array` scalar marker now carries "one
+  JSON document whose top level is an array", and `typescript-pg`, `python-asyncpg`, `elixir-postgrex`
+  and `php-pdo` opt into it by declaring it in their manifests. It is deliberately not the `array<json>`
+  container, which means a SQL `json[]` column and can select a typed array reader: `csharp-npgsql`
+  would have declared `List<string>` while reading through the untyped `GetValue` accessor. Backends
+  that declare no `json_array` mapping keep the plain-`json` fallback unchanged. Thanks to @fzlzjerry.
+- **A parameter named after a column like `my col`, `with-dash` or `2fa` was emitted verbatim into a
+  binding.** `export async function findWeird(client: PoolClient, my col: string)` does not parse, and
+  neither does its equivalent in the other nine target languages. #215 fixed the two positions that
+  have a quoted form — the declared property key and the property read — and left this one pinned as a
+  known gap, because a binding has no quoted form anywhere and mangling is a cross-language naming
+  decision. `scythe_backend::naming::param_name` now makes it: characters an identifier cannot hold
+  become `_`, and a leading digit takes a `_` prefix. Only parameters are mangled. A column's field
+  name is a contract with whatever the driver returns, so it keeps its raw spelling and its quoting;
+  the SQL text is untouched, and any collision the mangling introduces (`my col` against a real
+  `my_col`) is reported by the existing duplicate-field check rather than silently resolved. (#215)
+- **`python-psycopg3` bound a reserved-word parameter to a name it never passed.** It is the one
+  backend that binds by name rather than position, and it derived the two halves of that contract
+  separately — the `execute` dict from the resolved param's `field_name`, the `%(...)s` placeholder
+  from a second `to_snake_case` of the raw SQL name. The spellings matched until anything else touched
+  `field_name`: a param named `class` became `class_` in the signature and the dict while the SQL still
+  asked for `%(class)s`, so every call raised `query parameter missing: class` at execute time. Nothing
+  earlier could catch it — the module imports, type-checks and passes the generated-code gate, which
+  compiles generated code and never runs it. Both halves now come from the resolved param, the way
+  `typescript-postgres` already did it. `crates/scythe-codegen/tests/python_named_placeholder_regression.rs`
+  asserts the invariant (every placeholder is a dict key) rather than the single keyword that exposed it.
+- **A column named after a TypeScript keyword produced a file that would not parse.** Every generated
+  TypeScript query function takes its parameter names from the columns they are compared against, so a
+  `class` column emitted `export async function q(client: PoolClient, class: string)` — `TS1390`, and
+  the syntax error stopped `tsc` before it type-checked anything else in the file. The seventeen
+  TypeScript manifests now declare `[naming] reserved_bindings`, consulted by a new
+  `scythe_backend::naming::param_name`, which mangles a keyword to `class_` where it lands in a
+  binding. Deliberately *not* the existing `[naming] reserved` list: that is applied to columns too,
+  and a generated TypeScript row type is cast straight onto the driver's rows
+  (`client.query<FindByClassRow>(...)`), so renaming the key would have described an object `pg` never
+  returns — a compile error traded for a silent wrong answer. `class` therefore stays `class` in the
+  row type and in `row.class`, both of which are legal TypeScript. Five of the six TypeScript entries
+  in `scripts/torture-expected-failures.txt` are gone; `typescript-postgres` still fails, on a
+  composite-typed parameter postgres.js cannot bind, which was invisible behind the syntax error.
+  (#180)
+- `scripts/check-generated-backends.py` ran `ruby -c` over `queries.rbs`. The script globs every file
+  in a backend's output directory and picked the syntax checker by *backend*, but RBS is a signature
+  language, not Ruby, so it choked on `ACTIVE: String` and reported a `ruby-pg` failure that no change
+  to the generated code could ever have cleared. The entry sat in
+  `scripts/torture-expected-failures.txt` blamed on unescaped SQL, which it never had anything to do
+  with. Syntax checkers are now selected by file extension first, since a file's language is a property
+  of the file and not of the backend that emitted it — the distinction
+  `scripts/check-generated-syntax.sh` already made, now with one derivation instead of two. `ruby-pg`
+  builds clean against the torture schema and is out of the allowlist.
+- Every remaining reason in `scripts/torture-expected-failures.txt` was re-derived from the compiler's
+  actual output rather than carried forward. All five non-TypeScript entries had been grouped under
+  "unescaped quoted identifier (#179)", written mid-rollout and wrong for every one of them by the time
+  740cc99 finished the escaping layer: the three Rust projects fail because their scaffolding declares
+  neither `serde_json` nor `uuid`, `go-pgx` fails on a static import block that omits what its own
+  emitted types reference (#198), and `ruby-pg` was the harness bug above. A gate that checks only
+  pass/fail cannot check *why*, so the file now carries an instruction to re-derive before editing.
+- `SC-SEC01` (`dangerous-function`) missed set-returning functions called in `FROM` position
+  (`FROM dblink(...)`, `FROM pg_ls_dir('/etc')`, `FROM openrowset(...)`) — the idiomatic way these
+  particular functions are written — because the matcher only inspected `Expr::Function` nodes and
+  `pre_visit_relation` was a no-op. It now also matches the relation name. (#138)
+- `SC-SEC06` (`weak-hash-in-auth`) missed salted and wrapped hash arguments: `md5(password || salt)`
+  and `md5(lower(password))` produced no finding, only the bare `md5(password)` form did.
+  `extract_sensitive_column` now recurses through `BinaryOp`, `Nested`, `Function` and `Cast`. (#138)
+- `SC-A03` (`or-in-join-condition`) only fired when the `OR` in a JOIN's `ON` clause was
+  unparenthesised, and only inspected the ON clause's root expression instead of descending it — so
+  `ON (a OR b)` and `ON x AND (a OR b)`, both real occurrences of the same antipattern, produced no
+  finding. It now unwraps parentheses and descends through `AND` conjuncts, counting each top-level
+  disjunction once. (#145)
+- `engine.rs`'s cross-query duplicate-name check (`SC-C03`) hardcoded `Severity::Error` regardless of
+  `[lint.rules]`, so `"SC-C03" = "warn"` had no effect, and it fired even when `DuplicateQueryNames`
+  was not registered in the calling registry at all. It now resolves severity through the registry,
+  same as every other rule, and produces no finding when the rule isn't active. (#137)
+- `SC-A02` (`implicit-type-coercion`) implements no check and is off by default with no way to ever
+  produce a finding if enabled; its description now says so explicitly, matching `SC-C01`. (#137)
+- Inline suppression comments (`-- scythe-audit: ignore[...]`) were keyed by source line, so two
+  statements sharing one physical line (`DROP TABLE a; DROP TABLE b;`) resolved to the same key and a
+  suppression meant only for the first silently covered the second too. `SuppressionSet` is now keyed
+  by 0-based statement index instead — **callers must pass a statement index, not a computed source
+  line**. The module doc's claim that a blank line between an annotation and its statement still
+  attaches was also wrong; the code discarded it then and still does, so the doc was corrected instead
+  of the (intentional) behavior. (#140)
+- A user-supplied `[[audit.rule]]`'s declared `cwe` array had no way to reach a caller through
+  `LintRule` — only `MatcherRule`'s private `RuleSpec` held it, so every consumer fell back to
+  scanning `description` for `CWE-\d+` text and a declared `cwe` with no such text in its description
+  was silently dropped. `LintRule` gained a `cwe()` method (default: empty; `MatcherRule` prefers the
+  declared `cwe`, falling back to the description scan only when it's empty). (#140)
+- `MatcherRule::check_query`'s dialect gate (`spec.dialects`) was invisible from outside — a rule
+  scoped to Postgres just silently returned nothing on every other engine, indistinguishable from a
+  rule that ran and found nothing. `LintRule` gained an `is_applicable_to(dialect)` method (default:
+  every dialect; `MatcherRule` exposes its `spec.dialects` gate) so a caller can count and report
+  skipped, not-applicable rules instead of an engine's `scythe audit` reading as a clean pass when
+  most rules never ran. (#167)
+- `[lint.sqruff] enabled` was declared and never read: `enabled = false` did not disable sqruff.
+  It now does. Separately, `[lint.sqruff.rules]` wrote any non-`"off"` value into sqruff's `rules`
+  key, which sqruff treats as an *allowlist* — so `"LT02" = "warn"` silently disabled every other
+  sqruff rule, the opposite of what it reads like and of what the docs claimed. sqruff has no
+  per-rule severity at all, so only `"off"` can be honoured and any other value is now rejected with
+  a message naming the offending key. An unknown rule code, previously swallowed, is also reported.
+  (#113, #114)
+- A rejected `[lint.sqruff]` table aborted the entire lint run and discarded every scythe-native
+  finding along with it, because the sqruff call sits ahead of the rule engine in the per-file loop.
+  A single typo could silently switch off the security rules, `SC-SEC07` PII detection included. The
+  configuration is now validated once per `[[sql]]` block before any query file is read, so a config
+  mistake is reported as one and the blast radius is visible rather than silent. Note validation
+  lints a trivial statement: sqruff checks rule codes when a string is linted, not when the linter is
+  built.
+- `SqruffConfig::default()` returned `enabled: false`, the opposite of an absent `[lint.sqruff]`
+  table, because `#[serde(default)]` only applies to absent TOML input and not to a derived `Default`.
+  No call site hit it, but `enabled` only recently became load-bearing.
+- Ruby `.rbs` signatures were emitted from a hardcoded scalar table rather than the backend manifest,
+  so they could disagree with the `.rb` code generated beside them. `ruby-oci8` declared
+  `created_at: Date` while the query bound a `Time`. Every RBS scalar now comes from the manifest.
+  Regenerate to pick this up. (#106)
+- A `[[sql.gen]]` entry missing its required `output` key produced a generic untagged-enum
+  deserialization error that named neither the field nor the block. The error now names both, and
+  unknown keys in a `[[sql]]` block are rejected rather than silently ignored. (#116)
+- Every PHP manifest declared its `array` container as `array<{T}>`, which reached the generated file
+  in a native type position where PHP has no generics: `public array<string> $tags` is a parse error.
+  Two routes hit it — a PostgreSQL array column, and an `= ANY(...)` parameter, which the analyzer
+  synthesises as `array<T>` in *every* dialect, so the broken type landed in function signatures even
+  on engines with no array type of their own. (#200)
+- All five JVM backends resolved a column's reader from a table maintained in parallel with the
+  manifest, and every type outside that table fell through to an untyped accessor — `rs.getObject(col)`
+  on the JDBC family, `row.get(col, Object.class)` / `Any::class.java` on the R2DBC pair. The declared
+  field type came from the manifest, nothing compared the two, and the result did not compile:
+  `incompatible types: Object cannot be converted to WidgetAddress`. Readers now derive from the
+  declared type itself, so the two cannot drift. Three defects fell out of the same tables: the R2DBC
+  arms matched `LocalDate` before `LocalDateTime` and read every datetime column as a date;
+  `kotlin-exposed` called `wasNull()` nowhere, so a SQL NULL in a nullable `Int?` arrived as `0`; and
+  all three JDBC backends read a nullable enum as `valueOf(getString(col).toUpperCase())`, an NPE on
+  exactly the value the column exists to hold. (#191, #192, #213, #214)
+- `java-r2dbc` emitted top-level records, a top-level enum and bare static methods into one
+  compilation unit, and closed its `:grouped` row buffer with `});` while `.flatMap(` was still open.
+  Neither had ever compiled. (#191)
+- TypeScript emitted raw column names into positions that require an identifier. `ts_property_key`
+  existed and was correct but only the row-struct emitters used it, so batch-params interface members,
+  per-item binds, dot-access row reads and oracledb object-literal keys spliced the name verbatim —
+  `first name: string;`, `[item.first name]`, and `row['it's']` closing its own quote. Property
+  positions are now quoted; a scalar *parameter* named after a non-identifier column is still broken,
+  because quoting is not available in a binding position, and is pinned by a failing-when-fixed test.
+  (#215)
+- `row_type = "zod"` derived its types from a table maintained beside the manifest, so the two
+  disagreed on four of six columns in the same query: `active` was `number` under `interface` and
+  `boolean` under `z.infer`, `price` `number` vs `string`, `created_at` `string` vs `Date`. Zod types
+  now derive from the resolved TypeScript type, so `z.infer` equals the manifest type by construction.
+  Enum variants also went through raw `to_pascal_case` and had their values spliced unescaped —
+  `In-active: "in-active",` is not a valid key. (#216)
+- `typescript-duckdb` imported `Connection`, which `@duckdb/node-api` does not export, and called
+  `stmt.run(args)`, which takes no arguments. Every file this backend has ever produced failed to
+  compile. Values now bind through `stmt.bind()`. (#217)
+- `typescript-oracledb` bound the driver result to `const result` inside the block where the grouped
+  fold declares its own (`Cannot redeclare block-scoped variable`), uppercased row keys
+  unconditionally so a quoted lower-case column read as `undefined` with no compile error, and ignored
+  `row_type = "zod"` entirely — there was a test certifying that no-op. (#218)
+- The postgres.js `:batch` path rewrote `$N` with a raw string replace while every other command path
+  used the literal-aware rewriter, so `VALUES ($1, $2, 'lit $1 $2 end')` turned an inert SQL string
+  literal into two extra live bindings. It compiled, ran, and stored the wrong text. (#219)
+- Six JSON functions were split across arms whose behaviour followed from which arm they landed in
+  rather than from their semantics: `jsonb_agg` lost the nested-struct inference `json_agg` got,
+  `to_json`/`to_jsonb` over a whole-row reference returned flat `json` and were hardcoded non-nullable
+  despite being strict, and `json_strip_nulls` was likewise fixed non-nullable.
+- The JSON function table is now derived from `pg_proc.proisstrict` and measured behaviour rather than
+  assumption. Four functions had no arm at all, so legal PostgreSQL failed with a hard
+  `unknown function` error: `array_to_json`, `json_object`/`jsonb_object`, `jsonb_set`/`jsonb_insert`
+  and `jsonb_pretty`. `jsonb_set_lax` reports `proisstrict = f` but still returns NULL for a NULL
+  target or path — only its replacement argument is exempt — so it gets its own arm. `json_typeof`,
+  `jsonb_typeof` and `json_array_length`/`jsonb_array_length` were unconditionally nullable where the
+  database is strict, and now follow their argument.
+- A bare MySQL `?` placeholder used as a plain arithmetic operand in the SELECT list (`SELECT age + ?
+  AS x FROM users`) was dropped entirely: `infer_expr_type`'s `Expr::Value` arm only resolved a
+  placeholder's position via `parse_placeholder`, which parses `$N` but returns `None` for `?`, so the
+  occurrence never reached `resolve_placeholder_position` and the generated function signature was
+  missing an argument. Separately, `analyze_select` visited `WHERE`/`HAVING` before the projection, so
+  a `?` textually first in the SELECT list was numbered *after* one appearing later in `WHERE` —
+  `SELECT CAST(? AS CHAR) AS tag, name FROM users WHERE age = ?` bound the WHERE placeholder first.
+  Projection is now analyzed before `WHERE`/`HAVING`, and the `Expr::Value` placeholder arm resolves
+  through `resolve_placeholder_position` for both `$N` and `?`. (#170)
+- **`java-r2dbc` and `kotlin-r2dbc` threw `IllegalArgumentException` on any null argument.** R2DBC's
+  `Statement.bind(index, value)` rejects null outright — `bindNull(index, Class<?>)` is the only way
+  to send SQL NULL — and both backends emitted `bind` for every parameter regardless of nullability,
+  so a nullable parameter failed at the bind call rather than reaching the database. Ordinary
+  nullable parameters now route through a generated `bindNullable` helper; a nullable enum gets an
+  inline null check instead, because its bind expression calls `.getValue()`/`.value` on the field
+  and would throw before any helper could test it. Both PostgreSQL harnesses gained a call that
+  passes a real null, which is what makes the regression catchable: reverting the fix now fails them
+  with the driver's own "value must not be null". The `Batch` bind sites are untouched and still have
+  a separate pre-existing gap — a batch enum parameter binds the raw enum object with no
+  `.getValue()`/`.value` call.
+- **`java-r2dbc` and `kotlin-r2dbc`'s `:batch` bind sites never got either fix above.** They bound
+  every parameter unconditionally (the same `IllegalArgumentException` on a null batch argument that
+  ordinary bind sites had) and, for an enum, bound the raw Java/Kotlin enum object instead of its SQL
+  spelling (the same "no codec for a user enum type" failure). Both backends' bind-site logic is now
+  shared between the ordinary and `:batch` code paths through a `write_r2dbc_bind_for`/`r2dbc_bind_expr_for`
+  pair that takes an explicit receiver expression (a loop variable or a batch-params record/data-class
+  accessor) instead of always reading the parameter's own field. The PostgreSQL enum placeholder cast
+  (`add_pg_enum_casts`) already reached `:batch` SQL before this fix, since it operates on the one `sql`
+  local shared by every command shape — that part needed a test, not a fix. Covered by new backend unit
+  tests only: the PostgreSQL fixture schema both harnesses build from (`integration_tests/sql/pg/queries/`)
+  has no `:batch` query at all, so neither harness can yet exercise this path end to end — still an
+  unfalsifiable gate at the integration level until a `:batch` fixture query exists.
+- **A misspelled annotation (`@nullible`, `@optionall`, `@nonull`, ...) was captured and silently
+  discarded.** Any `-- @<name> <value>` line scythe does not natively recognise is deliberately kept
+  as an opaque `CustomAnnotation` — that escape hatch is how consumers layer their own annotation
+  vocabulary (`@http`, `@http_auth`, ...) on top of scythe — but nothing ever inspected it, so a
+  typo'd override behaved identically to one with no override at all while `scythe generate`,
+  `scythe check` and `scythe lint` all reported success. `CustomAnnotation` now carries a
+  `suggested_keyword` when the unrecognised name is within edit distance 2 of a known keyword
+  (`name`, `returns`, `param`, `nullable`, `nonnull`, `json`, `deprecated`, `group_by`, `optional`),
+  for a caller to turn into a warning. Left as a signal rather than a hard parse error: rejecting
+  every unrecognised annotation would break the same consumer-defined vocabulary the escape hatch
+  exists for. (#152)
+- **`scythe migrate` reported every `sqlc.arg`/`sqlc.narg` name as "renamed" while discarding it.**
+  It emitted `-- @param {name}`, which `scythe_core::parser` stores as a docs-only `ParamDoc` that
+  the analyzer never reads for naming — only the positional `-- @param $N {name}` form becomes a
+  `PositionalParamDoc` and actually renames the generated parameter. A migrated
+  `sqlc.arg(needle)`/`sqlc.arg(mailbox)` query silently fell back to inferred or `pN` parameter
+  names on the very next `scythe generate`, even though `migrate` printed "2 param(s) renamed".
+  `migrate` now emits the positional form, with the same sequential numbering it already assigns to
+  the placeholder. (#152)
+- **Two SQL values of the same enum could collide on the generated variant name and `scythe generate`
+  wrote both anyway.** `'gpt-3.5-turbo'` and `'gpt_3_5_turbo'` both sanitize and case-convert to
+  `Gpt35Turbo` under `enum_variant_case = "PascalCase"` (Rust, C#, Go, TypeScript); nothing compared
+  the rendered variant names before `generate_enum_defs_via_backend` handed them to a backend, so the
+  file came out with `pub enum Model { Gpt35Turbo, Gpt35Turbo, }` — `E0428` under a real `rustc`, a
+  redeclaration in every other target — while the command exited 0. A new `resolve::check_enum_variant_collisions`
+  runs once per enum, the variant counterpart of the existing enum/query-type-name check, and rejects
+  the query with `DUPLICATE_ALIAS` before any backend renders it. (#136)
+
+- **Four more PostgreSQL manifests lost a nested aggregate's list-ness on degrade, the same way
+  `java-jdbc.toml`'s `json = "String"` collapses `json_agg` down to one opaque string.**
+  `elixir-ecto`, `php-amphp`, `typescript-kysely` and `typescript-postgres` now declare `json_array`
+  for an array-shaped `json_agg`/`row_to_json` result their backend does not construct into a typed
+  struct, each verified against the exact decode path an already-declared sibling manifest relies on:
+  `elixir-postgrex`'s Postgrex/Jason pipeline for `elixir-ecto` (both run raw SQL through the same
+  Postgrex binary protocol, verified live against PostgreSQL 16); `php-pdo`'s generated
+  `json_decode($value, true)` for `php-amphp` (the same call, independently emitted); `typescript-pg`'s
+  `pg` auto-parsing for `typescript-kysely`'s PostgreSQL dialect (documented as running over `pg`
+  unchanged) and for `typescript-postgres`'s `postgres.js` driver (which parses `json`/`jsonb` the same
+  way). Scope, precisely: `catalog_has_nested_aggregates` only infers a nested aggregate for the
+  PostgreSQL dialect on a postgresql-family engine — Redshift and DuckDB are excluded by name — so only
+  the 19 postgresql-engine manifests can reach this path at all, and after this change 4 of them build a
+  real struct, 8 keep the array shape, and 7 still collapse to plain `json` (`csharp-npgsql`,
+  `java-jdbc`, `java-r2dbc`, `kotlin-exposed`, `kotlin-jdbc`, `kotlin-r2dbc`, `ruby-pg`). Those 7 map
+  `json` to a raw string with no driver- or codegen-level array decoding to point to, so a distinct
+  `json_array` marker would carry no real information over `json` itself; `ruby-pg` is the one worth
+  revisiting, since the `pg` gem can decode JSON but nothing in the generated code configures it. `json_nested` (a typed struct, not just array-shape) requires a
+  backend-side decoder — `generate_nested_struct_def` — that a manifest alone cannot add, so it stays at
+  its existing four (`rust-sqlx`, `rust-tokio-postgres`, `go-pgx`, `python-psycopg3`). (#147)
+
+- **A `json_agg`/`row_to_json` column degraded to plain `json` (or `json_array`) on the 15 of 19
+  PostgreSQL backends that do not implement `generate_nested_struct_def`, and nothing said so.**
+  `degrade_unsupported_nested_structs` rewrote the column's neutral type and `scythe generate` exited 0,
+  so a user asking for a structured nested row from, say, `java-jdbc` (`json = "String"`, read back via
+  `rs.getString`) got an opaque string with no indication a struct was ever requested. The function now
+  also returns one `NestedStructDegradation` per rewritten column — the SQL column name, the struct that
+  could not be built, the fallback type it got instead, and the backend — threaded onto
+  `GeneratedCode::degraded_nested_structs`. This is a library-side signal only: `scythe-cli` still needs
+  to turn each entry into a reported finding (`scythe-codegen` cannot install a subscriber or depend on
+  `scythe-cli`/`scythe-lint`). Not a hard error by default — failing every degrading backend outright
+  would break working setups. (#147)
+
+- **A bare `?` placeholder or literal `NULL` projected with no `CAST`/comparison/`COALESCE` to borrow a
+  type from reached `analyze()`'s `Ok` result typed `neutral_type: "unknown"`, then surfaced two layers
+  down as the backend's `INTERNAL_ERROR: unknown neutral type: unknown`** — the part of #170 the
+  counting/ordering fix (c288fce1) left open. `analyze()` now rejects the shape with `TYPE_MISMATCH`,
+  naming the query and column and suggesting an explicit `CAST`. The rejection is origin-based, not a
+  blanket check on `neutral_type == "unknown"`: it only fires on a column whose projected expression is
+  itself a bare placeholder/`NULL`, so a UNION arm's `NULL` that a sibling arm resolves, and a
+  `jsonb_each`/`json_each` record column (legitimately `"unknown"` — PostgreSQL's `record` pseudo-type
+  has no neutral-type representation), are both unaffected. (#170)
+
+- **A UNION with both arms projecting a bare `NULL`, or a bare `NULL`/placeholder projected out of a
+  derived table or CTE, still reached codegen as `INTERNAL_ERROR: unknown neutral type: unknown`
+  instead of the clean `TYPE_MISMATCH` above.** Two places stripped the `untyped_literal` taint before
+  `analyze()`'s final check ever saw it: a UNION arm's widened column was rebuilt with
+  `..Default::default()`, always dropping to `false` regardless of whether either side actually
+  resolved a type; and a derived table's or CTE's output columns were folded back into scope through a
+  constructor that hardcoded `untyped_literal: false`, resetting the flag the moment a column crossed a
+  subquery boundary. The UNION case now survives the taint only when *both* arms are untyped — either
+  side supplying a real type still clears it, so a `NULL` arm a sibling resolves is unaffected — and
+  `ScopeColumn` now carries the flag from an already-analyzed output column through a derived-table/CTE
+  boundary via a new `from_analyzed_column` constructor, while a genuine catalog column or a function's
+  synthetic result (`jsonb_each` included) is untouched and stays untainted no matter how many subquery
+  or UNION layers it passes through. (#170)
+
+- **The Java and Kotlin integration-test generators had no way to notice their per-engine harness
+  branches drifting apart.** `java.java.jinja` and `kotlin.kt.jinja` duplicate a whole test program
+  per SQL engine, and nothing compared what one branch tests against another — the redshift branches
+  quietly ended up with fewer than half the postgresql branch's test functions. A new parity gate
+  (`tests/engine_test_parity.rs`) now fails the build when an engine branch is missing a test
+  function the postgresql branch of the same template has, unless it is named in the new
+  `test-parity-exemptions.txt` ratcheting allowlist with a reason; the allowlist also fails on stale
+  entries, so it can only shrink. Separately, `oracle/schema_full.sql` and
+  `redshift/schema_pg_compat.sql` are runtime-only schema variants that harness templates apply
+  independently of the (possibly different) file `scythe.toml` generated queries from — safe only as
+  long as both files agree on table/column shape, which nothing checked; a new
+  `tests/schema_variant_consistency.rs` now checks it. (#196, #195)
+
+- **Two queries in one `[[sql]]` block whose `@name` values differed only in case could render the
+  same function name into one file, and `generate` exited 0.** `CreateAPIKey` and `CreateApiKey` both
+  `snake_case` to `create_api_key`; `check_file_level_type_name_collisions` already caught this shape
+  for row/model structs and enums but never compared query function names, and `assemble_body` has no
+  dedup pass at all for `query_fn` (unlike the struct/enum lists, it pushes every result's function
+  unconditionally), so the collision always reached the output file as two function definitions. The
+  check now also compares `fn_name` across every query destined for the same file. (#136)
+
+- **`scythe generate` silently produced different bytes for the same input depending on whether
+  `rustfmt` happened to be on `PATH`, and said nothing either way.** `format_rust_code_if_possible`
+  piped `rustfmt`'s `stderr` to `/dev/null` and fell back to the unformatted code on a failed spawn,
+  a non-zero exit, or a broken pipe, all indistinguishably. A missing `rustfmt` is now reported as a
+  warning (and still never fails the run — a missing toolchain says nothing about whether the
+  generated code is correct); `rustfmt` spawning and then rejecting the input is reported with its
+  own stderr and, since Rust has no other tool-based validator, now counts as a `--validate-output`
+  finding the same way every other backend's real-compiler check already does. (#167)
+- **A misspelled annotation still reported success — nothing consumed the `suggested_keyword` signal
+  #152 added to `CustomAnnotation`.** A typo like `@nullible` parsed clean, analyzed clean, and
+  `scythe generate`/`check`/`lint` all exited 0 while the nullability override it named silently
+  never took effect. New rule `SC-PARSE03` (`misspelled-annotation`) fires when
+  `suggested_keyword` is set, naming both the annotation as written and the suggested keyword (e.g.
+  `@nullible` → did you mean `@nullable`?). `Warn` by default, not `Error`: the same escape hatch
+  the signal rides on is a deliberate extension point with legitimate shipping usage (`@http`,
+  `@http_auth`), and `suggested_keyword` is a heuristic, not proof the annotation is wrong. Lives in
+  `default_registry` rather than `parse_registry` (unlike `SC-PARSE01`/`SC-PARSE02`): it has a real,
+  already-analyzed `LintContext` to inspect, so it needs no additional `scythe check` wiring beyond
+  registration. The default registry now holds 59 built-in rules, up from 58. (#152, #167)
+- **`scythe migrate` parsed sqlc's top-level `plugins:` array and each `gen.<lang>.package` field
+  and discarded both with no diagnostic.** Neither has a `scythe.toml` equivalent — scythe has no
+  wasm/process plugin system to receive `plugins:`, and no backend supports overriding the
+  generated-code package/module name (every scythe Go file hardcodes `package queries`) — so there
+  is no config key `migrate` could fill in for either. Both are now a `warning:` on stderr naming
+  what was dropped, rather than silence. Left as warnings, not `invalid_config` errors like an
+  unsupported `gen.<lang>` target: a hard error on the mere presence of `plugins:` would fail
+  ordinary, fully-convertible v2 configs that declare it only to satisfy sqlc's own plugin
+  resolution alongside an otherwise-unremarkable `gen.go` block. (#152)
+- **`scythe-backend`'s type tests ran against a stale private copy of the manifests, not what
+  scythe actually ships.** `crates/scythe-backend/test-manifests/{rust-sqlx,rust-tokio-postgres}.toml`
+  had drifted from `crates/scythe-codegen/manifests/`: the private copies were missing
+  `json_nested`, `sanitize_field_names` and the ~50-entry `reserved` keyword list entirely, and the
+  tokio-postgres copy declared `range = "String"` where the shipped manifest declares
+  `PgRange<{T}>`. Worse, a test asserted that stale `"String"` value directly, so it wasn't merely
+  blind to drift — it actively pinned the bug, and would have broken the moment someone pointed it
+  at the real file. `4ef83676` had already proven `PgRange<{T}>` correct by compiling the emitted
+  wrapper with `rustc`. The private copies are deleted; both `types.rs` and `manifest.rs` tests now
+  `include_str!` the manifests `scythe-codegen` ships, and assertions cover `reserved`,
+  `sanitize_field_names`, `json_nested` and the corrected `range` value. (#157)
+
+- **`scythe-conformance` never checked that a fixture's `expected.query.columns` matched what the
+  analyzer actually produced for `query_sql`.** The four nullability assertions only ever iterate
+  `analyzed.columns`, so a declared column absent from that list — a rename, a dropped `SELECT`
+  item, a typo — was never fed into any of them: not a failure, not a skip, just silently never
+  examined, even though every row still named it. `crate::runner::evaluate_fixture` now rejects a
+  declared column the analyzer produced no match for, via a new
+  `RunnerError::DeclaredColumnNotAnalyzed`. (#160)
+
+- **A typo in a live-fixture's `live` block, a run, a row expectation, or an `engine_expectations`
+  entry parsed clean and silently dropped the whole thing.** `LiveBlock`, `Run`, `RowExpectation`
+  and `EngineExpectation` had no `#[serde(deny_unknown_fields)]`, and `null_together` /
+  `engine_expectations` are `#[serde(default)]`, so a misspelled key evaporated instead of failing
+  to parse. All four now reject unknown fields. (#160)
+
+- **`DIVERGENCES.toml`'s `engine` field was a bare, unvalidated `String`.** A typo'd engine name
+  (e.g. `"postgres"` instead of `"postgresql"`) loaded successfully and then matched no `Verdict`,
+  forever, with no diagnostic — the entry would sit in the registry looking active while
+  suppressing nothing. `DivergenceEntry::engine` is now typed as `Engine`, so an unrecognized
+  engine name fails to deserialize instead. (#160)
+
+- **The three unit tests in `scythe-conformance/src/executors/mssql.rs` ran in no CI job at all.**
+  `ci.yml`'s `test` job runs `cargo test --workspace` with this crate's default (empty) feature
+  set, which never compiles the `mssql`-gated module; `nullability-conformance.yml`'s mssql job
+  passes `--test live`, which restricts `cargo test` to that one integration binary and excludes
+  lib unit tests. `ci.yml` now runs `cargo test -p scythe-conformance --features mssql --lib` as
+  its own step, on every push and pull request. (#160)
+
+### Changed
+
+- **Six of the surviving `range` mappings named a type their driver does not produce, and are
+  corrected; a seventh is removed.** Verified by running each real client against a live PostgreSQL
+  instance rather than by reading the manifests. `csharp-npgsql` said `string`, but `GetString`
+  throws `InvalidCastException` — now `NpgsqlTypes.NpgsqlRange<{T}>`. `go-pgx` said `string`, but
+  pgx v5 refuses to scan a range into `*string` at all — now `pgtype.Range[{T}]`. Both Elixir
+  manifests said `String.t()` where Postgrex returns `%Postgrex.Range{}` and rejects a plain string
+  as a bind parameter. Both Python manifests said `tuple[{T}, {T}]`, and neither driver returns a
+  tuple; they now name `asyncpg.Range[{T}]` and `psycopg.types.range.Range[{T}]` respectively,
+  which are genuinely different classes, so the family spelling legitimately diverges.
+  `rust-tokio-postgres` has no usable mapping — `postgres-types` excludes every range OID from
+  `FromSql for String` and ships no range decoder — so its declaration is removed and recorded as a
+  capability exception that fails the gate if anyone re-adds one without justification. Any query
+  selecting a range column on these backends generated code that did not work; it now does, but the
+  host type it names has changed. (#190)
+
+- **The `range` container is now declared only on PostgreSQL manifests — 84 declarations become 19.**
+  `range` was mapped in 84 of 102 manifests in seven mutually incompatible spellings, and nothing
+  asserted anything about it. Presence tracked no engine capability in either direction: it was
+  declared for MySQL, MariaDB, SQLite, MSSQL, Oracle, DuckDB and Redshift, none of which has a
+  PostgreSQL-style range column type, and omitted from manifests whose siblings declared it. The
+  spellings contradicted each other inside single language families and, in two cases, inside one
+  file — `python-asyncpg` said `tuple[{T}, {T}]` while `python-asyncpg.redshift` said `str`;
+  `elixir-postgrex` said `string()`, which is not the Elixir typespec for a binary at all. Dropping
+  the key on an engine with no range type is a degradation only in the sense that a query can no
+  longer silently resolve `range<T>` to a wrong host type there — it now falls through the unknown-
+  container path like any other unmapped container. `range_container_consistency.rs` gates presence
+  against engine and spelling against each family's own `string` scalar, in both directions. (#190)
+- **`scythe fmt --check` exits 2 rather than 1 when files need formatting.** #212 reserves exit 1 for
+  operational failure — an unreadable file, an invalid config — and a distinct code for "the thing
+  you asked about is not satisfied", which is what `lint` and `check` already do. `fmt --check` used
+  a plain error for both, so a CI step could not tell a formatting difference from a broken run.
+  Scripts branching on exit 1 from `fmt --check` need updating.
+- **Breaking (`elixir-ecto`): the backend emits Ecto instead of a Postgrex clone.** Generated
+  functions take a `repo` rather than a `conn`, specs change from `Postgrex.conn()` to
+  `Ecto.Repo.t()`, queries run through `Ecto.Adapters.SQL.query(repo, sql, args, [])`, and `:batch`
+  uses `repo.transaction/1` with `repo.rollback/1`. Struct definitions also move to top level instead
+  of nesting under `Scythe.Queries.*`. A backend named after Ecto that generated raw Postgrex calls
+  was misnamed rather than merely limited. Every caller of a generated `elixir-ecto` function must
+  now pass a repo module. (#202)
+- The PHP backends now render a type twice: the native position (property, parameter, return) keeps
+  the bare `array` PHP's syntax requires, and `@var`/`@param` docblocks get `array<T>` back. A bare
+  `array` is `array<mixed, mixed>` to PHPStan, so the fix that made the output parse cost every array
+  column and every `= ANY(...)` parameter its element type at level 9. Manifests gained an optional
+  `[types.docblock_containers]` table, which falls back per container name to `[types.containers]`;
+  only the nine `php-*.toml` manifests declare it, and every other language's output is byte-identical.
+  Measured on the torture schema at PHPStan level 9: 15 findings to 9 (php-pdo), 24 to 18 (php-amphp),
+  all six removed being `missingType.iterableValue`.
+- Dependency pins for `integration_tests/**` are managed by Renovate against the jinja templates in
+  `tools/integration-test-generator/templates/`, which is where they actually live. Dependabot cannot
+  target generated files, so its PRs against them were dead on arrival. (#115)
+- `snowflake-jdbc` is unified on 4.0.2 across both JVM templates, which previously disagreed.
+- **The JVM backends have a real array reader, and array columns are `List<T>` again.** An earlier
+  revision of this release degraded the JVM manifests to declare array columns as `String`, because
+  no JVM backend could read one and `int[]`/`bool[]` additionally rendered `java.util.List<int>`,
+  which is not valid Java. That entry said the degradation was not the destination; the reader now
+  exists, so `array` maps to a boxed `List<T>` and the `String` fallback is gone. Regenerated JVM
+  output changes shape for every array column. (#192)
+- `scythe lint` and `scythe fmt` build one sqruff linter per `[[sql]]` block instead of one per file.
+  Construction compiles the dialect's lexer, so a run over N files paid N+1 constructions where one
+  suffices; measured on 200 single-query files in one block, `scythe lint` goes from 0.547s to 0.047s.
+  Construction is also validation, which moves an invalid `[lint.sqruff]` table from "error against
+  whichever file was read first" to an error about the config itself. (#130)
+
+### Removed
+
+- **Breaking (`scythe-codegen`)**: removed the public `generate_from_catalog` stub. It ignored its
+  argument and always returned `Ok(GeneratedCode::default())`, so a caller could not distinguish
+  "nothing to generate" from "this function does nothing" — reporting success while doing nothing is
+  worse than not existing. It had no caller besides its own tautological test, which asserted the
+  stub's behavior matched the stub's behavior and could never fail. If catalog-level codegen is
+  implemented later it should land as a real implementation, not a reserved name. (#132)
+- **Breaking (`scythe-backend`)**: removed `BackendRenderer`, its jinja fixtures, and the
+  `BackendError::TemplateError` variant, along with the crate's `minijinja` dependency. Code
+  generation is done by the per-language emitters in `scythe-codegen`; the template renderer was a
+  parallel mechanism with no production caller, so it read as a supported extension point that did
+  not exist. Breaking only for a caller matching directly on that error variant.
+- Four `r2dbc` manifests for engines the r2dbc backends never accepted. They were unreachable.
+- **Breaking (`scythe-lint`)**: removed the free functions `sqruff_adapter::validate_config`,
+  `lint_sql`, `lint_and_fix_sql` and `format_sql`. Each built a `SqruffLinter` per call, and building
+  one compiles the dialect's lexer — the cost that dominated `scythe lint` until #130 hoisted
+  construction out of the per-file loop. Leaving them in left a second way to do the same thing where
+  the obvious use (a loop over files) silently reintroduced that cost. Use `SqruffLinter::for_linting`
+  (returns `None` for `[lint.sqruff] enabled = false`) with `lint` / `lint_and_fix`, or
+  `SqruffLinter::new` with `format`, building one linter per run instead of per file;
+  `validate_config` is `for_linting` with the linter discarded, so keep the linter. None were
+  re-exported from the crate root, so only a caller naming `scythe_lint::sqruff_adapter::` directly is
+  affected. (#130)
+
 ## [0.14.0] - 2026-08-09
 
 This release checks scythe's output against something other than scythe. Nullability inference is

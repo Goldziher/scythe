@@ -5,7 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.15.0] - 2026-08-15
+
+This release is mostly about checks that could not fail. A validator whose only callers were its own
+tests, an allowlist nobody reconciled, a CI step whose assertion was vacuous, a fixture that asserted
+only that *something* was generated — each one reported success while measuring nothing, and several
+had done so since the feature they guarded shipped. Auditing them found real defects underneath:
+generated Rust whose bytes depended on whether `rustfmt` happened to be on `PATH`, two queries whose
+names collapsed onto one function, a nested aggregate quietly degraded to an opaque string, and a
+`ruby-pg` signature promising a `Hash` for a value that was the driver's raw wire text.
+
+A second shape recurred often enough to name: the test that pins the bug. Several tests asserted the
+*defective* output verbatim, so they failed when someone fixed the thing they were named after. Those
+are inverted here, each with a doc comment stating what it now guards.
+
+Nullability, JVM enum round-trips, `?` placeholder counting and Oracle's LOB reads were all measured
+against live PostgreSQL, MySQL, MariaDB and Oracle rather than against scythe's own model. Four
+backends that had never executed anywhere — `kotlin-exposed` among them — now run in CI, and running
+them found seven defects no string-matching test could reach.
 
 **Upgrading**: three changes can turn a config that used to be accepted into an error. `[lint.sqruff]`
 is now actually read, so a table that was previously inert may now fail the run; keys in a `[[sql]]`
