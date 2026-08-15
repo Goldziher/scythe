@@ -201,11 +201,10 @@ jobs:
       # above (composite_text_escaping_regression.rs,
       # sql_literal_injection_regression.rs): the emitted parser is run
       # against real PostgreSQL output, not just string-matched. Both also
-      # come from the runner image. Unlike the tool-validation path, those
-      # two tests fall back to an unconditional early return when the binary
-      # is missing rather than failing under strict mode, so losing either
-      # from the image would silently drop that half of the check with no
-      # signal here or there.
+      # come from the runner image. Those two tests now fail under strict
+      # mode when the interpreter is absent, so this step is a better
+      # diagnostic rather than the only signal -- keep both, since a name
+      # here beats a stack trace from ten backends there.
       - name: Verify every checker is on PATH
         run: |
           set -euo pipefail

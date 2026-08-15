@@ -109,6 +109,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CI's freshness check reported everything fresh — its own vacuity guard counts committed files,
   which are still there. All three now fail. (#196)
 
+- **A missing interpreter silently deleted two suites' only real check.**
+  `composite_text_escaping_regression.rs` runs the emitted composite parser against the exact text
+  PostgreSQL 16 produces, and `sql_literal_injection_regression.rs` compiles every backend's
+  escaped literal with that language's real compiler — both precisely because the string match they
+  sit next to cannot tell a correct branch from a plausible-looking one. When the interpreter or
+  compiler was absent, both returned early and reported success, degrading to the string match they
+  exist to supersede. Under `SCYTHE_VALIDATE_STRICT` (set for CI's `cargo test --workspace`) the
+  skip is now a failure naming the missing tool; locally it still skips, since nobody has all ten
+  toolchains. (#127)
+
 ### Added
 
 - **`javascript-node-sqlite`: a JSDoc emit mode for `typescript-node-sqlite`.** The fifth

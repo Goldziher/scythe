@@ -30,6 +30,15 @@ const SCHEMA: &str = "CREATE TYPE addr AS (street TEXT, city TEXT); \
 
 const QUERY: &str = "-- @name GetThing\n-- @returns :one\nSELECT id, home FROM things WHERE id = $1;";
 
+/// ~keep Why a missing interpreter is fatal under strict mode but not locally.
+/// Each of the three probe tests below asserts on values the emitted parser
+/// actually returned; without its interpreter the test degrades to the string
+/// match the doc comments already call insufficient, and still reports success.
+/// Nobody has all three toolchains locally, so the skip stays -- but CI sets
+/// strict mode precisely so that losing one from the image fails instead of
+/// quietly shrinking what is checked.
+const STRICT_SKIP_REASON: &str = "strict mode requires it; without it only the string match ran";
+
 /// The exact text PostgreSQL 16 emits for `ROW('he said "hi"', 'back\slash')::addr`, and the
 /// two field values a correct parser recovers from it.
 const PG_TEXT: &str = r#"("he said ""hi""","back\\slash")"#;
@@ -105,8 +114,7 @@ fn every_generated_composite_parser_handles_a_doubled_quote() {
 /// checks the values that come back.
 ///
 /// Skips rather than fails when `python3` is absent, matching how `tool_validation.rs` treats a
-/// missing toolchain -- but prints that it skipped, so a CI image that quietly loses python
-/// cannot turn this into a test that passes without checking anything.
+/// missing toolchain -- but only outside strict mode. See [`STRICT_SKIP_REASON`].
 #[test]
 fn the_emitted_python_parser_recovers_both_fields_from_real_postgresql_output() {
     let code = generated_text("python-psycopg3");
@@ -141,6 +149,10 @@ fn the_emitted_python_parser_recovers_both_fields_from_real_postgresql_output() 
     let output = match std::process::Command::new("python3").arg(&path).output() {
         Ok(output) => output,
         Err(e) => {
+            assert!(
+                !strict_mode_enabled(),
+                "python3 unavailable ({e}): {STRICT_SKIP_REASON}"
+            );
             eprintln!("SKIP: python3 unavailable ({e}); the doubled-quote rule was checked by string match only");
             return;
         }
@@ -200,6 +212,7 @@ fn the_emitted_ruby_parser_recovers_both_fields_from_real_postgresql_output() {
     let output = match std::process::Command::new("ruby").arg(&path).output() {
         Ok(output) => output,
         Err(e) => {
+            assert!(!strict_mode_enabled(), "ruby unavailable ({e}): {STRICT_SKIP_REASON}");
             eprintln!("SKIP: ruby unavailable ({e}); the doubled-quote rule was checked by string match only");
             return;
         }
@@ -357,6 +370,7 @@ fn assert_php_composite_parser_recovers_both_fields(backend_name: &str) {
     let output = match std::process::Command::new("php").arg(&path).output() {
         Ok(output) => output,
         Err(e) => {
+            assert!(!strict_mode_enabled(), "php unavailable ({e}): {STRICT_SKIP_REASON}");
             eprintln!("SKIP: php unavailable ({e}); the doubled-quote rule was checked by string match only");
             return;
         }

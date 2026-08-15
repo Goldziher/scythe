@@ -20,6 +20,7 @@
 
 use std::process::Command;
 
+use scythe_codegen::validation::strict_mode_enabled;
 use scythe_codegen::{GeneratedCode, generate_with_backend, get_backend, provenance};
 use scythe_core::analyzer::analyze;
 use scythe_core::catalog::Catalog;
@@ -128,11 +129,22 @@ fn write_temp(code: &str, ext: &str) -> std::path::PathBuf {
 }
 
 /// Run `tool` with `args`; panics with the tool's output if it exits
-/// non-zero. Returns `false` (skip) rather than panicking when `tool` is not
-/// on `PATH`, so this suite still passes on a machine missing that one
-/// toolchain -- see the module doc comment.
+/// non-zero. Skips rather than panicking when `tool` is not on `PATH`, so this
+/// suite still passes on a machine missing that one toolchain -- see the module
+/// doc comment.
+///
+/// ~keep Under `strict_mode_enabled()` the skip becomes a failure. Every
+/// assertion in this suite is downstream of a real compiler accepting the
+/// escaped output, so a CI image that loses one of these interpreters turns
+/// the whole file into a test that passes having checked nothing. Locally the
+/// skip is still the right behaviour -- nobody has all ten toolchains.
 fn compiles_or_skipped(tool: &str, probe_arg: &str, args: &[&str]) {
     if Command::new(tool).arg(probe_arg).output().is_err() {
+        assert!(
+            !strict_mode_enabled(),
+            "{tool} is not on PATH, so nothing checked the escaped output; \
+             strict mode requires every toolchain this suite names"
+        );
         eprintln!("skipping {tool} check: not on PATH");
         return;
     }
