@@ -763,13 +763,14 @@ pub(super) fn widen_type(a: &str, b: &str) -> String {
 /// analyzer is meant to route through, per #121 -- do not reintroduce a
 /// second "take the first non-unknown" or "take the left operand" idiom
 /// alongside it.
+///
+/// ~keep The absorption itself now lives in [`widen_type`], which #227 made
+/// symmetric for `unknown` in either position, so this is a routing point
+/// rather than a second implementation -- duplicating the checks here would
+/// be exactly the "second idiom alongside it" the paragraph above forbids.
+/// `test_widen_neutral_type_unknown_absorbed` pins the behaviour at this
+/// name, so moving it back out of `widen_type` fails here and not only there.
 pub(super) fn widen_neutral_type(a: &str, b: &str) -> String {
-    if a == "unknown" {
-        return b.to_string();
-    }
-    if b == "unknown" {
-        return a.to_string();
-    }
     widen_type(a, b)
 }
 

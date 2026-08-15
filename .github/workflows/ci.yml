@@ -196,11 +196,21 @@ jobs:
       # `javac` and `kotlinc` come from the runner image rather than a setup
       # step. They are listed anyway: an image that stops shipping either one
       # should fail here by name, not as a pile of per-backend assertions.
+      #
+      # `php` and `python3` back the same real-execution checks as `ruby`
+      # above (composite_text_escaping_regression.rs,
+      # sql_literal_injection_regression.rs): the emitted parser is run
+      # against real PostgreSQL output, not just string-matched. Both also
+      # come from the runner image. Unlike the tool-validation path, those
+      # two tests fall back to an unconditional early return when the binary
+      # is missing rather than failing under strict mode, so losing either
+      # from the image would silently drop that half of the check with no
+      # signal here or there.
       - name: Verify every checker is on PATH
         run: |
           set -euo pipefail
           missing=""
-          for tool in poly node tsc gofmt ruby elixirc javac kotlinc; do
+          for tool in poly node tsc gofmt ruby elixirc javac kotlinc php python3; do
             if command -v "$tool" >/dev/null 2>&1; then
               echo "ok      $tool"
             else
