@@ -1824,6 +1824,98 @@ SELECT * FROM (SELECT id, age FROM users WHERE age > ?) sub WHERE sub.id > ?;",
         );
     }
 
+    /// A bare `?` used as a plain arithmetic operand (not a comparison, `BETWEEN`,
+    /// `CAST`, or function argument) only ever reached `infer_expr_type`'s
+    /// `Expr::Value` arm, which resolved `$N` via `parse_placeholder` but never
+    /// called `resolve_placeholder_position` for `?` at all -- so the occurrence
+    /// was silently dropped instead of merely double-counted (#170).
+    #[test]
+    fn test_bare_placeholder_as_arithmetic_operand_in_projection_is_counted() {
+        let catalog = make_mysql_catalog();
+        let query = crate::parser::parse_query_with_dialect(
+            "-- @name AgePlus
+-- @returns :many
+SELECT age + ? AS x FROM users;",
+            &SqlDialect::MySQL,
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(
+            result.params.len(),
+            1,
+            "the `?` added to `age` must be counted even though it sits in a plain \
+             arithmetic expression, not a comparison"
+        );
+        assert_eq!(result.params[0].position, 1);
+    }
+
+    /// `analyze_select` visited `WHERE`/`HAVING` before the projection, so a `?`
+    /// textually first (in the SELECT list) was numbered *after* a `?` textually
+    /// later (in WHERE) -- the reverse of source order. `$N` placeholders are
+    /// unaffected (they carry an explicit number), so this only shows up for the
+    /// occurrence-numbered `?` marker. Uses the issue's own "Ord" example.
+    #[test]
+    fn test_projection_placeholder_binds_before_where_placeholder() {
+        let catalog = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);"],
+            &SqlDialect::MySQL,
+        )
+        .unwrap();
+        let query = crate::parser::parse_query_with_dialect(
+            "-- @name Ord
+-- @returns :many
+SELECT CAST(? AS CHAR) AS tag, name FROM users WHERE age = ?;",
+            &SqlDialect::MySQL,
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(result.params.len(), 2);
+        assert_eq!(
+            result.params[0].position, 1,
+            "the CAST placeholder in the SELECT list is textually first and must bind first"
+        );
+        assert_eq!(result.params[0].neutral_type, "string");
+        assert_eq!(
+            result.params[1].position, 2,
+            "the WHERE placeholder is textually second and must bind second, even though WHERE is analyzed first"
+        );
+        assert_eq!(result.params[1].name, "age");
+        assert_eq!(result.params[1].neutral_type, "int32");
+    }
+
+    /// A `?` used bare in the SELECT list, with nothing to widen or cast against,
+    /// has no type-bearing context at all -- `infer_expr_type` returns
+    /// `TypeInfo::unknown()` for it and there is no fallback. This is a distinct,
+    /// pre-existing defect from the counting/ordering bugs above (a literal
+    /// `NULL` in the same position hits the exact same `"unknown"` sentinel): the
+    /// column reaches `analyze()`'s `Ok` result already mistyped, and the
+    /// `INTERNAL_ERROR: unknown neutral type: unknown` the issue reports is
+    /// raised later, in the backend's type-to-language mapping, not here. Fixing
+    /// that requires giving such a column a real inferable type (or a proper
+    /// user-facing error) and is out of scope for this fix.
+    #[test]
+    fn test_bare_placeholder_alone_in_projection_has_no_inferable_column_type() {
+        let catalog = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER);"],
+            &SqlDialect::MySQL,
+        )
+        .unwrap();
+        let query = crate::parser::parse_query_with_dialect(
+            "-- @name BareTag
+-- @returns :many
+SELECT ? AS tag, name FROM users;",
+            &SqlDialect::MySQL,
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(result.params.len(), 1, "the bare `?` is still counted as one parameter");
+        assert_eq!(
+            result.columns[0].neutral_type, "unknown",
+            "a bare placeholder with no comparison/cast context has no type to infer -- this is what \
+             surfaces as the backend's INTERNAL_ERROR, and remains unfixed here"
+        );
+    }
+
     // Regression tests for the unfiled defect found alongside the JVM composite `fromText`
     // fix (ddb7bb00): `analyzed.composites` was built by scanning selected columns' neutral
     // types, never by walking into a composite's own field list, so a composite reachable

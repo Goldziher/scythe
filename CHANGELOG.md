@@ -864,6 +864,15 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   target or path — only its replacement argument is exempt — so it gets its own arm. `json_typeof`,
   `jsonb_typeof` and `json_array_length`/`jsonb_array_length` were unconditionally nullable where the
   database is strict, and now follow their argument.
+- A bare MySQL `?` placeholder used as a plain arithmetic operand in the SELECT list (`SELECT age + ?
+  AS x FROM users`) was dropped entirely: `infer_expr_type`'s `Expr::Value` arm only resolved a
+  placeholder's position via `parse_placeholder`, which parses `$N` but returns `None` for `?`, so the
+  occurrence never reached `resolve_placeholder_position` and the generated function signature was
+  missing an argument. Separately, `analyze_select` visited `WHERE`/`HAVING` before the projection, so
+  a `?` textually first in the SELECT list was numbered *after* one appearing later in `WHERE` —
+  `SELECT CAST(? AS CHAR) AS tag, name FROM users WHERE age = ?` bound the WHERE placeholder first.
+  Projection is now analyzed before `WHERE`/`HAVING`, and the `Expr::Value` placeholder arm resolves
+  through `resolve_placeholder_position` for both `$N` and `?`. (#170)
 
 ### Added
 

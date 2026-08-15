@@ -49,7 +49,14 @@ impl<'a> Analyzer<'a> {
                 } else if value_is_null(vws) {
                     TypeInfo::new("unknown", true)
                 } else if let Some(p) = value_is_placeholder(vws) {
-                    if let Some(pos) = parse_placeholder(p) {
+                    // ~keep `parse_placeholder` alone only resolves `$N`; a bare MySQL `?`
+                    // parses to `None` and was silently dropped here whenever this was
+                    // the only place a placeholder was reached (e.g. `age + ?` or a
+                    // top-level `SELECT ?`), undercounting the query's parameters
+                    // (#170). `resolve_placeholder_position` handles both: it parses
+                    // `$N` exactly as before and, for `?`, assigns (and memoizes by
+                    // span) the next positional slot.
+                    if let Some(pos) = self.resolve_placeholder_position(p, vws.span) {
                         self.register_param(pos, None, None, false, None);
                     }
                     TypeInfo::unknown()

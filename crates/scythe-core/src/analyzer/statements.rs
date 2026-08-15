@@ -336,14 +336,13 @@ impl<'a> Analyzer<'a> {
     pub(super) fn analyze_select(&mut self, select: &ast::Select) -> Result<Vec<AnalyzedColumn>, ScytheError> {
         let scope = self.build_scope_from_from(&select.from)?;
 
-        if let Some(ref selection) = select.selection {
-            self.collect_params_from_where(selection, &scope);
-        }
-
-        if let Some(ref having) = select.having {
-            self.collect_params_from_where(having, &scope);
-        }
-
+        // ~keep Projection is analyzed before WHERE/HAVING even though the scope-building
+        // FROM clause runs first: `SELECT ... FROM ... WHERE ...` places the
+        // projection ahead of the WHERE/HAVING clauses in the source text, and a
+        // bare `?` placeholder's position is assigned in traversal order (`$N`
+        // placeholders carry their own number and are unaffected). Visiting
+        // WHERE/HAVING first inverted that order and bound a later `?` before an
+        // earlier one (#170).
         let mut columns = Vec::new();
         for item in &select.projection {
             match item {
@@ -408,6 +407,14 @@ impl<'a> Analyzer<'a> {
                     }
                 }
             }
+        }
+
+        if let Some(ref selection) = select.selection {
+            self.collect_params_from_where(selection, &scope);
+        }
+
+        if let Some(ref having) = select.having {
+            self.collect_params_from_where(having, &scope);
         }
 
         reject_unresolved_columns(&columns)?;
