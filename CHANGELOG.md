@@ -106,6 +106,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cast is not a plain one-step assertion was pinned by hand-written string matching alone, on all
   five backends. It now builds a `:many` query too. (#93)
 
+### Changed
+
+- **The generated-type check now covers 10 of 13 Python and 10 of 10 PHP integration projects**, up
+  from 5 and 2. The three Python projects still excluded use `aiomysql` or `pyodbc`, neither of
+  which ships type information, and are documented in place rather than wired up to a checker that
+  cannot fail on them. Every expected-error count is measured, not assumed, and the eight PHP
+  projects that newly run `composer install` in CI have committed lock files so the install is
+  pinned. `python-duckdb` joins the loop: the comment excluding it claimed it had no
+  `integration_tests/` project directory, which stopped being true several releases ago. (#127)
+
 ### Removed
 
 - **`testing_data/00-FIXTURE-SCHEMA.json`**, the JSON Schema `CONTRIBUTING.md` pointed contributors

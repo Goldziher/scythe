@@ -511,6 +511,8 @@ jobs:
           failures=0
           # Only backends whose driver ships inline type hints (a `py.typed`
           # marker or equivalent) are listed here. `python-aiomysql` and
+          # `python-aiomysql-mariadb` (same `aiomysql` driver, just pointed
+          # at a different schema/dsn -- no separate types question) and
           # `python-pyodbc-mssql` are deliberately absent: neither `aiomysql`
           # nor `pyodbc` ships types, no `types-aiomysql`/`types-pyodbc` stub
           # package exists on PyPI (checked against the real index), and
@@ -520,10 +522,10 @@ jobs:
           # fail -- because the unresolved import becomes `Unknown`, which
           # pyrefly accepts anywhere. A checker that cannot fail on that
           # input is not a check; wiring it up would be exactly the "reads as
-          # coverage, checks nothing" step #127 is about. `python-duckdb` has
-          # no `integration_tests/` project directory at all (no scaffold to
-          # run this against), the same reason `check-generated-syntax.sh`
-          # never covered it either.
+          # coverage, checks nothing" step #127 is about. `python-duckdb`
+          # ships `duckdb/py.typed` plus bundled `_duckdb-stubs/*.pyi`
+          # (confirmed by inspecting the published wheel directly), so it
+          # belongs in this loop like the other typed drivers below.
           #
           # proj:expected-error-count. A non-zero expectation records a real,
           # pre-existing finding this step surfaces rather than introduces --
@@ -531,12 +533,27 @@ jobs:
           # that drops (bug fixed) or rises (regression) both fail this step,
           # mirroring scripts/torture-expected-failures.txt's allowlist
           # discipline elsewhere in this file.
+          #
+          # Every count below is measured, never assumed. To re-derive one,
+          # run from `integration_tests/<proj>`:
+          #   uv sync --quiet && uv run --with pyrefly -- pyrefly check -p strict \
+          #     --python-interpreter-path .venv/bin/python --output-format=json generated/*.py \
+          #     | jq '.errors | length'
+          # A `0` here is only meaningful if the checker can reach a non-zero:
+          # appending `def f() -> int: return "s"` to a generated file takes
+          # the count to 1, confirming pyrefly resolves these imports rather
+          # than silently typing them `Unknown`.
           for entry in \
             "python-psycopg3:0" \
             "python-asyncpg:0" \
             "python-aiosqlite:0" \
             "python-oracledb-oracle:0" \
-            "python-snowflake:0"; do
+            "python-snowflake:0" \
+            "python-asyncpg-redshift:0" \
+            "python-duckdb:0" \
+            "python-psycopg3-msgspec:0" \
+            "python-psycopg3-pydantic:0" \
+            "python-psycopg3-redshift:0"; do
             proj="${entry%%:*}"
             expected="${entry##*:}"
             dir="integration_tests/$proj"
@@ -571,14 +588,34 @@ jobs:
       # same reason). Level 5 keeps real argument/return/call-shape checking
       # -- proven below -- while dropping that noise; both backends pass
       # cleanly at level 5 today.
+      # php-pdo-mssql and php-pdo-snowflake declare `ext-pdo_sqlsrv`/
+      # `ext-pdo_odbc` as platform requirements (composer.json), but neither
+      # extension is installed on this runner (the `shivammathur/setup-php`
+      # step above requests no extensions) -- and installing the real sqlsrv/
+      # odbc driver stack is out of scope for a static-analysis job that never
+      # executes generated code. `--ignore-platform-req` skips just the
+      # platform check; both composer.json files declare no package
+      # dependencies beyond that extension, so `composer install` has nothing
+      # else to resolve and succeeds. The flags are harmless no-ops for every
+      # other project in the loop, which doesn't declare either requirement.
       - name: Type-check generated PHP with PHPStan (issue #127)
         run: |
           set -euo pipefail
           failures=0
-          for proj in php-pdo php-amphp; do
+          for proj in \
+            php-pdo php-amphp \
+            php-amphp-mysql \
+            php-pdo-mariadb \
+            php-pdo-mssql \
+            php-pdo-mysql \
+            php-pdo-namespace \
+            php-pdo-redshift \
+            php-pdo-snowflake \
+            php-pdo-sqlite; do
             dir="integration_tests/$proj"
             echo "== $proj (phpstan level 5)"
-            ( cd "$dir" && composer install --quiet --no-interaction )
+            ( cd "$dir" && composer install --quiet --no-interaction \
+                --ignore-platform-req=ext-pdo_sqlsrv --ignore-platform-req=ext-pdo_odbc )
             if ! ( cd "$dir" && phpstan analyse --level=5 --no-progress generated ); then
               echo "::error::$proj failed phpstan level 5 (issue #127)"
               failures=$((failures + 1))
