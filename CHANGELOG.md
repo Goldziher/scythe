@@ -131,14 +131,33 @@ direct caller that builds one by struct literal rather than through the parser. 
   contract `check`/`lint`/`fmt --check` follow, where exit 1 stays reserved for operational failure.
   (unfiled)
 
-### Added
-
 - **DuckDB integration coverage.** `python-duckdb`, `typescript-duckdb`, `java-jdbc-duckdb` and
   `kotlin-jdbc-duckdb` now run in a new `integration-duckdb` CI job, against the schema and query
   set added earlier in this release. DuckDB is embedded, so the job needs no service container.
   `go-database-sql-duckdb` exists and its harness is written, but stays exempt: `go-duckdb` cannot
   bind a nil pointer, and the backend emits `*T` for a nullable parameter, so any NULL argument
   fails at runtime — measured against the driver, tracked as board #228. (#126)
+
+- **`scythe-inspect` can read a SQLite or MySQL catalog.** A new `SchemaCatalogDriver` trait gives
+  catalog reading the engine seam it never had — `fetch_live_schema` was a bare function hardcoded to
+  `tokio_postgres::Client`. `SqliteCatalogSource` reads `sqlite_master` plus `PRAGMA table_info` and
+  needs no server, so it is tested in-process; `MySqlCatalogSource` reads `information_schema`, with
+  live tests gated the way the PostgreSQL ones already are. `ColumnDescription` gained `primary_key`.
+  At the time this landed, the `SC-INS` health checks were still PostgreSQL-only hand-written
+  `pg_catalog` SQL and the CLI was not wired to either source, so `scythe inspect`'s user-facing
+  behaviour was unchanged — MySQL/MariaDB got a real `SC-INS` driver and honest CLI dispatch
+  separately (see the "`scythe inspect` now has a real MySQL/MariaDB driver" entry above). What this
+  entry's `SchemaCatalogDriver` sources still are not wired into is schema drift: nothing yet feeds
+  `SqliteCatalogSource` or `MySqlCatalogSource` output into `diff_schemas` the way `fetch_live_schema`
+  is for PostgreSQL, so drift detection stays PostgreSQL-only.
+- **Generated Python and PHP are type-checked in CI.** A new `validate-generated-types` job installs
+  each project's real driver, then runs `pyrefly check -p strict` over five Python backends and
+  PHPStan over both PHP ones. Every step was proven able to fail by injecting a defect first. The
+  `strict` preset is load-bearing — pyrefly's default `basic` preset misses a wrong return-type
+  annotation entirely — and the job already catches one real pre-existing bug. Ruby and Elixir were
+  investigated and deliberately left out rather than given a step that cannot fail: no Ruby driver
+  has signatures in `gem_rbs_collection` (and `rbs validate` returns 0 even for a nonexistent class),
+  and Dialyzer needs `dialyxir`'s translation layer, which no integration project depends on.
 
 ### Fixed
 
@@ -1073,30 +1092,6 @@ direct caller that builds one by struct literal rather than through the parser. 
   passes `--test live`, which restricts `cargo test` to that one integration binary and excludes
   lib unit tests. `ci.yml` now runs `cargo test -p scythe-conformance --features mssql --lib` as
   its own step, on every push and pull request. (#160)
-
-
-### Added
-
-- **`scythe-inspect` can read a SQLite or MySQL catalog.** A new `SchemaCatalogDriver` trait gives
-  catalog reading the engine seam it never had — `fetch_live_schema` was a bare function hardcoded to
-  `tokio_postgres::Client`. `SqliteCatalogSource` reads `sqlite_master` plus `PRAGMA table_info` and
-  needs no server, so it is tested in-process; `MySqlCatalogSource` reads `information_schema`, with
-  live tests gated the way the PostgreSQL ones already are. `ColumnDescription` gained `primary_key`.
-  At the time this landed, the `SC-INS` health checks were still PostgreSQL-only hand-written
-  `pg_catalog` SQL and the CLI was not wired to either source, so `scythe inspect`'s user-facing
-  behaviour was unchanged — MySQL/MariaDB got a real `SC-INS` driver and honest CLI dispatch
-  separately (see the "`scythe inspect` now has a real MySQL/MariaDB driver" entry above). What this
-  entry's `SchemaCatalogDriver` sources still are not wired into is schema drift: nothing yet feeds
-  `SqliteCatalogSource` or `MySqlCatalogSource` output into `diff_schemas` the way `fetch_live_schema`
-  is for PostgreSQL, so drift detection stays PostgreSQL-only.
-- **Generated Python and PHP are type-checked in CI.** A new `validate-generated-types` job installs
-  each project's real driver, then runs `pyrefly check -p strict` over five Python backends and
-  PHPStan over both PHP ones. Every step was proven able to fail by injecting a defect first. The
-  `strict` preset is load-bearing — pyrefly's default `basic` preset misses a wrong return-type
-  annotation entirely — and the job already catches one real pre-existing bug. Ruby and Elixir were
-  investigated and deliberately left out rather than given a step that cannot fail: no Ruby driver
-  has signatures in `gem_rbs_collection` (and `rbs validate` returns 0 even for a nonexistent class),
-  and Dialyzer needs `dialyxir`'s translation layer, which no integration project depends on.
 
 ### Changed
 
