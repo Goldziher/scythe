@@ -96,9 +96,10 @@
 # name (TS1390), and tsc stops at a syntax error before it type-checks
 # anything. Fixing the syntax error is what let the type error be seen. The
 # other five projects pass now and have been deleted from this list.
-# Marked "unfiled": no open issue covers composite binding in postgres.js,
-# and an invented issue reference is worse than an honest blank.
-typescript-postgres : a composite-typed param is not assignable to postgres.js's ParameterOrFragment (unfiled)
+# Filed as #225 once the defect had been re-derived from the compiler; it
+# carried "(unfiled)" until then, because an invented issue reference is worse
+# than an honest blank.
+typescript-postgres : a composite-typed param is not assignable to postgres.js's ParameterOrFragment (#225)
 
 # --- Resolved, kept as a record of what this list is for.
 #
