@@ -1977,6 +1977,21 @@ SELECT x FROM a UNION SELECT NULL AS x FROM b;",
         assert_eq!(result.columns[0].neutral_type, "int32");
     }
 
+    /// The same widening must work when the untyped NULL is in the first arm.
+    /// UNION arm order cannot change the inferred result type.
+    #[test]
+    fn test_null_projection_in_first_union_arm_is_widened() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TABLE a (id INTEGER PRIMARY KEY);",
+            "CREATE TABLE b (id INTEGER PRIMARY KEY, x INTEGER);",
+        ])
+        .unwrap();
+        let query =
+            parse_query("-- @name Widened\n-- @returns :many\nSELECT NULL AS x FROM a UNION SELECT x FROM b;").unwrap();
+        let result = analyze(&catalog, &query).expect("the first NULL arm must be widened by the second arm's int32");
+        assert_eq!(result.columns[0].neutral_type, "int32");
+    }
+
     /// When *neither* UNION arm resolves a real type, `widen_type`'s `a == b` fast
     /// path returns `"unknown"` untouched -- nothing in the query ever gave this
     /// column a type, so the taint must survive the widened `AnalyzedColumn` and
