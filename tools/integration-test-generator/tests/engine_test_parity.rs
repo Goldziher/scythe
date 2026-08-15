@@ -41,6 +41,37 @@
 //! What counts as a "test function": a Java `private static void test...(` method or a Kotlin
 //! top-level `fun test...(` function inside a branch's line range. Both templates hand-roll their
 //! own pass/fail harness rather than using JUnit, so there is no `@Test` annotation to grep for.
+//!
+//! Scope: this gate covers only `java.java.jinja` and `kotlin.kt.jinja`. An audit checked whether
+//! the branch-window mechanism above could be extended to the other eight harness templates and
+//! found it cannot, for two reasons the existing safety nets already surface on their own:
+//!
+//!   * `python.py.jinja`, `typescript.ts.jinja`, `ruby.rb.jinja`, `php.php.jinja`, `csharp.cs.jinja`,
+//!     `elixir.exs.jinja`, and `rust.rs.jinja` do not carry one whole duplicated test program per
+//!     top-level branch the way java/kotlin do. Each test is defined once -- a shared `def test_x`,
+//!     `function test_x`, or (csharp) a single `Pass("X")` call site -- with per-engine differences
+//!     expressed as small conditionals *inside* that shared body. Pointing
+//!     `assert_no_test_falls_outside_every_branch` at one of these would flag nearly every test as
+//!     an orphan, correctly, since there is no enclosing whole-program branch to attribute it to.
+//!   * `go.go.jinja` does split into a real per-driver test program, but its
+//!     `{%- if driver == "pgx" %}` / `{%- elif ... %}` chain is repeated verbatim at three separate,
+//!     non-nested points in the file (imports, `main()` body, per-driver test functions) rather than
+//!     wrapping the whole file once. `derive_branch_key` would derive the same key (`pgx`,
+//!     `database-sql-mysql-mariadb`, ...) at each repetition, so `panic_on_duplicate_branch_keys`
+//!     would fire immediately -- correctly, since a line-based column-0 scan cannot tell which of the
+//!     three same-keyed regions is the one to compare.
+//!
+//! The counts that prompted this audit -- `ruby-pg` having 11 test functions against 9 everywhere
+//! else in `ruby.rb.jinja`, and `php-pdo`/`php-amphp` having 7 against 6 everywhere else in
+//! `php.php.jinja` -- are real but are not drift. The extra functions
+//! (`test_count_users_by_status`/`test_get_user_profile` in ruby, `test_get_user_profile` in php)
+//! are postgresql-only by design: the same structural asymmetry the exemptions file already records
+//! for java/kotlin's `testCountUsersByStatus`/`testGetUserProfile` (a `UserStatus` enum parameter and
+//! a nullable composite column that only `pg/queries/*.sql` defines). Every other engine's branch in
+//! both templates has an identical 9 (ruby) or 6 (php) test functions -- no branch is missing a test
+//! that another branch of the same template has. Covering ruby/php soundly needs a different
+//! mechanism (comparing test-name *sets* reachable per engine across always-shared function bodies,
+//! not per-branch line windows), which this gate's window-splitting approach cannot safely provide.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
