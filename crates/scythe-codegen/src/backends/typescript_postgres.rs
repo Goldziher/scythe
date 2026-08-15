@@ -1731,6 +1731,88 @@ mod tests {
         );
     }
 
+    /// #219 (`$N` half): the multi-parameter `:batch` path used to run a raw
+    /// `sql.replace("$1", "${item.a}")` over the whole statement, which does
+    /// not know a SQL string literal from live code -- `'cost is $1 today'`
+    /// got rewritten right alongside the real `$1` placeholder, so
+    /// postgres.js sent one extra live binding for text that was never meant
+    /// to be one. `batch_item_sql` now routes through the literal-aware
+    /// `rewrite_pg_placeholders`, so only the real placeholder is live.
+    #[test]
+    fn test_batch_multi_param_does_not_rewrite_dollar_n_inside_sql_string_literal() {
+        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let query = make_batch_query(
+            "UpdateItemPrice",
+            "UPDATE prices SET a = $1, note = 'cost is $1 today' WHERE id = $2",
+            vec![
+                AnalyzedParam {
+                    name: "a".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    position: 1,
+                    source_relation: None,
+                },
+                AnalyzedParam {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    position: 2,
+                    source_relation: None,
+                },
+            ],
+        );
+
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("SET a = ${item.a}, note = 'cost is $1 today' WHERE id = ${item.id}"),
+            "the literal's inert `$1` text must survive unrewritten while the two real \
+             placeholders become live bindings; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("cost is ${item.a} today"),
+            "the literal must not gain a second live binding; got:\n{query_fn}"
+        );
+    }
+
+    /// #219 (`${fieldName}` half): the single-parameter `:batch` path used to
+    /// run `sql_template.replace("${field}", "${item}")` over the
+    /// already-escaped, already-placeholder-rewritten SQL. That blindly
+    /// matched the tail of an *escaped* `\${field}` a SQL string literal
+    /// could itself contain, silently corrupting it to `\${item}`.
+    /// `batch_item_sql_single` now runs `rewrite_pg_placeholders` on the
+    /// escaped-but-not-yet-rewritten SQL, so it only ever touches the real
+    /// `$N` placeholder.
+    #[test]
+    fn test_batch_single_param_does_not_rewrite_escaped_dollar_brace_inside_sql_string_literal() {
+        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let query = make_batch_query(
+            "UpdateItemAmount",
+            "UPDATE prices SET amount = $1 WHERE note = 'the ${amount} field'",
+            vec![AnalyzedParam {
+                name: "amount".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+                position: 1,
+                source_relation: None,
+            }],
+        );
+
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("SET amount = ${item} WHERE note = 'the \\${amount} field'"),
+            "the real placeholder must become `${{item}}` while the literal's escaped \
+             `\\${{amount}}` must survive untouched; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains(r"\${item}"),
+            "the literal must not be corrupted into an escaped reference to `item`; got:\n{query_fn}"
+        );
+    }
+
     fn make_query_with_snake_case_column(command: QueryCommand) -> AnalyzedQuery {
         AnalyzedQuery::build(|q| {
             q.name = "GetUserById".to_string();
