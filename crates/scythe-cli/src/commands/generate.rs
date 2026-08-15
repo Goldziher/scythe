@@ -3026,6 +3026,17 @@ mod tests {
         );
     }
 
+    /// Serialises write-then-exec of a fake `rustfmt` across the test threads
+    /// in this binary. On Linux, if any thread holds a write fd to a file while
+    /// another thread forks, the forked child inherits that fd, and the exec of
+    /// that file fails with `ETXTBSY` -- which `format_rust_code_with` reports
+    /// as `ToolMissing`, since a failed spawn is indistinguishable from an
+    /// absent binary. The three tests below each write an executable and then
+    /// run it, so without this lock they race each other and one fails roughly
+    /// one CI run in ten. Held across both the write and the call, not just the
+    /// write, because the window is between the two.
+    static FAKE_RUSTFMT_EXEC: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// Writes an executable shell script at `dir/name` whose body is
     /// `script_body`, and returns its path -- a deterministic stand-in for
     /// `rustfmt` so [`format_rust_code_with`] tests never depend on whether
@@ -3034,6 +3045,9 @@ mod tests {
     /// `.github/workflows/ci.yml`), and local development here is macOS --
     /// both Unix, so a `#!/bin/sh` script with the executable bit set is
     /// portable enough without a `cfg(unix)` guard.
+    ///
+    /// Callers must hold [`FAKE_RUSTFMT_EXEC`] across this call and the
+    /// `format_rust_code_with` that runs the result.
     fn write_fake_rustfmt(dir: &std::path::Path, name: &str, script_body: &str) -> std::path::PathBuf {
         use std::os::unix::fs::PermissionsExt;
 
@@ -3066,6 +3080,7 @@ mod tests {
     /// failure reason discarded.
     #[test]
     fn format_rust_code_with_reports_failed_with_stderr_detail_on_nonzero_exit() {
+        let _guard = FAKE_RUSTFMT_EXEC.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let fake_rustfmt = write_fake_rustfmt(dir.path(), "fake-rustfmt", "echo 'boom: invalid token' >&2\nexit 1");
 
@@ -3075,7 +3090,14 @@ mod tests {
                 assert_eq!(original, code);
                 assert!(detail.contains("boom: invalid token"), "{detail}");
             }
-            _ => panic!("expected Failed for a rustfmt stand-in that exits non-zero"),
+            RustFormatOutcome::ToolMissing(_) => {
+                panic!(
+                    "expected Failed for a rustfmt stand-in that exits non-zero, got ToolMissing -- the stand-in could not be spawned at all"
+                )
+            }
+            RustFormatOutcome::Formatted(out) => {
+                panic!("expected Failed for a rustfmt stand-in that exits non-zero, got Formatted: {out}")
+            }
         }
     }
 
@@ -3085,6 +3107,7 @@ mod tests {
     /// paths) still works after the [`RustFormatOutcome`] refactor.
     #[test]
     fn format_rust_code_with_reports_formatted_on_success() {
+        let _guard = FAKE_RUSTFMT_EXEC.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let fake_rustfmt = write_fake_rustfmt(dir.path(), "fake-rustfmt", "cat");
 
