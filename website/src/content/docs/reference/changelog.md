@@ -158,6 +158,19 @@ working code, but the error now arrives earlier and from a different layer. Fixt
   skip is now a failure naming the missing tool; locally it still skips, since nobody has all ten
   toolchains. (#127)
 
+- **A per-query codegen error in the real-tool harness was swallowed, and the harness kept going.**
+  `tool_validation.rs` generates three queries per backend and then ran every structural and
+  real-compiler check over whatever subset happened to succeed, logging the rest to a captured
+  stderr. A backend that broke only on `QUERY_ONE` -- the query carrying the array, enum-in-array,
+  composite, `uuid` and `jsonb` columns, i.e. the one worth checking -- still produced a struct and a
+  function from the other two and passed. The nominal backstop, `assert!(!code.trim().is_empty())`,
+  cannot fail: `provenance::assemble_file` always prepends a non-empty provenance header no matter
+  how many query bodies survived. A codegen error now panics, naming the backend and the failing
+  query. The same file's exemption list also claimed all four Rust backends were "still
+  syntax-checked by `syn::parse_file` elsewhere"; only two are, since the generated suite gates that
+  call on `rust-sqlx` and `rust-tokio-postgres` by name and `compile_check.rs` reaches `rust-sqlx`
+  alone. The comment now states the real coverage. (#229)
+
 ### Added
 
 - **`javascript-node-sqlite`: a JSDoc emit mode for `typescript-node-sqlite`.** The fifth

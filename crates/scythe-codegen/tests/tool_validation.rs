@@ -215,16 +215,21 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
     let class_header = backend.query_class_header();
     let use_class_wrapper = !class_header.is_empty();
 
+    // ~keep Swallowing a codegen error here (and letting the loop continue with
+    // whatever queries did succeed) let a broken backend pass this harness as
+    // long as at least one of the three queries still produced a struct and a
+    // function -- the empty-file backstop below can never catch it, since
+    // `provenance::assemble_file` always prepends a non-empty header line
+    // regardless of how many query bodies actually made it into `all_codes`.
+    // A partial failure must fail the test loudly, naming the backend and the
+    // query that broke, not get logged to a captured stderr no one reads.
     let mut all_codes = Vec::new();
     for query_sql in queries {
         let parsed = parse_query_with_dialect(query_sql, dialect).unwrap();
         let analyzed = analyze(&catalog, &parsed).unwrap();
-        match generate_with_backend(&analyzed, backend) {
-            Ok(code) => all_codes.push(code),
-            Err(e) => {
-                eprintln!("  codegen error for {backend_name}: {e}");
-            }
-        }
+        let code = generate_with_backend(&analyzed, backend)
+            .unwrap_or_else(|e| panic!("codegen error for backend {backend_name} on query {query_sql:?}: {e}"));
+        all_codes.push(code);
     }
 
     // ~keep Only the *body* is accumulated here. The preamble and the provenance
@@ -1284,9 +1289,13 @@ fn backends_with_no_tool_validator_are_a_known_and_shrinking_set() {
         // `rust-sibyl` reference their driver crates by fully-qualified path
         // with no `use` to stub around, so resolving them needs `--extern`
         // pointing at real compiled `.rlib`s -- a full Cargo dependency graph
-        // per backend. All four are still syntax-checked by `syn::parse_file`
-        // elsewhere (`crates/scythe-cli/tests/compile_check.rs` and the
-        // generated test suite).
+        // per backend. Only two of the four have a `syn::parse_file` fallback:
+        // the generated suite gates that call on `rust-sqlx` and
+        // `rust-tokio-postgres` by name, and `crates/scythe-cli/tests/compile_check.rs`
+        // reaches `rust-sqlx` alone because it calls `scythe_codegen::generate`,
+        // which is pinned to that backend. `rust-tiberius` and `rust-sibyl` are
+        // syntax-checked nowhere -- see #229. Do not restore the claim that all
+        // four are covered without a test that actually parses their output.
         "rust-sqlx",
         "rust-tokio-postgres",
         "rust-tiberius",
