@@ -120,9 +120,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let fixtures = fixture::load_fixtures(&cli.fixtures)?;
+    // ~keep An error, not a warning-and-succeed. CI regenerates into the committed
+    // `tests/generated/` and then fails on `git status --porcelain`, so exiting 0 here
+    // without writing anything leaves the committed tree untouched and the freshness
+    // check reports "matches a fresh generator run" -- for a run that generated
+    // nothing. That step's own vacuity guard counts the *committed* files, which are
+    // still there, so it cannot see this.
     if fixtures.is_empty() {
-        eprintln!("warning: no fixture files found in {}", cli.fixtures.display());
-        return Ok(());
+        return Err(format!(
+            "no fixture files found in {}: refusing to report success for a run that would \
+             generate nothing",
+            cli.fixtures.display()
+        )
+        .into());
     }
     validate_fixtures(&fixtures)?;
 

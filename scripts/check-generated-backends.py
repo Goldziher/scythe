@@ -319,6 +319,26 @@ def main() -> int:
         return 1
 
     projects = find_pg_projects()
+    # Zero projects is a broken discovery, never a clean run. `ok` below starts
+    # True and is only cleared by three lists all derived from `projects`, so an
+    # empty discovery empties every one of them and this script prints
+    # "0/0 failed" and exits 0 -- reporting success for having compiled nothing.
+    #
+    # `unknown_entries` used to catch this by accident: an allowlist naming
+    # projects that no longer exist would fire. That backstop went inert when
+    # the last active entry in the allowlist was deleted (#225), and nothing
+    # recorded that the vacuity guard depended on the allowlist being non-empty.
+    # An explicit guard does not.
+    if not projects:
+        print(
+            f"FAIL: found no postgresql-engine projects under {INTEGRATION}. "
+            "This gate compiles every backend against the torture schema, so an "
+            "empty project list means it checked nothing. Discovery looks for "
+            'engine = "postgresql" in each project\'s scythe.toml -- check that '
+            "the key, its spelling, or the directory layout has not moved.",
+            file=sys.stderr,
+        )
+        return 1
     scratch = tempfile.mkdtemp(prefix="scythe-torture-")
     print(f"scratch workspace: {scratch}")
 

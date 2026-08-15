@@ -102,6 +102,19 @@ fn assert_same_shape(base_relative: &str, variant_relative: &str) {
     base_tables.sort_by(|a, b| a.0.cmp(&b.0));
     variant_tables.sort_by(|a, b| a.0.cmp(&b.0));
 
+    // ~keep `extract_tables` recognises a table only by a line starting with a literal
+    // `CREATE TABLE`, so any DDL restyling it stops recognising -- lowercase, `IF NOT
+    // EXISTS`, a single-line declaration -- hits both files of the pair at once and
+    // reduces the assertion below to `assert_eq!(vec![], vec![])`, which passes having
+    // compared nothing. The parser's blind spot is symmetric, so only a non-emptiness
+    // check catches it.
+    assert!(
+        !base_tables.is_empty(),
+        "{base_relative} yielded no tables: extract_tables recognises only lines beginning \
+         `CREATE TABLE`, so the file's DDL style has moved out from under this test and the \
+         shape comparison below would pass vacuously"
+    );
+
     assert_eq!(
         base_tables, variant_tables,
         "{base_relative} and {variant_relative} must declare the same tables, each with the \

@@ -89,6 +89,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already used. `UNION` is commutative, so both spellings now agree. Reported and fixed by
   @snowyukitty in #227. (#224)
 
+- **Three gates reported success for having checked nothing.** `check-generated-backends.py`,
+  which compile-checks every backend against the torture schema, exits 0 when project discovery
+  returns nothing: its pass/fail flag is only cleared by lists derived from the discovered set. An
+  allowlist entry naming a vanished project used to catch that by accident, and that backstop went
+  inert when the last active entry was deleted. `schema_variant_consistency` compares two schema
+  files through a parser that recognises only a literal `CREATE TABLE` line, so any restyling it
+  stops recognising hits both files at once and reduces the comparison to two empty lists. And
+  `test-generator` warned and exited 0 on zero fixtures, leaving the committed tree untouched so
+  CI's freshness check reported everything fresh — its own vacuity guard counts committed files,
+  which are still there. All three now fail. (#196)
+
 ### Added
 
 - **`javascript-node-sqlite`: a JSDoc emit mode for `typescript-node-sqlite`.** The fifth
