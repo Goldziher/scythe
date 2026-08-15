@@ -259,6 +259,50 @@ fn list_checks_postgres_dialect_shows_all_checks() {
     }
 }
 
+/// `scythe inspect <sqlite-url>` — SQLite has no `scythe inspect` driver.
+/// Before #131, every unimplemented engine fell through to a MySQL stub that
+/// refused to connect and reported itself as `mysql`, so a SQLite user was
+/// told about an engine they never asked for. The command must instead fail
+/// immediately (no socket ever opens — `UnsupportedDriver::connect` never
+/// touches the URL) naming `sqlite`, and must never mention `mysql`.
+///
+/// Revert the `UnsupportedDriver` dispatch in `build_driver_with_config` back
+/// to the old `_ => Box::new(MySqlDriver::new())` catch-all and this test
+/// fails on the `!stderr.contains("mysql")` assertion — the stub still
+/// exits non-zero (it also refuses to connect), so only the *message*
+/// distinguishes an honest refusal from a misreported one.
+#[test]
+fn inspect_unsupported_engine_errors_naming_the_engine_not_a_stub() {
+    let output = scythe()
+        .args(["inspect", "sqlite:///nonexistent.db"])
+        .env_remove("DATABASE_URL")
+        .env_remove("SCYTHE_DATABASE_URL")
+        .output()
+        .expect("command must run");
+
+    assert!(
+        !output.status.success(),
+        "inspect against sqlite (no driver) must exit non-zero; exit code: {:?}",
+        output.status.code()
+    );
+
+    let stderr = std::str::from_utf8(&output.stderr).unwrap();
+    assert!(
+        stderr.contains("engine `sqlite` is not supported"),
+        "stderr must name the engine actually requested; got:\n{stderr}"
+    );
+    // ~keep Not `!stderr.contains("mysql")`: the honest refusal names every supported
+    // engine, so it mentions mysql legitimately. What must not appear is a *connection
+    // attempt* against an engine the user did not ask for -- `InspectError::Connect`
+    // renders as "connection to {engine} failed", which is exactly what the old
+    // `_ => MySqlDriver::new()` catch-all produced for a sqlite URL.
+    assert!(
+        !stderr.contains("connection to mysql"),
+        "stderr must not report a mysql connection attempt for a sqlite URL -- the original \
+         #131 defect; got:\n{stderr}"
+    );
+}
+
 /// `scythe inspect` without a DB URL and without `--list-checks` must exit
 /// non-zero with a diagnostic about the missing URL.
 #[test]

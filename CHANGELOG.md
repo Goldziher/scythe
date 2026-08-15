@@ -892,8 +892,13 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   `tokio_postgres::Client`. `SqliteCatalogSource` reads `sqlite_master` plus `PRAGMA table_info` and
   needs no server, so it is tested in-process; `MySqlCatalogSource` reads `information_schema`, with
   live tests gated the way the PostgreSQL ones already are. `ColumnDescription` gained `primary_key`.
-  The `SC-INS` health checks stay PostgreSQL-only — they are hand-written `pg_catalog` SQL — and the
-  CLI is not yet wired to the new sources, so `scythe inspect`'s user-facing behaviour is unchanged.
+  At the time this landed, the `SC-INS` health checks were still PostgreSQL-only hand-written
+  `pg_catalog` SQL and the CLI was not wired to either source, so `scythe inspect`'s user-facing
+  behaviour was unchanged — MySQL/MariaDB got a real `SC-INS` driver and honest CLI dispatch
+  separately (see the "`scythe inspect` now has a real MySQL/MariaDB driver" entry above). What this
+  entry's `SchemaCatalogDriver` sources still are not wired into is schema drift: nothing yet feeds
+  `SqliteCatalogSource` or `MySqlCatalogSource` output into `diff_schemas` the way `fetch_live_schema`
+  is for PostgreSQL, so drift detection stays PostgreSQL-only.
 - **Generated Python and PHP are type-checked in CI.** A new `validate-generated-types` job installs
   each project's real driver, then runs `pyrefly check -p strict` over five Python backends and
   PHPStan over both PHP ones. Every step was proven able to fail by injecting a defect first. The
