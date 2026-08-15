@@ -64,7 +64,7 @@ fun main() {
     testCountUsersByStatus()
     testGetUserWithTags()
     testSearchUsers()
-    testGetUserProfile()
+    testGetUserProfileNullable()
     testDeleteOrdersByUser()
     testDeleteUser()
 
@@ -319,7 +319,7 @@ fun testSearchUsers() {
 // than assumed. Seeded through raw exec because a composite literal is
 // outside this backend's parameter-binding surface; the read path is what is
 // under test and it runs entirely through generated code.
-fun testGetUserProfile() {
+fun testGetUserProfileNullable() {
     val name = "GetUserProfile"
     try {
         var presentId = 0
@@ -799,7 +799,7 @@ fun fail(name: String, e: Exception) {
     failed++
 }
 
-{%- if engine == "mariadb" %}
+    {%- if engine == "mariadb" %}
 // The mariadb schema's id columns are UUID, and this backend's manifest maps
 // uuid -> java.util.UUID (unlike kotlin-jdbc's mariadb manifest, which maps
 // uuid -> String) -- see kotlin-r2dbc.mariadb.toml vs kotlin-jdbc.mariadb.toml.
@@ -807,9 +807,9 @@ fun fail(name: String, e: Exception) {
 // id is non-nullable UUID, so a nullable holder fails every call site below
 // with "Type mismatch: inferred type is UUID? but UUID was expected".
 lateinit var createdUserId: java.util.UUID
-{%- else %}
+    {%- else %}
 var createdUserId = 0
-{%- endif %}
+    {%- endif %}
 
 fun main() {
     val dbUrl = System.getenv("{{ connection_env }}")

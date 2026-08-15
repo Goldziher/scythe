@@ -18,14 +18,21 @@
 #   * an entry here for a test function the branch now DOES have also fails
 #     the build (stale -- the gap was closed, delete the line).
 #
-# Format: <template>|<engine>|<test-function-name> : <reason>
+# Format: <template>|<branch>|<test-function-name> : <reason>
 #
-# Every entry below is structural: "no equivalent query exists in <engine>'s
-# queries/*.sql fixture" -- the postgresql-only test calls a generated
-# Queries method (a UserStatus enum parameter, or a nullable composite-column
-# read for board #197) that has no equivalent query defined for this engine
-# at all. Closing this requires designing a per-engine equivalent query, not
-# copying an assertion.
+# <branch> is the key engine_test_parity.rs's `derive_branch_key` derives for a top-level
+# template branch: for most branches that is a literal SQL engine name (`mariadb`), but for a
+# branch conditioned on driver or backend instead of (or in addition to) engine, it is every
+# quoted literal the condition compares against, joined with `-` in source order --
+# `driver == "r2dbc" and engine == "postgresql"` keys as `r2dbc-postgresql`, and
+# `backend == "kotlin-exposed"` keys as `kotlin-exposed`.
+#
+# The `duckdb`/`mariadb`/`mssql`/`mysql`/`oracle`/`redshift`/`snowflake`/`sqlite` entries below are
+# structural: "no equivalent query exists in <engine>'s queries/*.sql fixture" -- the
+# postgresql-only test calls a generated Queries method (a UserStatus enum parameter, or a
+# nullable composite-column read for board #197) that has no equivalent query defined for this
+# engine at all. Closing this requires designing a per-engine equivalent query, not copying an
+# assertion.
 #
 # The other reason shape this file used to carry -- "the underlying query
 # already exists in this engine's queries fixture but the harness branch was
@@ -35,6 +42,20 @@
 # remain here as of this writing. A future PASS gap of that shape would look
 # identical to a structural one syntactically -- check the query fixture
 # before assuming it belongs in this file at all.
+#
+# This follow-up made the gate measure two more branches it previously missed entirely (see
+# engine_test_parity.rs's module doc), each with its own reason shape:
+#
+#   * `r2dbc-mysql-mariadb` (java.java.jinja/kotlin.kt.jinja `driver == "r2dbc" and (engine ==
+#     "mysql" or engine == "mariadb")`) has no generated project today --
+#     tools/integration-test-generator/src/main.rs:657-687 wires `driver == "r2dbc"` only for
+#     `engine == "postgresql"` (java-r2dbc, kotlin-r2dbc) and kotlin-exposed. Every gap in this
+#     branch is recorded, not closed, so the deficit isn't silently discarded; delete these entries
+#     the day a java-r2dbc-mysql/-mariadb or kotlin-r2dbc-mysql/-mariadb project is wired there --
+#     do not port a test into this branch before that, since nothing would ever run it.
+#   * `r2dbc-postgresql` (`driver == "r2dbc" and engine == "postgresql"`) IS wired
+#     (integration_tests/java-r2dbc, integration_tests/kotlin-r2dbc) and is missing exactly one
+#     test each: see the entries below for why.
 #
 # Blank lines and lines starting with `#` are ignored.
 
@@ -53,6 +74,12 @@ java|mysql|testGetUserProfileNullable : exercises a nullable composite-column re
 java|oracle|testCountUsersByStatus : no equivalent query exists in oracle's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
 java|oracle|testGetUserOrders : no equivalent query exists in oracle's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
 java|oracle|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; oracle has no equivalent column or query
+java|r2dbc-mysql-mariadb|testCountUsersByStatus : no generated project wires driver=r2dbc with engine=mysql/mariadb today (tools/integration-test-generator/src/main.rs:657-687); delete when one is wired
+java|r2dbc-mysql-mariadb|testGetUserOrders : no generated project wires driver=r2dbc with engine=mysql/mariadb today (tools/integration-test-generator/src/main.rs:657-687); delete when one is wired
+java|r2dbc-mysql-mariadb|testGetUserProfileNullable : no generated project wires driver=r2dbc with engine=mysql/mariadb today (tools/integration-test-generator/src/main.rs:657-687); delete when one is wired
+java|r2dbc-mysql-mariadb|testSearchUsers : no generated project wires driver=r2dbc with engine=mysql/mariadb today (tools/integration-test-generator/src/main.rs:657-687); delete when one is wired
+java|r2dbc-mysql-mariadb|testUpdateUserEmail : no generated project wires driver=r2dbc with engine=mysql/mariadb today (tools/integration-test-generator/src/main.rs:657-687); delete when one is wired
+java|r2dbc-postgresql|testGetUserProfileNullable : the postgresql branch's setup inserts two rows with explicit secondary_status/address values via raw java.sql.Statement; generated Queries.createUser(ConnectionFactory, String, String, UserStatus) has no such parameters, and this branch's only Connection is the blocking migration one closed at java.java.jinja:65-67 before any test runs, so porting needs new hand-authored raw R2DBC insert code with no existing pattern in this branch to copy
 java|redshift|testCountUsersByStatus : no equivalent query exists in redshift's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
 java|redshift|testGetUserOrders : no equivalent query exists in redshift's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
 java|redshift|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; redshift has no equivalent column or query
@@ -77,6 +104,12 @@ kotlin|mysql|testGetUserProfileNullable : exercises a nullable composite-column 
 kotlin|oracle|testCountUsersByStatus : no equivalent query exists in oracle's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
 kotlin|oracle|testGetUserOrders : no equivalent query exists in oracle's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
 kotlin|oracle|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; oracle has no equivalent column or query
+kotlin|r2dbc-mysql-mariadb|testCountUsersByStatus : no generated project wires driver=r2dbc with engine=mysql/mariadb today (tools/integration-test-generator/src/main.rs:657-687); delete when one is wired
+kotlin|r2dbc-mysql-mariadb|testGetUserOrders : no generated project wires driver=r2dbc with engine=mysql/mariadb today (tools/integration-test-generator/src/main.rs:657-687); delete when one is wired
+kotlin|r2dbc-mysql-mariadb|testGetUserProfileNullable : no generated project wires driver=r2dbc with engine=mysql/mariadb today (tools/integration-test-generator/src/main.rs:657-687); delete when one is wired
+kotlin|r2dbc-mysql-mariadb|testSearchUsers : no generated project wires driver=r2dbc with engine=mysql/mariadb today (tools/integration-test-generator/src/main.rs:657-687); delete when one is wired
+kotlin|r2dbc-mysql-mariadb|testUpdateUserEmail : no generated project wires driver=r2dbc with engine=mysql/mariadb today (tools/integration-test-generator/src/main.rs:657-687); delete when one is wired
+kotlin|r2dbc-postgresql|testGetUserProfileNullable : the postgresql branch's setup inserts two rows with explicit secondary_status/address values via raw SQL; generated Queries.createUser(cf, name, email, status) has no secondary_status/address parameters, and this branch's only Connection is the blocking migration one closed via `.use` at kotlin.kt.jinja:484-486 before any test runs, so porting needs new hand-authored raw R2DBC insert code with no existing pattern in this branch to copy
 kotlin|redshift|testCountUsersByStatus : no equivalent query exists in redshift's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
 kotlin|redshift|testGetUserOrders : no equivalent query exists in redshift's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
 kotlin|redshift|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; redshift has no equivalent column or query

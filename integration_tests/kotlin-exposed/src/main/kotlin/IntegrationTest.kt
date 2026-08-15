@@ -63,7 +63,7 @@ fun main() {
     testCountUsersByStatus()
     testGetUserWithTags()
     testSearchUsers()
-    testGetUserProfile()
+    testGetUserProfileNullable()
     testDeleteOrdersByUser()
     testDeleteUser()
 
@@ -318,7 +318,7 @@ fun testSearchUsers() {
 // than assumed. Seeded through raw exec because a composite literal is
 // outside this backend's parameter-binding surface; the read path is what is
 // under test and it runs entirely through generated code.
-fun testGetUserProfile() {
+fun testGetUserProfileNullable() {
     val name = "GetUserProfile"
     try {
         var presentId = 0

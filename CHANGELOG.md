@@ -44,7 +44,7 @@ direct caller that builds one by struct literal rather than through the parser. 
   `ListActiveUsers` queries filter by `status`, not a name `LIKE` pattern like every other engine —
   its ported tests call them with a status value rather than `"%Alice%"`, matching what
   `queries/users.sql` actually defines for that engine. The 44 closed exemption lines are deleted;
-  the 33 remaining entries are all structural (a `UserStatus` enum parameter or the nullable
+  the 48 remaining entries are all structural (a `UserStatus` enum parameter or the nullable
   composite-column read from board #197 with no per-engine equivalent) and are unchanged.
 
 ### Added
@@ -160,6 +160,25 @@ direct caller that builds one by struct literal rather than through the parser. 
   and Dialyzer needs `dialyxir`'s translation layer, which no integration project depends on.
 
 ### Fixed
+
+- **The java/kotlin engine-test-parity gate never measured five of its twelve branches, and one
+  measured branch silently overwrote another's count.** `branch_test_names` only recognised a
+  top-level `if`/`elif engine == "..."` line, so `driver == "r2dbc"`-conditioned branches and
+  `backend == "kotlin-exposed"` were invisible to it entirely — 21 java and 35 kotlin test
+  functions sat outside every window it built and were excluded from every comparison without a
+  trace, leaving `integration_tests/java-r2dbc`, `kotlin-r2dbc`, and `kotlin-exposed` with zero
+  parity coverage. Separately, a nested column-0 `{% if engine == "mariadb" %}` inside
+  `kotlin.kt.jinja`'s r2dbc branch was mistaken for a real top-level branch, and its measured test
+  set was overwritten by the real `mariadb` branch's via a plain `BTreeMap::insert` with no
+  warning. Branch discovery now derives a key from every quoted literal a top-level condition
+  compares against (`r2dbc-postgresql`, `r2dbc-mysql-mariadb`, `kotlin-exposed`, alongside the
+  existing per-engine keys), a duplicate derived key is now a hard `panic!` naming both branch
+  starts instead of a silent overwrite, and a new assertion fails if any test function falls
+  outside every measured branch range. The newly measured `kotlin-exposed` gap was closed by
+  renaming a test to match its postgresql counterpart; the remaining genuine gaps (all in the two
+  `r2dbc` branches, one of which — mysql/mariadb — has no generated project to run it) are recorded
+  in `test-parity-exemptions.txt` with reasons specific to why porting isn't safe or possible yet,
+  taking that file from 48 entries to 60. (#195)
 
 - **`php-amphp` typed its handle as `SqlConnectionPool`, which made MySQL's generated
   `LAST_INSERT_ID()` lookups unreliable.** Every generated function took
