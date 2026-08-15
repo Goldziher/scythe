@@ -117,7 +117,7 @@ row_suffix = "Row"
 
 ## Available Backends
 
-56 selectable backend names -- 52 `CodegenBackend` implementations, four of which are also reachable under a `javascript-*` name that switches them to JSDoc emit -- across 10 languages and 10 databases (PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, CockroachDB, Redshift, SQL Server, Oracle, Snowflake), resolved through 6 parser dialects. See [Backend Overview](/scythe/backends/overview/) for the full list organized by engine. The table below shows the three primary engines; see the overview for the rest.
+59 selectable backend names -- 52 `CodegenBackend` implementations, seven of which are also reachable under a `javascript-*` name that switches them to JSDoc emit -- across 10 languages and 10 databases (PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, CockroachDB, Redshift, SQL Server, Oracle, Snowflake), resolved through 6 parser dialects. See [Backend Overview](/scythe/backends/overview/) for the full list organized by engine. The table below shows the three primary engines; see the overview for the rest.
 
 | Language | PostgreSQL | MySQL | SQLite |
 |----------|-----------|-------|--------|

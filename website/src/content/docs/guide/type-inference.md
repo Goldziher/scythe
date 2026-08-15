@@ -163,6 +163,22 @@ each keeping its own schema nullability.
 The bare-identifier form (`json_agg(o)`, where `o` is a table alias rather than a column) is
 recognized the same way.
 
+### The `json_build_object` inline form
+
+`json_agg(json_build_object('id', o.id, 'total', o.total, ...))` (and the `jsonb` spellings) also
+infers a struct, distinct from the whole-row `json_agg(o.*)` form above. Field names come from the
+call's own string-literal keys rather than from the aggregated relation's schema, and field
+nullability follows each value expression's real type, including outer-join widening.
+
+`json_build_object` is not strict: the object it builds is never itself SQL NULL, not even for the
+phantom all-NULL row a `LEFT JOIN` miss produces. So unlike `json_agg(o.*)`, the array element for
+this form is never wrapped `nullable<>` on an outer join -- only the individual fields inside it are,
+following their own nullability.
+
+`FILTER (WHERE ...)` therefore changes nothing for this form -- there is no element nullability left
+to suppress. It is recognized on the whole-row form only, where it does have an effect; see
+[Nullability of the aggregate](#nullability-of-the-aggregate) below.
+
 ### Generated code
 
 ```sql
@@ -223,8 +239,10 @@ pub struct GetUsersWithOrdersOuterRow {
 }
 ```
 
-`json_agg(o.*) FILTER (WHERE o.id IS NOT NULL)` -- the idiom for suppressing that `[null]` -- cannot
-produce a null element, but scythe does not prove that. The element stays optional.
+`json_agg(o.*) FILTER (WHERE {alias}.{col} IS NOT NULL)` -- the idiom for suppressing that
+`[null]`, optionally with `AND`-conjoined conditions -- is recognized regardless of which column of
+the relation it names: the filter provably excludes the phantom row, so the array element is not
+marked nullable when it is present. Without the filter, the element stays optional.
 
 ### JSON keys
 
@@ -279,8 +297,10 @@ These are not covered:
 - `json_agg`/`jsonb_agg` over a scalar expression, or over a bare `*` -- plain `json`.
 - `to_json`/`to_jsonb` over a scalar expression -- plain `json`, nullable exactly when the argument
   is (both are strict: `to_json(NULL)` is SQL NULL, not the JSON document `null`).
-- `json_build_object`, `json_build_array` and their `jsonb` spellings -- plain, non-nullable `json`.
-  They are not strict, so a NULL argument becomes a JSON `null` inside a non-NULL document.
+- `json_build_object`, `json_build_array` and their `jsonb` spellings used *outside* `json_agg`/
+  `jsonb_agg` -- plain, non-nullable `json`. They are not strict, so a NULL argument becomes a JSON
+  `null` inside a non-NULL document. Wrapped in `json_agg`/`jsonb_agg`, `json_build_object` infers the
+  inline field list described above instead.
 - `json_strip_nulls`/`jsonb_strip_nulls` -- plain `json`, nullable exactly when the argument is.
   They are strict, unlike the `json_build_*` family they sit next to.
 - `array_agg` and `string_agg` -- unaffected, still `array<T>` and `string`.
@@ -362,6 +382,23 @@ rows, because a zero-row result evaluates to SQL NULL regardless of the projecte
 nullability. The one exception is an ungrouped aggregate query with no `HAVING` clause and a single
 projected column (e.g. `(SELECT COUNT(*) FROM ...)`) -- that shape always returns exactly one row, so
 its nullability is the aggregate's own nullability from the tables above, not forced to nullable.
+
+## Constructs with no nameable type
+
+Some SQL constructs have no type scythe can name for a result column or a query parameter -- a
+set-returning function used in the select list (`SELECT jsonb_each(data) FROM documents`), or a
+bare multi-field `ROW(...)` (`SELECT array_agg(ROW(o.id, o.total)) FROM orders o`). PostgreSQL's
+anonymous `record` and a bare multi-field row genuinely have no fixed shape to synthesize a struct
+or scalar type from.
+
+These now fail at analyze time with the `UNRESOLVED_TYPE` error code, naming the column or
+parameter, rather than reaching codegen and failing later as an internal error. For a set-returning
+function in the select list, the message points at the `FROM`-clause form instead
+(`FROM documents, jsonb_each(data) AS kv`), which resolves to real `key` and `value` columns. The
+same diagnostic covers `json_each_text`, the `json_populate_record` family, `unnest` over a
+non-array, and other expression shapes with no nameable result type -- for both result columns and
+query parameters (e.g. a placeholder compared against a function whose result has no nameable type,
+such as `COALESCE($1, ROW(id, data))`).
 
 ## Manual Overrides
 

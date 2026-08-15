@@ -17,7 +17,7 @@ a competitor tool, check that tool's own docs.
 | Approach | SQL files to code | SQL files to code | .sq files to code | Java DSL to SQL | Code to SQL |
 | Languages | 10 (Rust, Python, TS, Go, Java, Kotlin, C#, Elixir, Ruby, PHP) | Go (primary), Python, Kotlin, TypeScript (plugin) | Kotlin (JVM, Native, JS via KMP) | Java, Kotlin | Language-specific |
 | Databases | PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, CockroachDB, Redshift, SQL Server, Oracle, Snowflake | PostgreSQL, MySQL, SQLite | SQLite, PostgreSQL, MySQL, H2 | 25+ databases | Varies |
-| Backends | 56 | ~5 | 4 | N/A (JDBC) | Varies |
+| Backends | 59 | ~5 | 4 | N/A (JDBC) | Varies |
 | SQL linting | 59 rules | None | None | None | None |
 | SQL formatting | sqruff integration | None | None | None | None |
 | Nullability inference | JOINs, COALESCE, CASE, window functions, aggregates | Basic (column constraints) | Column constraints | From DB metadata | Varies |

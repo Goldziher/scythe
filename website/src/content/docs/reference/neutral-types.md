@@ -61,7 +61,14 @@ is excluded even on those four: it maps to the PostgreSQL dialect but has no
 
 `json_agg`/`jsonb_agg` over an outer join yield `json_nested<array<nullable<T>>>`, because
 PostgreSQL makes the whole-row variable NULL for a non-matching row and the
-aggregate is then the JSON array `[null]`.
+aggregate is then the JSON array `[null]` -- unless the query filters the phantom row out with
+`FILTER (WHERE {alias}.{col} IS NOT NULL)`, in which case the element is not wrapped `nullable<>`.
+
+`json_agg(json_build_object(...))`/`jsonb_agg(jsonb_build_object(...))` also produce `json_nested<T>`,
+with `T`'s fields taken from the call's own string-literal keys rather than the aggregated relation's
+schema. `json_build_object` is not strict, so its element is never wrapped `nullable<>` on an outer
+join at all -- only the individual fields inside it are, following their own nullability. See
+[Nested aggregates](/scythe/guide/type-inference/#nested-aggregates) for the full rules.
 
 `json_typed<T>` is produced by the [`@json`](/scythe/databases/postgresql/#postgresql-specific-annotations)
 annotation, which binds a JSON/JSONB column to a specific language type `T` instead of the generic `json` mapping.

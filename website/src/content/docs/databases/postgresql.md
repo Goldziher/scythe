@@ -96,6 +96,11 @@ GROUP BY u.id, u.name;
 `orders` becomes `Option<sqlx::types::Json<Vec<GetUsersWithOrdersRowOrders>>>` on `rust-sqlx`, with
 the struct declared alongside the row struct.
 
+`json_agg(json_build_object(...))`/`jsonb_agg(jsonb_build_object(...))` also infer a struct, with
+fields taken from the call's own string-literal keys instead of the relation's schema -- see
+[the inline form](/scythe/guide/type-inference/#the-json_build_object-inline-form) for the
+nullability rules, which differ from the whole-row form above.
+
 This is PostgreSQL-only, and among PostgreSQL-compatible engines it applies to PostgreSQL and
 CockroachDB. Redshift is excluded: it uses the PostgreSQL dialect but has no `json_agg`. Four backends
 decode the result -- `rust-sqlx`, `rust-tokio-postgres`, `go-pgx` and `python-psycopg3`. On every other

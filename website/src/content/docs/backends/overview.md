@@ -71,7 +71,7 @@ rather than preceding it, since nothing may come before that tag.
 
 ## Supported backends
 
-Scythe provides 56 selectable backend names across 10 languages (plus plain JavaScript, emitted by the TypeScript backends' JSDoc mode) and 10 database engines, implemented by 52 `CodegenBackend` types: the four `javascript-*` names are a JSDoc emit mode on the matching TypeScript backend rather than separate implementations (see [JavaScript output](/scythe/backends/typescript/#javascript-output-jsdoc)). Some backends (like `java-jdbc`) support multiple engines via engine-specific manifests loaded at runtime.
+Scythe provides 59 selectable backend names across 10 languages (plus plain JavaScript, emitted by the TypeScript backends' JSDoc mode) and 10 database engines, implemented by 52 `CodegenBackend` types: the seven `javascript-*` names are a JSDoc emit mode on the matching TypeScript backend rather than separate implementations (see [JavaScript output](/scythe/backends/typescript/#javascript-output-jsdoc)). Some backends (like `java-jdbc`) support multiple engines via engine-specific manifests loaded at runtime.
 
 ### PostgreSQL
 
@@ -131,6 +131,8 @@ Scythe provides 56 selectable backend names across 10 languages (plus plain Java
 | `typescript-node-sqlite` | TypeScript | node:sqlite (synchronous) |
 | `typescript-wasm-sqlite` | TypeScript | @sqlite.org/sqlite-wasm (synchronous) |
 | `javascript-better-sqlite3` | JavaScript | better-sqlite3 (JSDoc types, synchronous) |
+| `javascript-node-sqlite` | JavaScript | node:sqlite (JSDoc types, synchronous) |
+| `javascript-wasm-sqlite` | JavaScript | @sqlite.org/sqlite-wasm (JSDoc types, synchronous) |
 | `go-database-sql` | Go | database/sql |
 | `java-jdbc` | Java | JDBC |
 | `java-r2dbc` | Java | R2DBC (Project Reactor) |
@@ -257,6 +259,7 @@ Redshift uses PostgreSQL backends with Redshift-specific type resolution:
 |---------|----------|---------|
 | `python-snowflake` | Python | snowflake-connector-python |
 | `typescript-snowflake` | TypeScript | snowflake-sdk |
+| `javascript-snowflake` | JavaScript | snowflake-sdk (JSDoc types) |
 | `go-gosnowflake` | Go | gosnowflake |
 | `java-jdbc` | Java | JDBC (Snowflake JDBC driver) |
 | `kotlin-jdbc` | Kotlin | JDBC (Snowflake JDBC driver) |
@@ -270,7 +273,7 @@ Redshift uses PostgreSQL backends with Redshift-specific type resolution:
 | Rust | sqlx, tokio-postgres | sqlx | sqlx | -- | sqlx, tokio-postgres | tiberius | sibyl | sqlx | sqlx, tokio-postgres | -- |
 | Python | psycopg3, asyncpg | aiomysql | aiosqlite | duckdb | psycopg3, asyncpg | pyodbc | oracledb | aiomysql | psycopg3, asyncpg | snowflake-connector |
 | TypeScript | postgres.js, pg, Kysely | mysql2, Kysely | better-sqlite3, Kysely, node:sqlite, wasm-sqlite | duckdb-node | postgres.js, pg, Kysely | mssql, Kysely | oracledb | mysql2, Kysely | postgres.js, pg, Kysely | snowflake-sdk |
-| JavaScript | postgres.js, pg | mysql2 | better-sqlite3 | -- | postgres.js, pg | -- | -- | mysql2 | postgres.js, pg | -- |
+| JavaScript | postgres.js, pg | mysql2 | better-sqlite3, node:sqlite, wasm-sqlite | -- | postgres.js, pg | -- | -- | mysql2 | postgres.js, pg | snowflake-sdk |
 | Go | pgx | database/sql | database/sql | database/sql | pgx | database/sql | godror | database/sql | pgx | gosnowflake |
 | Java | JDBC, R2DBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC, R2DBC | JDBC | JDBC | JDBC, R2DBC | JDBC | JDBC |
 | Kotlin | JDBC, R2DBC, Exposed | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC, R2DBC, Exposed | JDBC | JDBC | JDBC, R2DBC | JDBC | JDBC |
@@ -283,8 +286,8 @@ Redshift uses PostgreSQL backends with Redshift-specific type resolution:
 MSSQL, Oracle, Redshift, or Snowflake. `elixir-ecto` and `kotlin-exposed` cover PostgreSQL/CockroachDB
 only. `php-amphp` covers PostgreSQL/CockroachDB, MySQL, and MariaDB only. `php-pdo` has no Oracle
 support despite a manifest existing for it. The JavaScript row is the `javascript-*` JSDoc emit mode
-of the four TypeScript backends it names -- the remaining seven TypeScript backends have no
-JavaScript counterpart.
+of the seven TypeScript backends it names -- the remaining four TypeScript backends (`typescript-duckdb`,
+`typescript-kysely`, `typescript-mssql`, `typescript-oracledb`) have no JavaScript counterpart.
 
 ## Adding a new backend
 

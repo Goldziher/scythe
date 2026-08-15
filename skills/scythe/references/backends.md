@@ -1,6 +1,6 @@
 # Backends Reference
 
-Scythe provides 56 selectable backend names across 10 languages and 10 database engines, implemented by 52 `CodegenBackend` types -- the four `javascript-*` names are a JSDoc emit mode on the matching TypeScript backend, not separate implementations.
+Scythe provides 59 selectable backend names across 10 languages and 10 database engines, implemented by 52 `CodegenBackend` types -- the seven `javascript-*` names are a JSDoc emit mode on the matching TypeScript backend, not separate implementations.
 
 ## Language Coverage
 
@@ -9,7 +9,7 @@ Scythe provides 56 selectable backend names across 10 languages and 10 database 
 | Rust | sqlx, tokio-postgres | sqlx | sqlx | -- | sqlx, tokio-postgres | tiberius | sibyl | sqlx | sqlx, tokio-postgres | -- |
 | Python | psycopg3, asyncpg | aiomysql | aiosqlite | duckdb | psycopg3, asyncpg | pyodbc | oracledb | aiomysql | psycopg3, asyncpg | snowflake-connector |
 | TypeScript | postgres.js, pg, kysely | mysql2, kysely | better-sqlite3, node:sqlite, sqlite-wasm, kysely | duckdb-node | postgres.js, pg, kysely | mssql, kysely | oracledb | mysql2, kysely | postgres.js, pg, kysely | snowflake-sdk |
-| JavaScript | postgres.js, pg | mysql2 | better-sqlite3 | -- | postgres.js, pg | -- | -- | mysql2 | postgres.js, pg | -- |
+| JavaScript | postgres.js, pg | mysql2 | better-sqlite3, node:sqlite, sqlite-wasm | -- | postgres.js, pg | -- | -- | mysql2 | postgres.js, pg | snowflake-sdk |
 | Go | pgx | database/sql | database/sql | database/sql | pgx | go-mssqldb | godror | database/sql | pgx | gosnowflake |
 | Java | JDBC, R2DBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC, R2DBC | JDBC | JDBC | JDBC, R2DBC | JDBC | JDBC |
 | Kotlin | JDBC, R2DBC, Exposed | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC, R2DBC, Exposed | JDBC | JDBC | JDBC, R2DBC | JDBC | JDBC |
@@ -32,9 +32,9 @@ MSSQL/Oracle manifests ship for `java-r2dbc` or `kotlin-r2dbc` (see
 
 `kysely` (backend `typescript-kysely`) is dialect-parameterised: it compiles to Kysely's `sql` tag, which renders whatever placeholder syntax the connected `Dialect` needs at runtime, so one generated call site runs against any Kysely dialect. Scythe pins and tests five dialects -- PostgreSQL, MySQL, SQLite, MSSQL, MariaDB -- plus a Redshift manifest that reuses the PostgreSQL dialect. Third-party dialects (libsql, PlanetScale, Cloudflare D1, Neon, PGlite, and `node:sqlite` / `@sqlite.org/sqlite-wasm` used as a Kysely dialect) are wire-compatible but not pinned or tested by scythe.
 
-`typescript-node-sqlite` and `typescript-wasm-sqlite` generate synchronous code (plain `export function`, no `async`, no `Promise`), unlike every other TypeScript backend. `typescript-node-sqlite` requires `--experimental-sqlite` on Node 22 and is unflagged from Node 23.4 onward.
+`typescript-node-sqlite` and `typescript-wasm-sqlite` (and their `javascript-node-sqlite` / `javascript-wasm-sqlite` counterparts) generate synchronous code (plain `export function`, no `async`, no `Promise`), unlike every other TypeScript/JavaScript backend. `typescript-node-sqlite` and `javascript-node-sqlite` require `--experimental-sqlite` on Node 22 and are unflagged from Node 23.4 onward.
 
-The JavaScript row is `javascript-postgres`, `javascript-pg`, `javascript-mysql2`, and `javascript-better-sqlite3` -- a JSDoc emit mode on the matching TypeScript backend, not separate backends. Output is `queries.js`: plain ESM, no driver import (handles are typed inline as `import("pg").PoolClient` in `@param`), row types as `@typedef {object}` with nullable columns always `{T | null}`. `row_type = "zod"`, `outer_join_unions`, and `field_case = "camelCase"` are hard errors there, each naming the TypeScript backend to use instead; `structs_only` and `field_case = "snake_case"` work. The other seven TypeScript backends have no JavaScript counterpart.
+The JavaScript row is `javascript-postgres`, `javascript-pg`, `javascript-mysql2`, `javascript-better-sqlite3`, `javascript-node-sqlite`, `javascript-wasm-sqlite`, and `javascript-snowflake` -- a JSDoc emit mode on the matching TypeScript backend, not separate backends. Output is `queries.js`: plain ESM, no driver import (handles are typed inline as `import("pg").PoolClient` in `@param`), row types as `@typedef {object}` with nullable columns always `{T | null}`. `row_type = "zod"`, `outer_join_unions`, and `field_case = "camelCase"` are hard errors there, each naming the TypeScript backend to use instead; `structs_only` and `field_case = "snake_case"` work. The other four TypeScript backends -- `typescript-duckdb`, `typescript-kysely`, `typescript-mssql`, `typescript-oracledb` -- have no JavaScript counterpart.
 
 ## Backend Names
 
@@ -50,7 +50,7 @@ Use these exact names in `[[sql.gen]] backend = "..."`:
 
 ### SQLite
 
-`rust-sqlx`, `python-aiosqlite`, `typescript-better-sqlite3`, `typescript-node-sqlite`, `typescript-wasm-sqlite`, `typescript-kysely`, `javascript-better-sqlite3`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-microsoft-sqlite`, `elixir-exqlite`, `ruby-sqlite3`, `php-pdo`
+`rust-sqlx`, `python-aiosqlite`, `typescript-better-sqlite3`, `typescript-node-sqlite`, `typescript-wasm-sqlite`, `typescript-kysely`, `javascript-better-sqlite3`, `javascript-node-sqlite`, `javascript-wasm-sqlite`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-microsoft-sqlite`, `elixir-exqlite`, `ruby-sqlite3`, `php-pdo`
 
 ### DuckDB
 
@@ -80,7 +80,7 @@ Use these exact names in `[[sql.gen]] backend = "..."`:
 
 ### Snowflake
 
-`python-snowflake`, `typescript-snowflake`, `go-gosnowflake`, `java-jdbc`, `kotlin-jdbc`, `csharp-snowflake`, `php-pdo`
+`python-snowflake`, `typescript-snowflake`, `javascript-snowflake`, `go-gosnowflake`, `java-jdbc`, `kotlin-jdbc`, `csharp-snowflake`, `php-pdo`
 
 ## Row Type Options
 

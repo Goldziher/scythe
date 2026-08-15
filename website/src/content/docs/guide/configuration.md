@@ -150,8 +150,9 @@ TypeScript backend accepts (`typescript-pg`, `typescript-postgres`, `typescript-
 `typescript-wasm-sqlite`); `namespace` and `extension_functions` are not on that list. Setting either
 on a TypeScript target fails with the `unknown option` error shown below — see the caution box.
 
-The four `javascript-*` names (`javascript-pg`, `javascript-postgres`, `javascript-mysql2`,
-`javascript-better-sqlite3`) accept the same four keys, but reject three of their values outright:
+The seven `javascript-*` names (`javascript-pg`, `javascript-postgres`, `javascript-mysql2`,
+`javascript-better-sqlite3`, `javascript-node-sqlite`, `javascript-wasm-sqlite`,
+`javascript-snowflake`) accept the same four keys, but reject three of their values outright:
 `row_type = "zod"`, `outer_join_unions = true`, and `field_case = "camelCase"` each need
 TypeScript-only syntax a plain `.js` file cannot carry, so generation aborts with an error naming the
 TypeScript backend to use instead. See
@@ -330,7 +331,7 @@ const db = new Kysely<any>({
 
 :::
 
-The four `javascript-*` backends accept `field_case = "snake_case"` but reject `"camelCase"`: the
+The seven `javascript-*` backends accept `field_case = "snake_case"` but reject `"camelCase"`: the
 remap needs a TypeScript `as T` assertion that a plain `.js` file cannot carry. The error points at
 the matching `typescript-*` backend.
 
