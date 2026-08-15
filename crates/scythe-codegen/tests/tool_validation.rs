@@ -989,6 +989,18 @@ const JS_MODE_SQLITE_SCHEMA: [&str; 2] = [
 const JS_MODE_SQLITE_ONE: &str = "-- @name GetUserById\n-- @returns :one\n\
     SELECT id, name, bio FROM users WHERE id = ?;";
 
+// ~keep `:many` is the one command whose JSDoc cast is not a straight
+// `/** @type {T} */ (expr)`: a driver whose row-fetch returns a concrete
+// record type rather than `unknown` cannot be asserted directly to a row
+// interface, and the backend has to route the cast through an intermediate
+// `unknown`. Nothing checked that against real `tsc` until this query
+// existed -- the fixture built only `:one` and `:grouped`, so every
+// `javascript-*` backend's `:many` cast was pinned by hand-written string
+// assertions alone. Placeholder-free, like the grouped query below, so one
+// spelling covers all three engines.
+const JS_MODE_MANY: &str = "-- @name ListUsers\n-- @returns :many\n\
+    SELECT id, name, bio FROM users;";
+
 // No dialect-specific placeholders (no WHERE clause), so one grouped query
 // covers all three engines.
 const JS_MODE_GROUPED: &str = "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\n\
@@ -1011,7 +1023,7 @@ fn generate_js_mode_nullable_and_grouped_file(
     let catalog = Catalog::from_ddl_with_dialect(schema, dialect).unwrap();
 
     let mut all_codes = Vec::new();
-    for query_sql in [one_sql, JS_MODE_GROUPED] {
+    for query_sql in [one_sql, JS_MODE_MANY, JS_MODE_GROUPED] {
         let parsed = parse_query_with_dialect(query_sql, dialect).unwrap();
         let analyzed = analyze(&catalog, &parsed).unwrap();
         let code = generate_with_backend(&analyzed, &*backend).unwrap();
@@ -1149,6 +1161,24 @@ fn test_javascript_better_sqlite3_grouped_and_nullable_pass_real_tools() {
         "expected the grouped parent typedef; got:\n{code}"
     );
     assert_js_mode_tool_validation_passes("javascript-better-sqlite3", &code);
+}
+
+#[test]
+fn test_javascript_node_sqlite_grouped_and_nullable_pass_real_tools() {
+    let code = generate_js_mode_nullable_and_grouped_file(
+        "javascript-node-sqlite",
+        "sqlite",
+        &SqlDialect::SQLite,
+        &JS_MODE_SQLITE_SCHEMA,
+        JS_MODE_SQLITE_ONE,
+    );
+    eprintln!("\n=== javascript-node-sqlite (nullable + grouped) ===\n{code}\n=== END ===\n");
+    assert_js_mode_nullable_property_is_type_or_null(&code, "bio");
+    assert!(
+        code.contains("@typedef {object} GetUsersWithOrdersRow"),
+        "expected the grouped parent typedef; got:\n{code}"
+    );
+    assert_js_mode_tool_validation_passes("javascript-node-sqlite", &code);
 }
 
 #[test]

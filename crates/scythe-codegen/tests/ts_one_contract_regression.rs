@@ -69,6 +69,7 @@ const TS_JS_BACKENDS: &[(&str, &str)] = &[
     ("javascript-better-sqlite3", "sqlite"),
     ("typescript-duckdb", "duckdb"),
     ("typescript-node-sqlite", "sqlite"),
+    ("javascript-node-sqlite", "sqlite"),
     ("typescript-wasm-sqlite", "sqlite"),
     ("typescript-kysely", "postgresql"),
     ("typescript-mssql", "mssql"),

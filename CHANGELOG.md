@@ -89,6 +89,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already used. `UNION` is commutative, so both spellings now agree. Reported and fixed by
   @snowyukitty in #227. (#224)
 
+### Added
+
+- **`javascript-node-sqlite`: a JSDoc emit mode for `typescript-node-sqlite`.** The fifth
+  `javascript-*` backend (alongside `javascript-postgres`, `javascript-pg`, `javascript-mysql2`,
+  `javascript-better-sqlite3`): plain, JSDoc-annotated `.js` output for Node's built-in
+  `node:sqlite` module, checked against real `node --check` and `tsc --checkJs --strict` in CI.
+  `node:sqlite` is synchronous, like `better-sqlite3`, so this mirrors
+  `javascript-better-sqlite3`'s emit shape rather than the `async` pg/postgres.js/mysql2 one, except
+  for `:batch`: `DatabaseSync` has no `.transaction()` helper, so the generated code wraps explicit
+  `BEGIN`/`COMMIT`/`ROLLBACK` statements, matching `typescript-node-sqlite`'s own TS-mode `:batch`
+  shape.
+
+- **The `javascript-*` backends' `:many` output is now type-checked by real `tsc`.** The JS-mode
+  tool-validation fixture built only a `:one` and a `:grouped` query, so the one command whose JSDoc
+  cast is not a plain one-step assertion was pinned by hand-written string matching alone, on all
+  five backends. It now builds a `:many` query too. (#93)
+
 ## [0.15.0] - 2026-08-15
 
 This release is mostly about checks that could not fail. A validator whose only callers were its own

@@ -736,7 +736,7 @@ fn test_audit_dialect_flag_skips_pg_only_rule_on_sqlite() {
     );
 }
 
-/// The four `javascript-*` backends reuse the TypeScript manifests, which
+/// The `javascript-*` backends reuse the TypeScript manifests, which
 /// declare `file_extension = "ts"`. Nothing else in the tree exercises the
 /// filename they actually write: there is no javascript integration project,
 /// and the tool validator writes its own temp `.mjs` rather than going

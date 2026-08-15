@@ -1,6 +1,7 @@
 // ~keep Hand-written ambient stubs for the driver packages the `javascript-*`
-// (JSDoc emit mode, #81) backends reference via `import("pkg").Type` JSDoc
-// annotations: `pg`, `postgres`, `mysql2/promise`, `better-sqlite3`.
+// (JSDoc emit mode, #81/#93) backends reference via `import("pkg").Type`
+// JSDoc annotations: `pg`, `postgres`, `mysql2/promise`, `better-sqlite3`,
+// `node:sqlite`.
 //
 // `tsc --checkJs --strict` (see `validate_javascript_tools` in
 // `src/validation.rs`) needs these to resolve those `import("pkg")` type
@@ -29,6 +30,17 @@
 //     `unknown`, so `javascript-better-sqlite3` needs the
 //     `Array<Record<string, unknown>>` cast in
 //     `typescript_better_sqlite3.rs::generate_grouped_query_fn_js`.
+//   - `node:sqlite`'s `StatementSync.all()`/`.get()` return the real
+//     `@types/node` shapes `Record<string, SQLOutputValue>[]` /
+//     `Record<string, SQLOutputValue> | undefined` (copied from
+//     `@types/node@26.1.2`'s `sqlite.d.ts`, not `unknown` like
+//     better-sqlite3's stub above). This is the shape that makes the *TS*
+//     backend need `as unknown as` for `:many`: `stmt.all() as Row[]` is a
+//     genuine TS2352 ("neither type sufficiently overlaps"). The JSDoc
+//     spelling of the same assertion is not -- `tsc --checkJs --strict`
+//     accepts `/** @type {Row[]} */ (stmt.all())` against this exact
+//     declaration -- so `javascript-node-sqlite` casts in one step
+//     everywhere, and a second `unknown` hop here would be dead weight.
 //
 // If any of those casts is ever dropped, the corresponding
 // `test_javascript_*_grouped_and_nullable_pass_real_tools` test in
@@ -92,4 +104,22 @@ declare module "better-sqlite3" {
     constructor(filename: string, options?: unknown);
   }
   export = Database;
+}
+
+declare module "node:sqlite" {
+  type SQLOutputValue = null | number | bigint | string | Uint8Array;
+  interface StatementResultingChanges {
+    changes: number | bigint;
+    lastInsertRowid: number | bigint;
+  }
+  export class StatementSync {
+    all(...params: unknown[]): Record<string, SQLOutputValue>[];
+    get(...params: unknown[]): Record<string, SQLOutputValue> | undefined;
+    run(...params: unknown[]): StatementResultingChanges;
+  }
+  export class DatabaseSync {
+    constructor(path: string, options?: unknown);
+    exec(sql: string): void;
+    prepare(sql: string): StatementSync;
+  }
 }

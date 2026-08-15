@@ -182,6 +182,7 @@ const ALL_BACKEND_NAMES: &[&str] = &[
     "javascript-better-sqlite3",
     "typescript-duckdb",
     "typescript-node-sqlite",
+    "javascript-node-sqlite",
     "typescript-wasm-sqlite",
     "typescript-kysely",
     "typescript-mssql",

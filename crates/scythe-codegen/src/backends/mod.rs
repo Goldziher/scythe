@@ -1000,6 +1000,9 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
         "typescript-node-sqlite" => Box::new(typescript_node_sqlite::TypescriptNodeSqliteBackend::new(
             canonical_engine,
         )?),
+        "javascript-node-sqlite" => Box::new(typescript_node_sqlite::TypescriptNodeSqliteBackend::new_js(
+            canonical_engine,
+        )?),
         "typescript-wasm-sqlite" => Box::new(typescript_wasm_sqlite::TypescriptWasmSqliteBackend::new(
             canonical_engine,
         )?),

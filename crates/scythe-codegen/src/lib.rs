@@ -2346,6 +2346,7 @@ mod tests {
         "javascript-better-sqlite3",
         "typescript-duckdb",
         "typescript-node-sqlite",
+        "javascript-node-sqlite",
         "typescript-wasm-sqlite",
         "typescript-kysely",
         "go-database-sql",
@@ -2479,7 +2480,7 @@ mod tests {
 
     /// Backends this check cannot render a verdict on at all -- distinct
     /// from [`KNOWN_DIVERGENT_BACKENDS`], which lists backends the check
-    /// *did* run and found broken. The four `javascript-*` backends type
+    /// *did* run and found broken. The `javascript-*` backends type
     /// their generated functions entirely through JSDoc comments (see
     /// `generate_js_typedef_row_struct` / the `js_mode` branches in
     /// `backends/typescript_*.rs`): both the struct name they declare and
@@ -2489,7 +2490,7 @@ mod tests {
     /// rows" reads as a match). After stripping there is no runtime
     /// identifier left to check either way, so this check always reports
     /// both sides as absent regardless of whether the row_suffix bug is
-    /// fixed. Excluding these four from the pass/fail logic entirely, but
+    /// fixed. Excluding these from the pass/fail logic entirely, but
     /// listing them here by name and reason, is what keeps that exclusion
     /// visible instead of reading as a quiet, unexplained pass -- the same
     /// defect shape (a skip that looks like a pass) this whole effort exists
@@ -2512,6 +2513,11 @@ mod tests {
         },
         BackendNote {
             backend: "javascript-better-sqlite3",
+            reason: "js_mode types via JSDoc comments only; no runtime identifier for either side of \
+                      the check to find once comments are stripped",
+        },
+        BackendNote {
+            backend: "javascript-node-sqlite",
             reason: "js_mode types via JSDoc comments only; no runtime identifier for either side of \
                       the check to find once comments are stripped",
         },
