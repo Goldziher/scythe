@@ -642,6 +642,20 @@ fn generate_enum_defs_via_backend(
                 &stub_info
             }
         };
+        // Checked once per enum, before either rendering path below: both
+        // `generate_enum_def` and `generate_enum_def_for_nested` iterate the
+        // same `enum_info.values`, so a collision would otherwise reach
+        // whichever one runs (#136).
+        let variant_names: Vec<(&str, String)> = enum_info
+            .values
+            .iter()
+            .map(|value| (value.as_str(), scythe_backend::naming::enum_variant_name(value, naming)))
+            .collect();
+        resolve::check_enum_variant_collisions(
+            variant_names.iter().map(|(source, name)| (*source, name.as_str())),
+            sql_name,
+        )?;
+
         if nested_refs.enums.contains(sql_name) {
             out.push_str(&backend.generate_enum_def_for_nested(enum_info)?);
         } else {

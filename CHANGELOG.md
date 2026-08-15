@@ -884,6 +884,14 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   with the driver's own "value must not be null". The `Batch` bind sites are untouched and still have
   a separate pre-existing gap — a batch enum parameter binds the raw enum object with no
   `.getValue()`/`.value` call.
+- **Two SQL values of the same enum could collide on the generated variant name and `scythe generate`
+  wrote both anyway.** `'gpt-3.5-turbo'` and `'gpt_3_5_turbo'` both sanitize and case-convert to
+  `Gpt35Turbo` under `enum_variant_case = "PascalCase"` (Rust, C#, Go, TypeScript); nothing compared
+  the rendered variant names before `generate_enum_defs_via_backend` handed them to a backend, so the
+  file came out with `pub enum Model { Gpt35Turbo, Gpt35Turbo, }` — `E0428` under a real `rustc`, a
+  redeclaration in every other target — while the command exited 0. A new `resolve::check_enum_variant_collisions`
+  runs once per enum, the variant counterpart of the existing enum/query-type-name check, and rejects
+  the query with `DUPLICATE_ALIAS` before any backend renders it. (#136)
 
 ### Added
 

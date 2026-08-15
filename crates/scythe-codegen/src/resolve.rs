@@ -234,6 +234,45 @@ pub(crate) fn check_type_name_collisions<'a>(
     Ok(())
 }
 
+/// Reject two SQL values of the *same* enum whose rendered variant names
+/// collapse onto the same identifier.
+///
+/// The variant counterpart of [`check_type_name_collisions`], scoped to one
+/// enum's own value list rather than compared across enums: `enum_name` never
+/// participates in the comparison, only labels the error, because two
+/// different enums are free to both declare a variant called `Active` --
+/// they render into two different `enum` bodies, so nothing collides.
+/// `enum_variant_name` sanitizes non-identifier characters before casing
+/// (`naming::sanitize_for_identifier`), so two SQL labels that are legal and
+/// distinct in SQL -- `'gpt-3.5-turbo'` and `'gpt_3_5_turbo'` -- can both
+/// resolve to `Gpt35Turbo` and silently overwrite one another in the
+/// rendered `enum` (Rust `E0428`, and the equivalent redeclaration in every
+/// other target language) (#136). `generate_enum_defs_via_backend` is the
+/// only call site: it runs this once per enum, before handing the same
+/// `EnumInfo` to any backend's `generate_enum_def`.
+pub(crate) fn check_enum_variant_collisions<'a>(
+    items: impl Iterator<Item = (&'a str, &'a str)>,
+    enum_name: &str,
+) -> Result<(), ScytheError> {
+    let items: Vec<(&str, &str)> = items.collect();
+    for i in 0..items.len() {
+        for j in (i + 1)..items.len() {
+            let (source_a, name_a) = items[i];
+            let (source_b, name_b) = items[j];
+            if name_a == name_b {
+                return Err(ScytheError::new(
+                    ErrorCode::DuplicateAlias,
+                    format!(
+                        "enum '{enum_name}' values '{source_a}' and '{source_b}' both resolve to variant \
+                         '{name_a}' -- rename one of the SQL values"
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Convert a resolved Rust type to its borrowed form for function parameters.
 /// Copy types (primitives) stay as-is; String becomes &str; other non-Copy types get a & prefix.
 pub fn param_type_to_borrowed(rust_type: &str) -> String {
@@ -630,6 +669,27 @@ mod tests {
     fn test_check_type_name_collisions_message_has_no_field_case_suggestion() {
         let err = check_type_name_collisions([("a", "X"), ("b", "X")].into_iter(), "enums").unwrap_err();
         assert!(!err.to_string().contains("field_case"), "{err}");
+    }
+
+    #[test]
+    fn test_check_enum_variant_collisions_rejects_two_values() {
+        let err = check_enum_variant_collisions(
+            [("gpt-3.5-turbo", "Gpt35Turbo"), ("gpt_3_5_turbo", "Gpt35Turbo")].into_iter(),
+            "model",
+        )
+        .expect_err("gpt-3.5-turbo and gpt_3_5_turbo must collide as Gpt35Turbo");
+        assert_eq!(err.code, ErrorCode::DuplicateAlias);
+        let message = err.to_string();
+        assert!(message.contains("model"), "{message}");
+        assert!(message.contains("gpt-3.5-turbo"), "{message}");
+        assert!(message.contains("gpt_3_5_turbo"), "{message}");
+        assert!(message.contains("Gpt35Turbo"), "{message}");
+    }
+
+    #[test]
+    fn test_check_enum_variant_collisions_passes_when_distinct() {
+        check_enum_variant_collisions([("active", "Active"), ("inactive", "Inactive")].into_iter(), "status")
+            .expect("distinct variant names must not collide");
     }
 
     #[test]

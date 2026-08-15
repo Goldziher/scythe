@@ -21,6 +21,12 @@
 //!    only deduplicated by raw SQL name, never checked the *generated* name
 //!    against anything else, so `scythe generate` wrote two type
 //!    declarations under one name and exited 0.
+//! 4. Two SQL values of the *same* enum colliding under `enum_variant_case`
+//!    went undetected the same way: `'gpt-3.5-turbo'` and `'gpt_3_5_turbo'`
+//!    both sanitize and case-convert to `Gpt35Turbo`, and nothing compared
+//!    the rendered variant names against each other before `scythe generate`
+//!    wrote `pub enum Model { Gpt35Turbo, Gpt35Turbo, }` -- `E0428` in Rust,
+//!    a redeclaration in every other target -- and exited 0.
 
 use scythe_codegen::{GeneratedCode, generate_with_backend, get_backend};
 use scythe_core::analyzer::analyze;
@@ -209,4 +215,53 @@ fn enum_colliding_with_the_query_row_type_is_rejected_not_silently_written_twice
     assert_eq!(err.code, ErrorCode::DuplicateAlias);
     let message = err.to_string();
     assert!(message.contains("GetUserRow"), "{message}");
+}
+
+const VARIANT_COLLISION_SCHEMA: &str = "\
+    CREATE TYPE model AS ENUM ('gpt-3.5-turbo', 'gpt_3_5_turbo'); \
+    CREATE TABLE items (id INT PRIMARY KEY, m model NOT NULL);";
+
+const VARIANT_COLLISION_QUERY: &str = "-- @name GetItem\n-- @returns :one\n\
+    SELECT id, m FROM items WHERE id = $1;";
+
+/// `'gpt-3.5-turbo'` and `'gpt_3_5_turbo'` are two distinct, legal SQL enum
+/// values. Both sanitize through `enum_variant_name` to the identical
+/// `Gpt35Turbo` under `enum_variant_case = "PascalCase"` (Rust, C#, Go,
+/// TypeScript). Before this fix, `generate_enum_defs_via_backend` handed
+/// `enum_info.values` straight to `backend.generate_enum_def` with no check,
+/// so `scythe generate` wrote `pub enum Model { Gpt35Turbo, Gpt35Turbo, }` --
+/// `error[E0428]: the name \`Gpt35Turbo\` is defined multiple times` under a
+/// real `rustc` -- and returned `Ok`.
+#[test]
+fn enum_variant_collision_is_rejected_not_silently_written_twice_in_rust() {
+    let err = generate(VARIANT_COLLISION_SCHEMA, VARIANT_COLLISION_QUERY, "rust-sqlx")
+        .expect_err("must not silently succeed");
+    assert_eq!(err.code, ErrorCode::DuplicateAlias);
+    let message = err.to_string();
+    assert!(message.contains("gpt-3.5-turbo"), "{message}");
+    assert!(message.contains("gpt_3_5_turbo"), "{message}");
+    assert!(message.contains("Gpt35Turbo"), "{message}");
+    assert!(message.contains("model"), "{message}");
+}
+
+/// The same collision, checked backend-agnostically: the guard lives in
+/// `scythe-codegen`'s shared `generate_enum_defs_via_backend`, not in any one
+/// backend, so it must reject the query under every backend whose
+/// `enum_variant_case` produces the collision -- not just `rust-sqlx`.
+#[test]
+fn enum_variant_collision_is_rejected_under_go_too() {
+    let err =
+        generate(VARIANT_COLLISION_SCHEMA, VARIANT_COLLISION_QUERY, "go-pgx").expect_err("must not silently succeed");
+    assert_eq!(err.code, ErrorCode::DuplicateAlias);
+}
+
+/// Two enum values that render to *different* variant names under
+/// `PascalCase` must not be rejected -- the guard compares generated names,
+/// never raw SQL values, so `'active'` and `'inactive'` (already exercised
+/// by every other test in this file) keep working. Pinned directly here so a
+/// change that over-widens the new check (e.g. comparing raw SQL values
+/// instead of rendered names) fails loudly.
+#[test]
+fn distinct_enum_variants_are_not_rejected() {
+    generate(SCHEMA_QUALIFIED_ENUM_SCHEMA, SCHEMA_QUALIFIED_ENUM_QUERY, "rust-sqlx").expect("must not be rejected");
 }
