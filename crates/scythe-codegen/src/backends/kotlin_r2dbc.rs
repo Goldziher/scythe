@@ -280,11 +280,17 @@ fn r2dbc_col_read_expr(col: &ResolvedColumn, manifest: &BackendManifest) -> Stri
 /// is the accessor `generate_enum_def` already emits, and it is the exact inverse of the
 /// `fromValue(...)` the read path uses, so a value round-trips even when its SQL spelling
 /// is not the uppercase of its variant name.
-fn r2dbc_bind_expr(param: &ResolvedParam) -> String {
+///
+/// Takes an explicit `receiver` expression rather than reading `param.field_name` directly so
+/// the same rule serves both the ordinary bind sites (receiver: the field itself, via
+/// [`write_r2dbc_bind`]) and the `:batch` bind sites in `generate_query_fn`, which read from a
+/// loop variable (`item`, or `item.fieldName` off a generated batch-params data class) instead of
+/// a parameter field.
+fn r2dbc_bind_expr_for(receiver: &str, param: &ResolvedParam) -> String {
     if param.neutral_type.starts_with("enum::") {
-        format!("{}.value", param.field_name)
+        format!("{receiver}.value")
     } else {
-        param.field_name.clone()
+        receiver.to_string()
     }
 }
 
@@ -313,19 +319,29 @@ stmt.bind(index, value)\n    }\n}";
 /// ~keep Emit one R2DBC bind statement for `param` at placeholder `index` on `stmt`.
 ///
 /// A nullable enum parameter cannot route through [`KOTLIN_R2DBC_BIND_NULLABLE_HELPER`]: its bind
-/// expression is `field.value` (see [`r2dbc_bind_expr`]), and Kotlin refuses to compile a
+/// expression is `field.value` (see [`r2dbc_bind_expr_for`]), and Kotlin refuses to compile a
 /// property access on a nullable receiver without `?.`/`!!` -- there is no way to pass "the raw
 /// field, unread" into a helper and still have it type-check. It gets its own inline `if`/`else`
 /// instead: Kotlin smart-casts `field` to non-null inside the `else` branch, so `field.value`
 /// there needs no extra operator.
 fn write_r2dbc_bind(out: &mut String, indent: &str, index: usize, param: &ResolvedParam) {
-    let expr = r2dbc_bind_expr(param);
+    write_r2dbc_bind_for(out, indent, index, param, &param.field_name);
+}
+
+/// ~keep Same as [`write_r2dbc_bind`], generalized to an arbitrary `receiver` expression -- see
+/// [`r2dbc_bind_expr_for`] for why the `:batch` bind sites need this instead of the field-only
+/// version. `write_r2dbc_bind` is a thin wrapper over this that passes `param.field_name`, so
+/// every bind site (ordinary and batch) shares one null/enum-aware code path. The receiver is
+/// always a `val` (a loop variable or a data-class property read off one), so Kotlin's smart cast
+/// still applies to it inside the `else` branch below exactly as it does for `param.field_name`.
+fn write_r2dbc_bind_for(out: &mut String, indent: &str, index: usize, param: &ResolvedParam, receiver: &str) {
+    let expr = r2dbc_bind_expr_for(receiver, param);
     if !param.nullable {
         let _ = writeln!(out, "{indent}stmt.bind({index}, {expr})");
         return;
     }
     if param.neutral_type.starts_with("enum::") {
-        let _ = writeln!(out, "{indent}if ({} == null) {{", param.field_name);
+        let _ = writeln!(out, "{indent}if ({receiver} == null) {{");
         let _ = writeln!(out, "{indent}    stmt.bindNull({index}, String::class.java)");
         let _ = writeln!(out, "{indent}}} else {{");
         let _ = writeln!(out, "{indent}    stmt.bind({index}, {expr})");
@@ -342,7 +358,7 @@ fn write_r2dbc_bind(out: &mut String, indent: &str, index: usize, param: &Resolv
 /// R2DBC is stricter than JDBC here. A JDBC `setObject` sends the value untyped and lets the
 /// server infer it, so `WHERE status = $1` against a `user_status` column just works. The
 /// r2dbc-postgresql driver instead sends a *typed* parameter, and since the bind expression is
-/// the enum's SQL spelling (a String -- see `r2dbc_bind_expr`), the server receives
+/// the enum's SQL spelling (a String -- see `r2dbc_bind_expr_for`), the server receives
 /// `character varying` and refuses: "column \"status\" is of type user_status but expression is
 /// of type character varying", or "operator does not exist: user_status = character varying" in
 /// a predicate. Casting at the placeholder keeps the generated code self-sufficient -- the
@@ -765,7 +781,8 @@ impl CodegenBackend for KotlinR2dbcBackend {
                         let _ = writeln!(out, "    for (item in items) {{");
                         let _ = writeln!(out, "        if (!first) stmt.add()");
                         for (i, param) in params.iter().enumerate() {
-                            let _ = writeln!(out, "        stmt.bind({}, item.{})", i, param.field_name);
+                            let receiver = format!("item.{}", param.field_name);
+                            write_r2dbc_bind_for(&mut out, "        ", i, param, &receiver);
                         }
                         let _ = writeln!(out, "        first = false");
                         let _ = writeln!(out, "    }}");
@@ -781,7 +798,8 @@ impl CodegenBackend for KotlinR2dbcBackend {
                         let _ = writeln!(out, "        for (item in items) {{");
                         let _ = writeln!(out, "            if (!first) stmt.add()");
                         for (i, param) in params.iter().enumerate() {
-                            let _ = writeln!(out, "            stmt.bind({}, item.{})", i, param.field_name);
+                            let receiver = format!("item.{}", param.field_name);
+                            write_r2dbc_bind_for(&mut out, "            ", i, param, &receiver);
                         }
                         let _ = writeln!(out, "            first = false");
                         let _ = writeln!(out, "        }}");
@@ -811,7 +829,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
                         let _ = writeln!(out, "    var first = true");
                         let _ = writeln!(out, "    for (item in items) {{");
                         let _ = writeln!(out, "        if (!first) stmt.add()");
-                        let _ = writeln!(out, "        stmt.bind(0, item)");
+                        write_r2dbc_bind_for(&mut out, "        ", 0, &params[0], "item");
                         let _ = writeln!(out, "        first = false");
                         let _ = writeln!(out, "    }}");
                         let _ = writeln!(out, "    Flux.from(stmt.execute()).then().awaitFirstOrNull()");
@@ -825,7 +843,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
                         let _ = writeln!(out, "        var first = true");
                         let _ = writeln!(out, "        for (item in items) {{");
                         let _ = writeln!(out, "            if (!first) stmt.add()");
-                        let _ = writeln!(out, "            stmt.bind(0, item)");
+                        write_r2dbc_bind_for(&mut out, "            ", 0, &params[0], "item");
                         let _ = writeln!(out, "            first = false");
                         let _ = writeln!(out, "        }}");
                         let _ = writeln!(out, "        Flux.from(stmt.execute()).then().awaitFirstOrNull()");
@@ -1159,7 +1177,7 @@ mod tests {
     };
     use scythe_core::parser::QueryCommand;
 
-    use super::{KotlinR2dbcBackend, write_r2dbc_bind};
+    use super::{KotlinR2dbcBackend, write_r2dbc_bind, write_r2dbc_bind_for};
     use crate::backend_trait::{CodegenBackend, ResolvedParam};
 
     fn make_grouped_query() -> AnalyzedQuery {
@@ -1495,6 +1513,225 @@ mod tests {
         assert!(
             header.contains("private fun bindNullable(stmt: Statement, index: Int, value: Any?, type: Class<*>)"),
             "query_class_header must declare the bindNullable helper; got:\n{header}"
+        );
+    }
+
+    /// board #235: `write_r2dbc_bind_for` is what the `:batch` bind sites route through instead
+    /// of `write_r2dbc_bind`, since their receiver is a data-class property read (`item.notes`),
+    /// not a bare field. Reverting `write_r2dbc_bind_for` to ignore `receiver` (falling back to
+    /// `param.field_name`, as `write_r2dbc_bind` alone would) makes this assertion fail: it would
+    /// produce `bindNullable(stmt, 0, notes, String::class.java)` -- referencing a variable named
+    /// `notes` that does not exist in a batch loop body, which does not compile.
+    #[test]
+    fn test_write_r2dbc_bind_for_batch_receiver_routes_nullable_scalar_through_bind_nullable_helper() {
+        let param = make_scalar_param("notes", "String", "string", true);
+        let mut out = String::new();
+        write_r2dbc_bind_for(&mut out, "    ", 0, &param, "item.notes");
+        assert_eq!(out, "    bindNullable(stmt, 0, item.notes, String::class.java)\n");
+    }
+
+    /// Same board #235 batch-receiver case, but for a nullable enum. Reverting
+    /// `write_r2dbc_bind_for` to ignore `receiver` (always reading `param.field_name` instead)
+    /// makes this assertion fail: it would produce `if (status == null)` -- referencing a
+    /// property that does not exist in the batch loop, which does not compile.
+    #[test]
+    fn test_write_r2dbc_bind_for_batch_receiver_nullable_enum_checks_receiver_before_value_access() {
+        let param = make_scalar_param("status", "UserStatus", "enum::user_status", true);
+        let mut out = String::new();
+        write_r2dbc_bind_for(&mut out, "    ", 0, &param, "item.status");
+        assert_eq!(
+            out,
+            "    if (item.status == null) {\n        \
+             stmt.bindNull(0, String::class.java)\n    \
+             } else {\n        \
+             stmt.bind(0, item.status.value)\n    \
+             }\n"
+        );
+    }
+
+    fn make_batch_query_with_enum_and_nullable_params() -> AnalyzedQuery {
+        AnalyzedQuery::build(|q| {
+            q.name = "CreateOrdersBatch".to_string();
+            q.command = QueryCommand::Batch;
+            q.sql = "INSERT INTO orders (status, notes, user_id) VALUES ($1, $2, $3)".to_string();
+            q.columns = vec![];
+            q.params = vec![
+                AnalyzedParam {
+                    name: "status".to_string(),
+                    neutral_type: "enum::user_status".to_string(),
+                    nullable: true,
+                    position: 1,
+                    ..Default::default()
+                },
+                AnalyzedParam {
+                    name: "notes".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: true,
+                    position: 2,
+                    ..Default::default()
+                },
+                AnalyzedParam {
+                    name: "user_id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    position: 3,
+                    ..Default::default()
+                },
+            ];
+            q.deprecated = None;
+            q.source_table = None;
+            q.composites = vec![];
+            q.enums = vec![];
+            q.optional_params = vec![];
+            q.group_by = None;
+            q.custom = vec![];
+        })
+    }
+
+    /// board #235, problem 1: before this fix every `:batch` bind site called `stmt.bind` on the
+    /// raw data-class property unconditionally, so a nullable enum bound the Kotlin enum object
+    /// itself (`item.status`) instead of its SQL spelling -- r2dbc-postgresql has no codec for a
+    /// user enum type and fails the whole statement. Reverting the non-extension batch loop body
+    /// in `generate_query_fn` back to its pre-fix `stmt.bind({i}, item.{field})` form makes the
+    /// first two assertions fail and the last two pass (the buggy patterns reappear). Uses the
+    /// default `extension_functions = false` backend, which routes through the `ConnectionFactory`
+    /// (non-`ext`) branch of the `:batch` code.
+    #[test]
+    fn test_generated_batch_query_fn_routes_enum_and_nullable_params_through_null_aware_binds() {
+        let backend = crate::backends::get_backend("kotlin-r2dbc", "postgresql").unwrap();
+        let query = make_batch_query_with_enum_and_nullable_params();
+        let result = crate::generate_with_backend(&query, &*backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("if (item.status == null) {")
+                && query_fn.contains("stmt.bindNull(0, String::class.java)")
+                && query_fn.contains("stmt.bind(0, item.status.value)"),
+            "nullable enum batch param must null-check the raw property before .value; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("bindNullable(stmt, 1, item.notes, String::class.java)"),
+            "nullable scalar batch param must route through bindNullable; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("stmt.bind(0, item.status)"),
+            "batch bind must never send the raw enum object -- r2dbc has no codec for it; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("stmt.bind(1, item.notes)"),
+            "nullable batch param must never reach a bare stmt.bind that would throw on null; got:\n{query_fn}"
+        );
+
+        // board #235, problem 2: `add_pg_enum_casts` must reach the batch SQL exactly as it
+        // reaches every other command shape -- `sql` is computed once and shared across the
+        // whole `match`, so this was already correct, but nothing exercised it for `:batch`
+        // before this test.
+        assert!(
+            query_fn.contains("$1::user_status"),
+            "batch SQL must carry the enum placeholder cast like every other command; got:\n{query_fn}"
+        );
+    }
+
+    /// Same fixture as above, exercised through the `extension_functions = true` (`Connection.`)
+    /// branch of `:batch` codegen, which has its own separate bind loop.
+    #[test]
+    fn test_generated_batch_query_fn_extension_style_routes_enum_through_null_aware_bind() {
+        let mut backend = KotlinR2dbcBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&HashMap::from([(
+                "extension_functions".to_string(),
+                "true".to_string(),
+            )]))
+            .unwrap();
+        let query = make_batch_query_with_enum_and_nullable_params();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("if (item.status == null) {")
+                && query_fn.contains("stmt.bindNull(0, String::class.java)")
+                && query_fn.contains("stmt.bind(0, item.status.value)"),
+            "extension-style nullable enum batch param must null-check before .value; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("bindNullable(stmt, 1, item.notes, String::class.java)"),
+            "extension-style nullable scalar batch param must route through bindNullable; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("stmt.bind(0, item.status)"),
+            "extension-style batch bind must never send the raw enum object; got:\n{query_fn}"
+        );
+    }
+
+    fn make_batch_query_with_single_nullable_enum_param() -> AnalyzedQuery {
+        AnalyzedQuery::build(|q| {
+            q.name = "UpdateOrderStatusBatch".to_string();
+            q.command = QueryCommand::Batch;
+            q.sql = "UPDATE orders SET status = $1".to_string();
+            q.columns = vec![];
+            q.params = vec![AnalyzedParam {
+                name: "status".to_string(),
+                neutral_type: "enum::user_status".to_string(),
+                nullable: true,
+                position: 1,
+                ..Default::default()
+            }];
+            q.deprecated = None;
+            q.source_table = None;
+            q.composites = vec![];
+            q.enums = vec![];
+            q.optional_params = vec![];
+            q.group_by = None;
+            q.custom = vec![];
+        })
+    }
+
+    /// The single-param `:batch` shape binds the loop variable directly (no property accessor).
+    /// Reverting its call site back to a bare `stmt.bind(0, item)` makes this assertion fail --
+    /// it would neither null-check `item` nor read `.value` off it.
+    #[test]
+    fn test_generated_batch_query_fn_single_nullable_enum_param_checks_item_before_value_access() {
+        let backend = crate::backends::get_backend("kotlin-r2dbc", "postgresql").unwrap();
+        let query = make_batch_query_with_single_nullable_enum_param();
+        let result = crate::generate_with_backend(&query, &*backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("if (item == null) {")
+                && query_fn.contains("stmt.bindNull(0, String::class.java)")
+                && query_fn.contains("stmt.bind(0, item.value)"),
+            "single-param nullable enum batch bind must null-check item before .value; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("stmt.bind(0, item)"),
+            "single-param batch bind must never send the raw enum object; got:\n{query_fn}"
+        );
+    }
+
+    /// Same single-param fixture, exercised through the `extension_functions = true` branch,
+    /// which has its own separate single-param bind call site.
+    #[test]
+    fn test_generated_batch_query_fn_single_param_extension_style_checks_item_before_value_access() {
+        let mut backend = KotlinR2dbcBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&HashMap::from([(
+                "extension_functions".to_string(),
+                "true".to_string(),
+            )]))
+            .unwrap();
+        let query = make_batch_query_with_single_nullable_enum_param();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("if (item == null) {")
+                && query_fn.contains("stmt.bindNull(0, String::class.java)")
+                && query_fn.contains("stmt.bind(0, item.value)"),
+            "extension-style single-param nullable enum bind must null-check item before .value; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("stmt.bind(0, item)"),
+            "extension-style single-param batch bind must never send the raw enum object; got:\n{query_fn}"
         );
     }
 }

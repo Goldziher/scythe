@@ -886,6 +886,18 @@ direct caller that builds one by struct literal rather than through the parser. 
   with the driver's own "value must not be null". The `Batch` bind sites are untouched and still have
   a separate pre-existing gap — a batch enum parameter binds the raw enum object with no
   `.getValue()`/`.value` call.
+- **`java-r2dbc` and `kotlin-r2dbc`'s `:batch` bind sites never got either fix above.** They bound
+  every parameter unconditionally (the same `IllegalArgumentException` on a null batch argument that
+  ordinary bind sites had) and, for an enum, bound the raw Java/Kotlin enum object instead of its SQL
+  spelling (the same "no codec for a user enum type" failure). Both backends' bind-site logic is now
+  shared between the ordinary and `:batch` code paths through a `write_r2dbc_bind_for`/`r2dbc_bind_expr_for`
+  pair that takes an explicit receiver expression (a loop variable or a batch-params record/data-class
+  accessor) instead of always reading the parameter's own field. The PostgreSQL enum placeholder cast
+  (`add_pg_enum_casts`) already reached `:batch` SQL before this fix, since it operates on the one `sql`
+  local shared by every command shape — that part needed a test, not a fix. Covered by new backend unit
+  tests only: the PostgreSQL fixture schema both harnesses build from (`integration_tests/sql/pg/queries/`)
+  has no `:batch` query at all, so neither harness can yet exercise this path end to end — still an
+  unfalsifiable gate at the integration level until a `:batch` fixture query exists.
 - **A misspelled annotation (`@nullible`, `@optionall`, `@nonull`, ...) was captured and silently
   discarded.** Any `-- @<name> <value>` line scythe does not natively recognise is deliberately kept
   as an opaque `CustomAnnotation` — that escape hatch is how consumers layer their own annotation
