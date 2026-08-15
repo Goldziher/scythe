@@ -1944,7 +1944,7 @@ async function main(): Promise<void> {
 
 		// Load and execute schema (PL/SQL blocks delimited by /\n)
 		const { readFile } = await import("node:fs/promises");
-		const schemaPath = new URL("../sql/oracle/schema_full.sql", import.meta.url).pathname;
+		const schemaPath = new URL("{{ schema_dir }}/{{ schema_file }}", import.meta.url).pathname;
 		const schemaSql = await readFile(schemaPath, "utf8");
 		for (const block of schemaSql.split("/\n").map((s) => s.trim()).filter(Boolean)) {
 			await conn.execute(block);

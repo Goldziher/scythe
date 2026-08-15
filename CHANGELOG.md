@@ -108,6 +108,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Every integration harness now applies the same schema file its `scythe.toml` generated from.**
+  `schema_file` reached `scythe.toml.jinja` and one Kotlin branch; the other ~16 sites across 11
+  harness templates hardcoded a filename per engine, and `SCHEMA_FILE_OVERRIDES` was keyed by
+  backend name so it covered only the 2 backends that happened to already agree. 7 of 9 Oracle
+  projects and all 14 Redshift projects generated code from `schema.sql` while their harness created
+  the database from `schema_full.sql` / `schema_pg_compat.sql`. The override table is now keyed by
+  engine, which is the thing that actually determines the answer, so it cannot go stale when a
+  backend is added for an engine already listed. No inferred type changes — the two schema variants
+  agree today, which is exactly why this stayed invisible; only the recorded schema hash moves.
+  (#196)
+
 - **The generated-type check now covers 10 of 13 Python and 10 of 10 PHP integration projects**, up
   from 5 and 2. The three Python projects still excluded use `aiomysql` or `pyodbc`, neither of
   which ships type information, and are documented in place rather than wired up to a checker that

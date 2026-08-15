@@ -1854,7 +1854,7 @@ public class IntegrationTest {
         }
 
         Path schemaPath = Path.of(System.getProperty("user.dir"))
-            .resolve("{{ schema_dir }}/schema_full.sql")
+            .resolve("{{ schema_dir }}/{{ schema_file }}")
             .normalize();
         String schema = Files.readString(schemaPath);
 
@@ -3136,7 +3136,7 @@ public class IntegrationTest {
 
     private static void runMigration(Connection conn) throws Exception {
         Path schemaPath = Path.of(System.getProperty("user.dir"))
-            .resolve("{{ schema_dir }}/schema_pg_compat.sql")
+            .resolve("{{ schema_dir }}/{{ schema_file }}")
             .normalize();
         String schema = Files.readString(schemaPath);
 

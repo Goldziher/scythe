@@ -93,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/schema_full.sql")?;
+    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/{{ schema_file }}")?;
     for block in schema_sql.split("/\n") {
         let block = block.trim();
         if !block.is_empty() {
@@ -129,7 +129,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 {%- endif %}
 
-    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/{% if engine == "redshift" %}schema_pg_compat.sql{% else %}schema.sql{% endif %}")?;
+    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/{{ schema_file }}")?;
     sqlx::raw_sql(sqlx::AssertSqlSafe(schema_sql)).execute(&pool).await?;
 {%- elif driver == "sqlx-mysql" -%}
     let pool = MySqlPoolOptions::new()
@@ -241,7 +241,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 {%- endif %}
 
-    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/{% if engine == "redshift" %}schema_pg_compat.sql{% else %}schema.sql{% endif %}")?;
+    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/{{ schema_file }}")?;
     client.batch_execute(&schema_sql).await?;
 {%- elif driver == "tiberius" -%}
     // Parse sqlserver://user:pass@host:port?database=db URL

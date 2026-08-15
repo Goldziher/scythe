@@ -79,7 +79,7 @@ from generated.queries import (
 {% if engine == "postgresql" and engine != "redshift" -%}
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "pg" / "schema.sql"
 {%- elif engine == "redshift" -%}
-SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "redshift" / "schema_pg_compat.sql"
+SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "redshift" / "{{ schema_file }}"
 {%- elif engine == "mysql" -%}
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "mysql" / "schema.sql"
 {%- elif engine == "mariadb" -%}
@@ -89,7 +89,7 @@ SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "sqlite" / "schema.sql"
 {%- elif engine == "duckdb" -%}
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "duckdb" / "schema.sql"
 {%- elif engine == "oracle" -%}
-SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "oracle" / "schema_full.sql"
+SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "oracle" / "{{ schema_file }}"
 {%- elif engine == "mssql" -%}
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "mssql" / "schema.sql"
 {%- elif engine == "snowflake" -%}

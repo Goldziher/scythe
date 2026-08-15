@@ -1477,7 +1477,7 @@ fun main() {
 
 fun runMigration(conn: java.sql.Connection) {
     val schemaPath = Path.of(System.getProperty("user.dir"))
-        .resolve("{{ schema_dir }}/schema_pg_compat.sql")
+        .resolve("{{ schema_dir }}/{{ schema_file }}")
         .normalize()
     val schema = schemaPath.readText()
 
@@ -2430,7 +2430,7 @@ fun runMigration(conn: java.sql.Connection) {
     }
 
     val schemaPath = Path.of(System.getProperty("user.dir"))
-        .resolve("{{ schema_dir }}/schema_full.sql")
+        .resolve("{{ schema_dir }}/{{ schema_file }}")
         .normalize()
     val schema = schemaPath.readText()
 

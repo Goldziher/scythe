@@ -74,7 +74,7 @@ func main() {
 
 func runMigration(ctx context.Context, pool *pgxpool.Pool) error {
 	_, thisFile, _, _ := runtime.Caller(0)
-	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "redshift", "schema_pg_compat.sql")
+	schemaPath := filepath.Join(filepath.Dir(thisFile), "../sql/redshift", "schema_pg_compat.sql")
 
 	schema, err := os.ReadFile(schemaPath)
 	if err != nil {

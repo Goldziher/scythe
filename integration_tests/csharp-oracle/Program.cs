@@ -64,7 +64,7 @@ foreach (var drop in new[] {
     }
 }
 
-// Read and execute schema_full.sql, splitting on Oracle PL/SQL delimiter /\n
+// Read and execute the schema, splitting on Oracle PL/SQL delimiter /\n
 var schemaPath = Path.Combine(Directory.GetCurrentDirectory(), "../sql/oracle", "schema_full.sql");
 var schemaText = await File.ReadAllTextAsync(schemaPath);
 foreach (var block in schemaText.Split("/\n"))

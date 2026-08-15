@@ -5,7 +5,7 @@ require "uri"
 require "oci8"
 require_relative "generated/queries"
 
-SCHEMA_PATH = File.join(__dir__, "..", "sql", "oracle", "schema_full.sql")
+SCHEMA_PATH = File.join(__dir__, "../sql/oracle", "schema_full.sql")
 
 def get_database_url
   url = ENV["ORACLE_URL"]

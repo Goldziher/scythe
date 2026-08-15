@@ -1,28 +1,32 @@
-//! Closes GH #196 item 2: `schema_file` (`src/main.rs` `SCHEMA_FILE_OVERRIDES`)
-//! controls which schema file a backend is *generated from*, but every
-//! integration-test harness template hardcodes its own runtime schema
-//! filename independently, so the schema a harness *applies* can silently
-//! diverge from the one its queries were typed against.
+//! Closes GH #196 item 2: `schema_file` (`src/main.rs` `SCHEMA_FILE_OVERRIDES`,
+//! now keyed by engine rather than by backend name) controls which schema
+//! file a backend is *generated from*, and every integration-test harness
+//! template now reads `{{ schema_file }}` for its runtime schema filename
+//! too — oracle backends generate from and apply `schema_full.sql`, redshift
+//! backends generate from and apply `schema_pg_compat.sql`. Before this fix,
+//! only 2 of 9 oracle backends and 0 of 14 redshift backends had a matching
+//! override, so the rest generated code from `schema.sql` while their
+//! harness applied a different file at runtime.
 //!
-//! Full unification (making every harness read `{{ schema_file }}` from the
-//! same override table `scythe.toml.jinja` uses) is not safe here: the
-//! `redshift` and `oracle` variant files are not filename aliases of the same
-//! content, they are deliberately different SQL — `schema_pg_compat.sql`
-//! substitutes Redshift-only syntax (`IDENTITY`, `GETDATE()`) with
-//! PostgreSQL-compatible syntax (`SERIAL`, `NOW()`) so the harness can run
-//! against a real Postgres server in CI, and `schema_full.sql` adds Oracle
-//! sequences/triggers that `sqlparser` cannot parse for type inference. A
-//! harness is allowed to apply a different file than codegen used, as long
-//! as the two files agree on table and column *shape* — the thing type
-//! inference actually depends on. So this is a check, not a merge: it
-//! verifies the pairs that are known to diverge by filename still agree by
-//! shape, and fails if a future edit adds or removes a column in only one of
-//! the pair.
+//! `oracle/schema.sql` and `redshift/schema.sql` (the bare, non-override
+//! variants) are no longer read by any generated codegen or harness — every
+//! backend for those two engines now uses the same file for both halves.
+//! They are kept as fixtures rather than deleted: `oracle/schema.sql` is the
+//! plain-DDL reference a human reads to see the table shape without the
+//! sequence/trigger noise, and `redshift/schema.sql` documents genuine
+//! Redshift syntax (`IDENTITY`, `GETDATE()`) in case a future backend needs
+//! to run against a real Redshift cluster instead of a PG-compatible stand-in.
+//! Both are proven parseable by `sqlparser` already — `go-godror-oracle` and
+//! `java-jdbc-oracle` generated successfully from `schema_full.sql` before
+//! this fix, and `schema_pg_compat.sql` is strictly simpler PostgreSQL syntax
+//! than what the `postgresql` engine already parses.
 //!
-//! Reverting this check is not what should ever be needed to "fix" a
-//! failure: a failure here means a table/column list drifted between the
-//! codegen-time schema and the runtime-applied schema, which is exactly the
-//! defect GH #196 item 2 describes.
+//! This test remains valuable as a guard, not a merge: nothing generated
+//! reads the bare variants anymore, so nothing else would notice if a future
+//! edit added or removed a column in only one half of a pair. A failure here
+//! means the shape has drifted between two files documenting what is
+//! supposed to be the same table set — the class of defect GH #196 item 2
+//! describes.
 
 use std::fs;
 use std::path::Path;
@@ -109,25 +113,22 @@ fn assert_same_shape(base_relative: &str, variant_relative: &str) {
 
 #[test]
 fn oracle_schema_full_matches_schema_shape() {
-    // csharp-oracle, elixir-jamdb-oracle, kotlin-jdbc-oracle, python-oracledb-oracle,
-    // ruby-oci8-oracle, rust-sibyl-oracle and typescript-oracledb-oracle are all
-    // generated from oracle/schema.sql (the SCHEMA_FILE_OVERRIDES default) but
-    // every harness template applies oracle/schema_full.sql at runtime, because
-    // schema_full.sql adds the sequences/triggers Oracle needs for
-    // auto-increment and sqlparser cannot parse. That is safe only because the
-    // two files declare identical table/column shapes; this test is what keeps
-    // that true.
+    // All 9 oracle backends now generate from and apply oracle/schema_full.sql
+    // (SCHEMA_FILE_OVERRIDES is keyed on engine == "oracle"). oracle/schema.sql
+    // is no longer read by anything generated; it survives as a plain-DDL
+    // reference. This test is what keeps it from silently drifting out of
+    // sync with the file everything actually uses.
     assert_same_shape("oracle/schema.sql", "oracle/schema_full.sql");
 }
 
 #[test]
 fn redshift_schema_pg_compat_matches_schema_shape() {
-    // java-*-redshift, kotlin-*-redshift and go-pgx-redshift apply
-    // redshift/schema_pg_compat.sql at runtime (it substitutes Redshift-only
-    // syntax with PostgreSQL-compatible syntax so the harness can run against a
-    // real Postgres server), while every redshift project's scythe.toml
-    // generates from redshift/schema.sql (genuine Redshift syntax, needed for
-    // accurate type inference). Safe only because both declare the same table
-    // and column shape.
+    // All 14 redshift backends now generate from and apply
+    // redshift/schema_pg_compat.sql (SCHEMA_FILE_OVERRIDES is keyed on
+    // engine == "redshift"). redshift/schema.sql, with genuine Redshift
+    // syntax (IDENTITY, GETDATE()), is no longer read by anything generated;
+    // it survives in case a future backend runs against a real Redshift
+    // cluster. This test is what keeps it from silently drifting out of sync
+    // with the file everything actually uses.
     assert_same_shape("redshift/schema.sql", "redshift/schema_pg_compat.sql");
 }

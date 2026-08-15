@@ -4,7 +4,7 @@ version = "1"
 [[sql]]
 name = "main"
 engine = "oracle"
-schema = ["../sql/oracle/schema.sql"]
+schema = ["../sql/oracle/schema_full.sql"]
 queries = ["../sql/oracle/queries/*.sql"]
 
 [[sql.gen]]

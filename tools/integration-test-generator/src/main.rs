@@ -57,15 +57,20 @@ struct BackendConfig {
     options: HashMap<String, String>,
 }
 
-/// Per-backend overrides for the schema SQL filename within the engine's
-/// schema dir. Defaults to "schema.sql" when a backend name is not listed
-/// here. Kept as a side table (rather than a `BackendConfig` field) so it
-/// doesn't require touching every one of the ~100 `BackendConfig` literals
-/// below.
-const SCHEMA_FILE_OVERRIDES: &[(&str, &str)] = &[
-    ("go-godror-oracle", "schema_full.sql"),
-    ("java-jdbc-oracle", "schema_full.sql"),
-];
+/// Per-engine overrides for the schema SQL filename within the engine's
+/// schema dir. Defaults to "schema.sql" when an engine is not listed here.
+/// Kept as a side table (rather than a `BackendConfig` field) so it doesn't
+/// require touching every one of the ~100 `BackendConfig` literals below.
+///
+/// ~keep Keyed by engine, not by backend name: GH #196 item 2 found that every
+/// harness template already applies `schema_full.sql` (oracle) /
+/// `schema_pg_compat.sql` (redshift) at runtime regardless of language or
+/// driver, so the file scythe generates from must track the engine, not an
+/// enumerated subset of backends. A name-keyed table silently drifts every
+/// time a backend is added for an engine already in the list -- exactly how
+/// this table ended up with only 2 of 9 oracle backends and 0 of 14 redshift
+/// backends overridden before this fix.
+const SCHEMA_FILE_OVERRIDES: &[(&str, &str)] = &[("oracle", "schema_full.sql"), ("redshift", "schema_pg_compat.sql")];
 
 /// Context passed to every template render.
 #[derive(Debug, Serialize)]
@@ -107,7 +112,7 @@ impl From<&BackendConfig> for TemplateContext {
             schema_dir: format!("../sql/{engine_dir}"),
             schema_file: SCHEMA_FILE_OVERRIDES
                 .iter()
-                .find(|(name, _)| *name == cfg.name)
+                .find(|(engine, _)| *engine == cfg.engine)
                 .map(|(_, file)| file.to_string())
                 .unwrap_or_else(|| "schema.sql".to_string()),
             queries_dir: format!("../sql/{engine_dir}/queries"),

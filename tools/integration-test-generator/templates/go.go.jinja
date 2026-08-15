@@ -205,11 +205,7 @@ func main() {
 {% if driver == "pgx" %}
 func runMigration(ctx context.Context, pool *pgxpool.Pool) error {
 	_, thisFile, _, _ := runtime.Caller(0)
-{%- if engine == "redshift" %}
-	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "redshift", "schema_pg_compat.sql")
-{%- else %}
-	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "pg", "schema.sql")
-{%- endif %}
+	schemaPath := filepath.Join(filepath.Dir(thisFile), "{{ schema_dir }}", "{{ schema_file }}")
 
 	schema, err := os.ReadFile(schemaPath)
 	if err != nil {
@@ -948,7 +944,7 @@ func testDeleteUser(ctx context.Context, db *sql.DB) {
 {%- elif driver == "godror" %}
 func runMigration(ctx context.Context, db *sql.DB) error {
 	_, thisFile, _, _ := runtime.Caller(0)
-	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "oracle", "schema_full.sql")
+	schemaPath := filepath.Join(filepath.Dir(thisFile), "{{ schema_dir }}", "{{ schema_file }}")
 
 	schema, err := os.ReadFile(schemaPath)
 	if err != nil {

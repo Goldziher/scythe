@@ -5,7 +5,7 @@ require "uri"
 require "pg"
 require_relative "generated/queries"
 
-SCHEMA_PATH = File.join(__dir__, "..", "sql", "redshift", "schema_pg_compat.sql")
+SCHEMA_PATH = File.join(__dir__, "../sql/redshift", "schema_pg_compat.sql")
 
 def get_database_url
   url = ENV["REDSHIFT_URL"]

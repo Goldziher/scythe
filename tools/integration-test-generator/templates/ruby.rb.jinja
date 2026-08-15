@@ -19,7 +19,7 @@ require_relative "generated/queries"
 {% if engine == "postgresql" -%}
 SCHEMA_PATH = File.join(__dir__, "..", "sql", "pg", "schema.sql")
 {%- elif engine == "redshift" -%}
-SCHEMA_PATH = File.join(__dir__, "..", "sql", "redshift", "schema_pg_compat.sql")
+SCHEMA_PATH = File.join(__dir__, "{{ schema_dir }}", "{{ schema_file }}")
 {%- elif engine == "mysql" -%}
 SCHEMA_PATH = File.join(__dir__, "..", "sql", "mysql", "schema.sql")
 {%- elif engine == "mariadb" -%}
@@ -29,7 +29,7 @@ SCHEMA_PATH = File.join(__dir__, "..", "sql", "mssql", "schema.sql")
 {%- elif engine == "sqlite" -%}
 SCHEMA_PATH = File.join(__dir__, "..", "sql", "sqlite", "schema.sql")
 {%- elif engine == "oracle" -%}
-SCHEMA_PATH = File.join(__dir__, "..", "sql", "oracle", "schema_full.sql")
+SCHEMA_PATH = File.join(__dir__, "{{ schema_dir }}", "{{ schema_file }}")
 {%- endif %}
 
 def get_database_url

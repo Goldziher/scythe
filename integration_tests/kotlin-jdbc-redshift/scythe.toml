@@ -4,7 +4,7 @@ version = "1"
 [[sql]]
 name = "main"
 engine = "redshift"
-schema = ["../sql/redshift/schema.sql"]
+schema = ["../sql/redshift/schema_pg_compat.sql"]
 queries = ["../sql/redshift/queries/*.sql"]
 
 [[sql.gen]]
