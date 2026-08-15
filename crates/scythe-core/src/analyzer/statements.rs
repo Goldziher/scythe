@@ -80,17 +80,8 @@ impl<'a> Analyzer<'a> {
                             // recursive term references them by name — apply it
                             // before seeding the scope.
                             let base_cols = apply_cte_alias_columns(&cte.alias, base_cols)?;
-                            let scope_cols: Vec<ScopeColumn> = base_cols
-                                .iter()
-                                .map(|c| {
-                                    ScopeColumn::from_catalog(
-                                        c.name.clone(),
-                                        c.sql_type.clone(),
-                                        c.neutral_type.clone(),
-                                        c.nullable,
-                                    )
-                                })
-                                .collect();
+                            let scope_cols: Vec<ScopeColumn> =
+                                base_cols.iter().map(ScopeColumn::from_analyzed_column).collect();
                             self.ctes.insert(cte_name.clone(), scope_cols);
 
                             // Re-analyze the full anchor-UNION-recursive query and
@@ -108,17 +99,8 @@ impl<'a> Analyzer<'a> {
                             // arm; re-apply the alias list so the registered CTE
                             // columns keep the declared names.
                             let full_cols = apply_cte_alias_columns(&cte.alias, full_cols)?;
-                            let widened_scope_cols: Vec<ScopeColumn> = full_cols
-                                .iter()
-                                .map(|c| {
-                                    ScopeColumn::from_catalog(
-                                        c.name.clone(),
-                                        c.sql_type.clone(),
-                                        c.neutral_type.clone(),
-                                        c.nullable,
-                                    )
-                                })
-                                .collect();
+                            let widened_scope_cols: Vec<ScopeColumn> =
+                                full_cols.iter().map(ScopeColumn::from_analyzed_column).collect();
                             self.ctes.insert(cte_name.clone(), widened_scope_cols);
                             continue;
                         }
@@ -126,17 +108,7 @@ impl<'a> Analyzer<'a> {
                 }
                 let cte_cols = self.analyze_query(&cte.query)?;
                 let cte_cols = apply_cte_alias_columns(&cte.alias, cte_cols)?;
-                let scope_cols: Vec<ScopeColumn> = cte_cols
-                    .iter()
-                    .map(|c| {
-                        ScopeColumn::from_catalog(
-                            c.name.clone(),
-                            c.sql_type.clone(),
-                            c.neutral_type.clone(),
-                            c.nullable,
-                        )
-                    })
-                    .collect();
+                let scope_cols: Vec<ScopeColumn> = cte_cols.iter().map(ScopeColumn::from_analyzed_column).collect();
                 self.ctes.insert(cte_name, scope_cols);
             }
         }
@@ -195,6 +167,12 @@ impl<'a> Analyzer<'a> {
                                 sql_type,
                                 neutral_type: widened_type,
                                 nullable: lc.nullable || right_cols[i].nullable,
+                                // ~keep Both arms untyped means nothing resolved this column --
+                                // survive the taint so `analyze()` still rejects it. Either
+                                // arm supplying a real type must clear it, or a NULL arm a
+                                // sibling resolves would wrongly stay flagged (the passing
+                                // `test_null_projection_widened_by_union_arm_is_not_rejected`).
+                                untyped_literal: lc.untyped_literal && right_cols[i].untyped_literal,
                                 ..Default::default()
                             }
                         } else {
@@ -376,6 +354,7 @@ impl<'a> Analyzer<'a> {
                                     &source.alias,
                                     source.nullable_from_join,
                                     &source.table_name,
+                                    col.untyped_literal,
                                 ),
                             ));
                         }
@@ -400,6 +379,7 @@ impl<'a> Analyzer<'a> {
                                         &source.alias,
                                         source.nullable_from_join,
                                         &source.table_name,
+                                        col.untyped_literal,
                                     ),
                                 ));
                             }

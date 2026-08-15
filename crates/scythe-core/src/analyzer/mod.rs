@@ -58,13 +58,14 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
     }
 
     // ~keep Runs after the annotation loop (a `@json` mapping is a legitimate way to
-    // give such a column a type) and after every UNION arm has already been widened
-    // (`analyze_set_expr`'s `SetOperation` arm rebuilds each column with
-    // `..Default::default()`, which drops `untyped_literal` back to `false` --
-    // so a NULL arm a later arm resolves never reaches this check tainted).
-    // `jsonb_each` and other set-returning/composite columns are never tainted at
-    // all: they reach `neutral_type: "unknown"` through `infer_function_type`, a
-    // different `TypeInfo` constructor than the two `Expr::Value` arms that set
+    // give such a column a type), after every UNION arm has already been widened, and
+    // after a derived table's/CTE's columns have been folded back through scope --
+    // `AnalyzedColumn::untyped_literal`'s doc comment traces exactly which of those
+    // boundaries clear the flag (a UNION arm where either side resolved a real type)
+    // and which carry it through (both UNION arms untyped; any derived-table/CTE
+    // projection). `jsonb_each` and other set-returning/composite columns are never
+    // tainted at all: they reach `neutral_type: "unknown"` through `infer_function_type`,
+    // a different `TypeInfo` constructor than the two `Expr::Value` arms that set
     // `untyped_literal`. See `AnalyzedColumn::untyped_literal`.
     for col in &columns {
         if col.untyped_literal && col.neutral_type == "unknown" {
@@ -1956,8 +1957,8 @@ SELECT NULL AS tag, name FROM users;",
     /// The rejection must not fire on a UNION arm's own untyped NULL before the
     /// other arm has had a chance to widen it -- `widen_neutral_type` absorbs
     /// `"unknown"` into whatever real type the other arm provides, and the
-    /// widened `AnalyzedColumn` is rebuilt with `..Default::default()`, which
-    /// drops `untyped_literal` back to `false` regardless of either arm's origin.
+    /// widened `AnalyzedColumn` clears `untyped_literal` whenever either side
+    /// resolved a real type, since that side genuinely widened the column.
     #[test]
     fn test_null_projection_widened_by_union_arm_is_not_rejected() {
         let catalog = Catalog::from_ddl(&[
@@ -1974,6 +1975,96 @@ SELECT x FROM a UNION SELECT NULL AS x FROM b;",
         let result =
             analyze(&catalog, &query).expect("the NULL arm must be widened by the other arm's int32, not rejected");
         assert_eq!(result.columns[0].neutral_type, "int32");
+    }
+
+    /// When *neither* UNION arm resolves a real type, `widen_type`'s `a == b` fast
+    /// path returns `"unknown"` untouched -- nothing in the query ever gave this
+    /// column a type, so the taint must survive the widened `AnalyzedColumn` and
+    /// still be rejected, the same as a single untyped NULL would be.
+    #[test]
+    fn test_null_projection_both_union_arms_untyped_is_rejected() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TABLE a (id INTEGER PRIMARY KEY);",
+            "CREATE TABLE b (id INTEGER PRIMARY KEY);",
+        ])
+        .unwrap();
+        let query = parse_query(
+            "-- @name BothUntyped
+-- @returns :many
+SELECT NULL AS tag FROM a UNION SELECT NULL AS tag FROM b;",
+        )
+        .unwrap();
+        let err = analyze(&catalog, &query)
+            .expect_err("both UNION arms projecting a bare NULL resolves nothing and must be rejected");
+        assert_eq!(err.code, crate::errors::ErrorCode::TypeMismatch);
+        assert!(
+            err.message.contains("BothUntyped") && err.message.contains("tag"),
+            "the error must name both the query and the offending column, got: {}",
+            err.message
+        );
+    }
+
+    /// A bare `NULL` projected out of a derived table must still be rejected one
+    /// scope level up -- `ScopeColumn::from_analyzed_column` carries the inner
+    /// column's `untyped_literal` taint through the subquery boundary instead of
+    /// letting it reset to `false` the moment it crosses into the outer scope.
+    #[test]
+    fn test_null_projection_through_derived_table_is_rejected() {
+        let catalog = Catalog::from_ddl(&["CREATE TABLE users (id INTEGER PRIMARY KEY);"]).unwrap();
+        let query = parse_query(
+            "-- @name ViaSubquery
+-- @returns :many
+SELECT tag FROM (SELECT NULL AS tag FROM users) sub;",
+        )
+        .unwrap();
+        let err =
+            analyze(&catalog, &query).expect_err("a bare NULL projected out of a derived table must still be rejected");
+        assert_eq!(err.code, crate::errors::ErrorCode::TypeMismatch);
+        assert!(
+            err.message.contains("ViaSubquery") && err.message.contains("tag"),
+            "the error must name both the query and the offending column, got: {}",
+            err.message
+        );
+    }
+
+    /// Same shape as the derived-table case, through a CTE instead. A bare `?`
+    /// inside a CTE body fails earlier with `SYNTAX_ERROR` from `sqlparser`
+    /// ("Expected: an expression, found: ?"), so this uses a bare `NULL`, which
+    /// parses fine wherever a placeholder would not.
+    #[test]
+    fn test_null_projection_through_cte_is_rejected() {
+        let catalog = Catalog::from_ddl(&["CREATE TABLE users (id INTEGER PRIMARY KEY);"]).unwrap();
+        let query = parse_query(
+            "-- @name ViaCte
+-- @returns :many
+WITH cte AS (SELECT NULL AS tag FROM users) SELECT tag FROM cte;",
+        )
+        .unwrap();
+        let err = analyze(&catalog, &query).expect_err("a bare NULL projected out of a CTE must still be rejected");
+        assert_eq!(err.code, crate::errors::ErrorCode::TypeMismatch);
+        assert!(
+            err.message.contains("ViaCte") && err.message.contains("tag"),
+            "the error must name both the query and the offending column, got: {}",
+            err.message
+        );
+    }
+
+    /// A `jsonb_each` column reaches `"unknown"` through `infer_function_type`,
+    /// never through the two `Expr::Value` arms that set `untyped_literal` --
+    /// carrying it out through a derived table must not accidentally pick up the
+    /// taint the way a bare NULL/placeholder would.
+    #[test]
+    fn test_json_each_through_derived_table_is_not_rejected() {
+        let catalog = Catalog::from_ddl(&["CREATE TABLE t (id INTEGER PRIMARY KEY, j JSONB);"]).unwrap();
+        let query = parse_query(
+            "-- @name KvViaSubquery
+-- @returns :many
+SELECT kv FROM (SELECT jsonb_each(j) AS kv FROM t) sub;",
+        )
+        .unwrap();
+        let result =
+            analyze(&catalog, &query).expect("a jsonb_each record column through a derived table must not be rejected");
+        assert_eq!(result.columns[0].neutral_type, "unknown");
     }
 
     /// `jsonb_each` in select-list position produces a column whose

@@ -192,17 +192,7 @@ impl<'a> Analyzer<'a> {
                     .map(|a| a.name.value.to_lowercase())
                     .unwrap_or_else(|| "subquery".to_string());
 
-                let scope_cols: Vec<ScopeColumn> = sub_cols
-                    .iter()
-                    .map(|c| {
-                        ScopeColumn::from_catalog(
-                            c.name.clone(),
-                            c.sql_type.clone(),
-                            c.neutral_type.clone(),
-                            c.nullable,
-                        )
-                    })
-                    .collect();
+                let scope_cols: Vec<ScopeColumn> = sub_cols.iter().map(ScopeColumn::from_analyzed_column).collect();
 
                 scope.sources.push(ScopeSource {
                     alias: alias_name.clone(),

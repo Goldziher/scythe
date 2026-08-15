@@ -218,10 +218,16 @@ pub struct AnalyzedColumn {
     /// placeholder (see `expressions.rs`); every other path that produces
     /// `neutral_type == "unknown"` -- `jsonb_each`'s record column included --
     /// goes through a different `TypeInfo` constructor and leaves this `false`.
-    /// A UNION arm rebuilds its widened `AnalyzedColumn` with
-    /// `..Default::default()`, so this flag never survives widening: it is
-    /// true only for a column that is *still exactly* its own untyped literal
-    /// with nothing else in the query to borrow a type from.
+    ///
+    /// Survives two boundaries that would otherwise launder it back to
+    /// `false` before `analyze()` ever sees it: a UNION arm's widened
+    /// `AnalyzedColumn` (`analyze_set_expr`'s `SetOperation` arm in
+    /// `statements.rs`) carries it forward only when *both* sides are
+    /// untyped -- either side supplying a real type clears it, since that
+    /// side genuinely resolved the column; and a derived table or CTE
+    /// (`ScopeColumn::from_analyzed_column` -> `TypeInfo::from_scope_column`)
+    /// carries it one scope level up unchanged, so a bare literal projected
+    /// out of a subquery is still flagged at the outer `SELECT`.
     ///
     /// Internal bookkeeping consumed by `analyze()` before it returns --
     /// `#[serde(skip)]` keeps it out of the public wire format entirely rather
@@ -300,6 +306,14 @@ pub(super) struct ScopeColumn {
     pub(super) sql_type: String,
     pub(super) neutral_type: String,
     pub(super) base_nullable: bool,
+    /// See [`AnalyzedColumn::untyped_literal`]. `false` for every constructor
+    /// except [`ScopeColumn::from_analyzed_column`], which carries an
+    /// already-analyzed output column's taint through a derived-table/CTE
+    /// boundary. A genuine catalog column ([`ScopeColumn::from_catalog`]) and
+    /// a function's synthetic result column ([`ScopeColumn::new`] -- e.g.
+    /// `jsonb_each`'s `key`/`value`) never originate a bare literal, so both
+    /// leave this `false`.
+    pub(super) untyped_literal: bool,
 }
 
 impl ScopeColumn {
@@ -313,12 +327,12 @@ impl ScopeColumn {
             sql_type: neutral_type.clone(),
             neutral_type,
             base_nullable,
+            untyped_literal: false,
         }
     }
 
-    /// Build a scope column backed by a real catalog (or propagated
-    /// upstream-analyzed) column, preserving its raw SQL type alongside the
-    /// derived neutral type.
+    /// Build a scope column backed by a real catalog column, preserving its
+    /// raw SQL type alongside the derived neutral type.
     pub(super) fn from_catalog(
         name: impl Into<String>,
         sql_type: impl Into<String>,
@@ -330,6 +344,25 @@ impl ScopeColumn {
             sql_type: sql_type.into(),
             neutral_type: neutral_type.into(),
             base_nullable,
+            untyped_literal: false,
+        }
+    }
+
+    /// Build a scope column from an already-analyzed output column, carrying
+    /// its [`AnalyzedColumn::untyped_literal`] taint through a derived-table
+    /// or CTE boundary -- so `SELECT tag FROM (SELECT NULL AS tag FROM t) sub`
+    /// still sees the inner `tag` as an untyped literal one level up, instead
+    /// of the taint silently resetting the moment the column crosses a scope
+    /// boundary. Used everywhere a derived table's or CTE's output columns
+    /// are folded back into a `ScopeColumn` list; a real catalog column never
+    /// goes through this constructor.
+    pub(super) fn from_analyzed_column(col: &AnalyzedColumn) -> Self {
+        Self {
+            name: col.name.clone(),
+            sql_type: col.sql_type.clone(),
+            neutral_type: col.neutral_type.clone(),
+            base_nullable: col.nullable,
+            untyped_literal: col.untyped_literal,
         }
     }
 }
@@ -404,12 +437,16 @@ impl TypeInfo {
 
     /// Build type info for a column resolved from a relation in scope.
     ///
-    /// Carries three things the neutral type alone cannot express: the raw SQL
+    /// Carries four things the neutral type alone cannot express: the raw SQL
     /// type, so backends can distinguish storage representations that collapse
     /// to the same neutral type (Oracle CLOB vs. VARCHAR2); where the column's
-    /// nullability came from, so outer-joined columns can be grouped; and the
+    /// nullability came from, so outer-joined columns can be grouped; the
     /// owning relation's real table name (not just its query alias), so a
-    /// qualified `table.column` type override can bind to it (#189).
+    /// qualified `table.column` type override can bind to it (#189); and the
+    /// caller-supplied `untyped_literal`, so a bare `NULL`/placeholder that was
+    /// projected out of a derived table or CTE (see
+    /// [`ScopeColumn::from_analyzed_column`]) is still flagged one scope level
+    /// up rather than resetting to `false` the moment it crosses that boundary.
     pub(super) fn from_scope_column(
         sql_type: impl Into<String>,
         neutral_type: impl Into<String>,
@@ -417,6 +454,7 @@ impl TypeInfo {
         source_alias: &str,
         nullable_from_join: bool,
         source_table: &str,
+        untyped_literal: bool,
     ) -> Self {
         Self {
             sql_type: Some(sql_type.into()),
@@ -425,7 +463,7 @@ impl TypeInfo {
             join_group: nullable_from_join.then(|| source_alias.to_string()),
             nullable_before_join: base_nullable,
             source_relation: Some(source_table.to_string()),
-            untyped_literal: false,
+            untyped_literal,
         }
     }
 

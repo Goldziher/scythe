@@ -1035,6 +1035,20 @@ direct caller that builds one by struct literal rather than through the parser. 
   `jsonb_each`/`json_each` record column (legitimately `"unknown"` — PostgreSQL's `record` pseudo-type
   has no neutral-type representation), are both unaffected. (#170)
 
+- **A UNION with both arms projecting a bare `NULL`, or a bare `NULL`/placeholder projected out of a
+  derived table or CTE, still reached codegen as `INTERNAL_ERROR: unknown neutral type: unknown`
+  instead of the clean `TYPE_MISMATCH` above.** Two places stripped the `untyped_literal` taint before
+  `analyze()`'s final check ever saw it: a UNION arm's widened column was rebuilt with
+  `..Default::default()`, always dropping to `false` regardless of whether either side actually
+  resolved a type; and a derived table's or CTE's output columns were folded back into scope through a
+  constructor that hardcoded `untyped_literal: false`, resetting the flag the moment a column crossed a
+  subquery boundary. The UNION case now survives the taint only when *both* arms are untyped — either
+  side supplying a real type still clears it, so a `NULL` arm a sibling resolves is unaffected — and
+  `ScopeColumn` now carries the flag from an already-analyzed output column through a derived-table/CTE
+  boundary via a new `from_analyzed_column` constructor, while a genuine catalog column or a function's
+  synthetic result (`jsonb_each` included) is untouched and stays untainted no matter how many subquery
+  or UNION layers it passes through. (#170)
+
 - **The Java and Kotlin integration-test generators had no way to notice their per-engine harness
   branches drifting apart.** `java.java.jinja` and `kotlin.kt.jinja` duplicate a whole test program
   per SQL engine, and nothing compared what one branch tests against another — the redshift branches

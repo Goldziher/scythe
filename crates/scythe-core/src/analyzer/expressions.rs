@@ -431,6 +431,7 @@ impl<'a> Analyzer<'a> {
                         &source.alias,
                         source.nullable_from_join,
                         &source.table_name,
+                        col.untyped_literal,
                     );
                 }
             }
@@ -445,6 +446,7 @@ impl<'a> Analyzer<'a> {
                         &source.alias,
                         source.nullable_from_join,
                         &source.table_name,
+                        col.untyped_literal,
                     );
                     if found.is_some() {
                         return TypeInfo::new(format!("{AMBIGUOUS_COLUMN_MARKER}{col_name}"), false);
