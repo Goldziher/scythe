@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Every codegen assertion in the fixture-generated test suite was skipped when codegen errored.**
+  One line in the generator wrapped each backend loop in `if let Ok(generated) = …`, producing 273
+  skip-guards across 13 files that between them discarded the result of **4993**
+  `generate_with_backend` calls. Backend *construction* failure already panicked; generation failure
+  one line later did not — and `generate_generated_code_assertions`, added in 0.15.0 specifically to
+  stop assertions being dropped, was emitted *inside* that guard, so the fix for dropped assertions
+  was itself dropped. A codegen error now fails the test naming the backend, engine, fixture and
+  error. A fixture may declare an expected failure via `expected.codegen_errors`, which requires a
+  written reason and fails in both directions: an undeclared failure fails, and a declared failure
+  that now succeeds fails as stale. No fixture currently declares one — measured across all 4993
+  combinations, none fail. (#222)
+
 - **A set-returning function in the select list, and a multi-field `ROW(...)`, passed analysis and
   then failed every backend with `INTERNAL_ERROR: unknown neutral type: unknown`.**
   `SELECT jsonb_each(data) FROM documents` and `SELECT array_agg(ROW(o.id, o.total)) FROM orders o`

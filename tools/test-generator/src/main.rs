@@ -326,7 +326,28 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
         fixture.name
     );
     out.push_str("        };\n");
-    out.push_str("        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {\n");
+    // ~keep Emit a bare `None` rather than a one-arm match when the fixture declares no
+    // `expected.codegen_errors`. `match *backend_name { _ => None }` is what clippy's
+    // `match_single_binding` rejects, and `-D warnings` makes that a build failure on the
+    // 440-odd fixtures that declare nothing.
+    let match_arms = codegen_error_match_arms(fixture);
+    if match_arms.is_empty() {
+        out.push_str("        let declared_codegen_failure: Option<&str> = None;\n");
+    } else {
+        out.push_str("        let declared_codegen_failure: Option<&str> = match *backend_name {\n");
+        out.push_str(&match_arms);
+        out.push_str("            _ => None,\n");
+        out.push_str("        };\n");
+    }
+    out.push_str("        match scythe_codegen::generate_with_backend(&analyzed, &*backend) {\n");
+    out.push_str("            Ok(generated) => {\n");
+    out.push_str("                if let Some(expected_message) = declared_codegen_failure {\n");
+    let _ = writeln!(
+        out,
+        "                    panic!(\n                        \"backend {{}} was declared under expected.codegen_errors to fail codegen for fixture {{}} (declared message {{:?}}), but codegen succeeded -- delete the stale entry\",\n                        backend_name, {:?}, expected_message\n                    );",
+        fixture.name
+    );
+    out.push_str("                }\n");
     // ~keep Assembled through `provenance::assemble_file`, exactly as `scythe
     // generate` assembles a real file: preamble, then the provenance header
     // line, then the body. Concatenating preamble + header directly (as this
@@ -413,10 +434,49 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     );
     out.push_str("                );\n");
     out.push_str(&generate_generated_code_assertions(fixture));
+    out.push_str("            }\n");
+    out.push_str("            Err(e) => match declared_codegen_failure {\n");
+    out.push_str("                Some(expected_message) => {\n");
+    let _ = writeln!(
+        out,
+        "                    let message = e.to_string();\n                    assert!(\n                        message.contains(expected_message),\n                        \"backend {{}} codegen error for fixture {{}} did not match the declared expected.codegen_errors message\\n--- expected (substring) ---\\n{{}}\\n--- actual ---\\n{{}}\",\n                        backend_name, {:?}, expected_message, message\n                    );",
+        fixture.name
+    );
+    out.push_str("                }\n");
+    let _ = writeln!(
+        out,
+        "                None => panic!(\"backend {{}} failed to generate code for engine {{}} in fixture {{}}: {{}}\", backend_name, engine, {:?}, e),",
+        fixture.name
+    );
+    out.push_str("            },\n");
     out.push_str("        }\n");
     out.push_str("    }\n");
 
     out.push_str("}\n");
+    out
+}
+
+/// Emits the arms of a `match *backend_name { ... }` expression, one per backend this fixture
+/// declares under `expected.codegen_errors`, each yielding `Some(message_contains)`. The
+/// generated test then knows, purely from data baked in at generation time, which backends in
+/// its loop are declared to fail codegen and what their error must say -- everything else falls
+/// through to a caller-supplied `_ => None` arm. See #222.
+fn codegen_error_match_arms(fixture: &Fixture) -> String {
+    let mut out = String::new();
+    let Some(ref codegen_errors) = fixture.expected.codegen_errors else {
+        return out;
+    };
+
+    let mut backends: Vec<_> = codegen_errors.iter().collect();
+    backends.sort_unstable_by_key(|(name, _)| name.as_str());
+
+    for (backend_name, expected) in backends {
+        let _ = writeln!(
+            out,
+            "            {:?} => Some({:?}),",
+            backend_name, expected.message_contains
+        );
+    }
     out
 }
 
@@ -1222,5 +1282,134 @@ mod tests {
         );
         assert!(code.contains(r#"fallback_type: "json_array","#), "got:\n{code}");
         assert!(code.contains("backend: (*backend_name).to_string(),"), "got:\n{code}");
+    }
+
+    #[test]
+    fn codegen_error_match_arms_is_empty_when_the_fixture_declares_none() {
+        let fixture = fixture_from_json(
+            r#"{
+                "name": "no_codegen_errors",
+                "description": "d",
+                "category": "smoke",
+                "schema_sql": ["CREATE TABLE t (id INT)"],
+                "query_sql": "SELECT id FROM t",
+                "expected": { "success": true },
+                "source": "original"
+            }"#,
+        );
+
+        assert_eq!(codegen_error_match_arms(&fixture), String::new());
+    }
+
+    #[test]
+    fn codegen_error_match_arms_emits_an_arm_per_declared_backend() {
+        let fixture = fixture_from_json(
+            r#"{
+                "name": "with_codegen_errors",
+                "description": "d",
+                "category": "smoke",
+                "schema_sql": ["CREATE TABLE t (id INT)"],
+                "query_sql": "SELECT id FROM t",
+                "expected": {
+                    "success": true,
+                    "codegen_errors": {
+                        "python-asyncpg": {
+                            "message_contains": "unsupported type",
+                            "reason": "asyncpg has no mapping for this type; re-derive before editing"
+                        }
+                    }
+                },
+                "source": "original"
+            }"#,
+        );
+
+        let arms = codegen_error_match_arms(&fixture);
+        assert_eq!(arms, "            \"python-asyncpg\" => Some(\"unsupported type\"),\n");
+    }
+
+    /// Regression for #222: `generate_with_backend`'s `Err` used to be discarded by an `if let
+    /// Ok(...)` guard, silently skipping every downstream assertion (including
+    /// `generate_generated_code_assertions`, which #156 added specifically so assertions were
+    /// not dropped). The emitted test must instead `match` the result and panic on an
+    /// undeclared failure, naming the backend, engine and fixture -- the same style as the
+    /// existing backend-construction panic.
+    #[test]
+    fn generate_query_test_panics_on_an_undeclared_codegen_failure() {
+        let fixture = fixture_from_json(
+            r#"{
+                "name": "codegen_failure_test",
+                "description": "d",
+                "category": "smoke",
+                "schema_sql": ["CREATE TABLE t (id INT)"],
+                "query_sql": "SELECT id FROM t",
+                "expected": {
+                    "success": true,
+                    "query": { "name": "GetT", "command": "many", "columns": [
+                        { "name": "id", "type": "int4", "nullable": false }
+                    ] }
+                },
+                "source": "original"
+            }"#,
+        );
+
+        let code = generate_query_test(&fixture, "<test>");
+        assert!(
+            !code.contains("if let Ok(generated) ="),
+            "the silent-skip guard must be gone, got:\n{code}"
+        );
+        assert!(
+            code.contains("match scythe_codegen::generate_with_backend(&analyzed, &*backend) {"),
+            "got:\n{code}"
+        );
+        assert!(
+            code.contains(
+                "None => panic!(\"backend {} failed to generate code for engine {} in fixture {}: {}\", backend_name, engine, \"codegen_failure_test\", e),"
+            ),
+            "an undeclared backend must panic naming the fixture on codegen failure, got:\n{code}"
+        );
+    }
+
+    /// The declared-backend path must assert the error message rather than panic, and the
+    /// success path must panic when a backend *declared* to fail codegen instead succeeds --
+    /// the stale-allowlist direction, modeled on `scripts/check-generated-backends.py`'s
+    /// both-directions check.
+    #[test]
+    fn generate_query_test_asserts_the_declared_message_and_flags_a_stale_entry() {
+        let fixture = fixture_from_json(
+            r#"{
+                "name": "codegen_failure_declared",
+                "description": "d",
+                "category": "smoke",
+                "schema_sql": ["CREATE TABLE t (id INT)"],
+                "query_sql": "SELECT id FROM t",
+                "expected": {
+                    "success": true,
+                    "query": { "name": "GetT", "command": "many", "columns": [
+                        { "name": "id", "type": "int4", "nullable": false }
+                    ] },
+                    "codegen_errors": {
+                        "python-asyncpg": {
+                            "message_contains": "unsupported type",
+                            "reason": "asyncpg has no mapping for this type; re-derive before editing"
+                        }
+                    }
+                },
+                "source": "original"
+            }"#,
+        );
+
+        let code = generate_query_test(&fixture, "<test>");
+        assert!(
+            code.contains("\"python-asyncpg\" => Some(\"unsupported type\"),"),
+            "got:\n{code}"
+        );
+        assert!(
+            code.contains("message.contains(expected_message)"),
+            "a declared backend's error must be checked against the declared substring, got:\n{code}"
+        );
+        assert!(
+            code.contains("was declared under expected.codegen_errors to fail codegen for fixture"),
+            "a declared backend that now succeeds must panic as a stale entry, got:\n{code}"
+        );
     }
 }

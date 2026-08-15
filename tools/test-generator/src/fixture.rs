@@ -158,6 +158,33 @@ pub struct Expected {
     pub error: Option<ExpectedError>,
     #[serde(default)]
     pub lint: Option<ExpectedLint>,
+    /// Backends declared to fail `scythe_codegen::generate_with_backend` for this fixture,
+    /// keyed by backend name (e.g. `"python-asyncpg"`). Absent for the overwhelming majority of
+    /// fixtures, where every applicable backend is expected to generate successfully -- this
+    /// exists only for the genuine cases the #222 measurement finds, not as a general escape
+    /// hatch to silence a failure without understanding it.
+    #[serde(default)]
+    pub codegen_errors: Option<AHashMap<String, ExpectedCodegenError>>,
+}
+
+/// Declares that generating code for one backend is *expected* to fail for this fixture, and
+/// what the resulting error must say.
+///
+/// Both fields are required, not `#[serde(default)]`: `message_contains` alone is a bare
+/// allowlist with no way to tell, months later, whether the entry still describes reality or is
+/// stale fiction -- exactly the failure mode `test-parity-exemptions.txt` and
+/// `scripts/torture-expected-failures.txt` both had to fix by hand after the fact (a
+/// misattributed reason surviving a defect's actual fix, an unfalsifiable entry that never once
+/// exercised the code it claimed to). `reason` forces a human explanation, re-derived from the
+/// generator's actual output, to sit next to the substring it justifies.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExpectedCodegenError {
+    /// Substring the `Display` of the `generate_with_backend` error must contain.
+    pub message_contains: String,
+    /// Why this backend is expected to fail here, derived from the actual generator/compiler
+    /// output rather than guessed.
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -558,6 +585,85 @@ mod tests {
         assert!(
             fixtures[0].live.is_some(),
             "the `live` block must round-trip, not be dropped"
+        );
+    }
+
+    /// Regression for #222: `expected.codegen_errors` must load and round-trip, and a declared
+    /// entry must carry both `message_contains` and `reason` -- not be dropped like the
+    /// `expected.generated_code` field was before #156, and not degrade into a bare allowlist.
+    #[test]
+    fn load_fixtures_accepts_a_codegen_errors_entry_with_a_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let json = r#"{
+  "name": "codegen_error_test",
+  "description": "d",
+  "category": "smoke",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
+  "query_sql": "SELECT id FROM t",
+  "expected": {
+    "success": true,
+    "query": { "name": "GetT", "command": "many", "columns": [
+      { "name": "id", "type": "int4", "nullable": false }
+    ] },
+    "codegen_errors": {
+      "python-asyncpg": {
+        "message_contains": "unsupported type",
+        "reason": "asyncpg has no mapping for this type as of #222; re-derive before editing"
+      }
+    }
+  },
+  "source": "original"
+}"#;
+        std::fs::write(dir.path().join("f.json"), json).unwrap();
+
+        let fixtures = load_fixtures(dir.path()).expect("a declared `codegen_errors` block must not be rejected");
+        assert_eq!(fixtures.len(), 1);
+        let codegen_errors = fixtures[0]
+            .expected
+            .codegen_errors
+            .as_ref()
+            .expect("codegen_errors must round-trip, not be dropped");
+        let entry = codegen_errors
+            .get("python-asyncpg")
+            .expect("the python-asyncpg entry must be present");
+        assert_eq!(entry.message_contains, "unsupported type");
+        assert_eq!(
+            entry.reason,
+            "asyncpg has no mapping for this type as of #222; re-derive before editing"
+        );
+    }
+
+    /// A `codegen_errors` entry with `message_contains` but no `reason` is exactly the bare
+    /// allowlist shape this repo keeps having to undo by hand elsewhere -- it must be a load
+    /// error, not silently accepted with an empty reason.
+    #[test]
+    fn load_fixtures_rejects_a_codegen_errors_entry_missing_a_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let json = r#"{
+  "name": "codegen_error_no_reason",
+  "description": "d",
+  "category": "smoke",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
+  "query_sql": "SELECT id FROM t",
+  "expected": {
+    "success": true,
+    "query": { "name": "GetT", "command": "many", "columns": [
+      { "name": "id", "type": "int4", "nullable": false }
+    ] },
+    "codegen_errors": {
+      "python-asyncpg": { "message_contains": "unsupported type" }
+    }
+  },
+  "source": "original"
+}"#;
+        std::fs::write(dir.path().join("f.json"), json).unwrap();
+
+        let error = load_fixtures(dir.path())
+            .expect_err("a codegen_errors entry with no reason must be rejected")
+            .to_string();
+        assert!(
+            error.contains("reason"),
+            "error must name the missing `reason` field, got: {error}"
         );
     }
 }
