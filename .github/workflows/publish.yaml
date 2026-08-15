@@ -238,16 +238,23 @@ jobs:
             return 1
           }
 
+          # ~keep Topological order, asserted by publish_order_is_a_valid_topological_sort
+          # in crates/scythe-cli/tests/publish_order.rs -- that test parses this list out
+          # of this file and every crate's [dependencies], so a new inter-crate edge that
+          # invalidates this order fails `cargo test` rather than a tag push. scythe-lint
+          # must precede scythe-codegen: codegen depends on it, and cargo publish resolves
+          # a path dependency's `version` against crates.io, so publishing codegen first
+          # fails with "failed to select a version for the requirement scythe-lint".
           publish_crate scythe-backend
           sleep 30
 
           publish_crate scythe-core
           sleep 30
 
-          publish_crate scythe-codegen
+          publish_crate scythe-lint
           sleep 30
 
-          publish_crate scythe-lint
+          publish_crate scythe-codegen
           sleep 30
 
           publish_crate scythe-inspect
