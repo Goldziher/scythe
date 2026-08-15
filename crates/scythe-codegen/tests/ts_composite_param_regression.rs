@@ -20,8 +20,10 @@
 //! and `pg_bind_expr` in `typescript_postgres.rs`.
 
 use scythe_codegen::{generate_with_backend, get_backend};
-use scythe_core::analyzer::{AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo};
-use scythe_core::parser::QueryCommand;
+use scythe_core::analyzer::{AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, analyze};
+use scythe_core::catalog::Catalog;
+use scythe_core::dialect::SqlDialect;
+use scythe_core::parser::{QueryCommand, parse_query_with_dialect};
 
 /// A composite type with two fields, one of which (`zip_code`) is not
 /// already camelCase -- so a test that only used single-word fields could
@@ -165,5 +167,57 @@ fn typescript_postgres_binds_a_composite_field_in_a_multi_param_batch_item() {
     assert!(
         !query_fn.contains("${item.home_address}"),
         "must not bind the whole composite field as a single postgres.js parameter; got:\n{query_fn}"
+    );
+}
+
+/// #225: the four tests above build `AnalyzedQuery` by hand, with `query.composites` set
+/// directly (see `composite_param_query` above). That hand-populated field is exactly the state
+/// the real bug prevented from existing -- every test above passed while the actual pipeline was
+/// broken, because none of them exercise the code that is supposed to populate `composites` in
+/// the first place. The real defect lived one stage upstream, in the analyzer: `composite_worklist`
+/// in `crates/scythe-core/src/analyzer/mod.rs` seeded itself from `columns` and
+/// `nested_field_types` but never from `params`, so a composite bound only as a query parameter
+/// (never returned as a column, e.g. the torture schema's `CreateWidget` INSERT) never reached
+/// `analyzed.composites` at all, and `pg_composite_bind_expr` took its silent whole-object
+/// fallback. This test runs the full `Catalog::from_ddl` -> `parse_query_with_dialect` -> `analyze`
+/// -> `generate_with_backend` pipeline -- the only way to prove the analyzer itself, not a test
+/// fixture standing in for it, produces the composite.
+#[test]
+fn analyzer_populates_composites_for_a_param_only_composite() {
+    let schema = "\
+        CREATE TYPE torture_address AS (street TEXT, city TEXT, zip TEXT); \
+        CREATE TABLE torture_widgets (\
+            widget_id SERIAL PRIMARY KEY, \
+            home_address torture_address, \
+            scheduled_at TIMESTAMP NOT NULL DEFAULT NOW()\
+        );";
+    let query = "-- @name CreateWidget\n-- @returns :one\n\
+        INSERT INTO torture_widgets (home_address) VALUES ($1) RETURNING widget_id, scheduled_at;";
+
+    let catalog = Catalog::from_ddl_with_dialect(&[schema], &SqlDialect::PostgreSQL).expect("schema must parse");
+    let parsed = parse_query_with_dialect(query, &SqlDialect::PostgreSQL).expect("query must parse");
+    let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
+    assert!(
+        analyzed.composites.iter().any(|c| c.sql_name == "torture_address"),
+        "the analyzer must collect a composite reachable only through a query param, not just \
+         through columns; got composites:\n{:?}",
+        analyzed.composites
+    );
+
+    let backend = get_backend("typescript-postgres", "postgresql").expect("typescript-postgres supports postgresql");
+    let result = generate_with_backend(&analyzed, &*backend).expect("codegen must not fail on a composite param");
+    let query_fn = result
+        .query_fn
+        .expect("query with a RETURNING clause must produce a query fn");
+
+    let expected = "ROW(${home_address.street}, ${home_address.city}, ${home_address.zip})::torture_address";
+    assert!(
+        query_fn.contains(expected),
+        "expected the row-constructor literal `{expected}`; got:\n{query_fn}"
+    );
+    assert!(
+        !query_fn.contains("${home_address}"),
+        "must not bind the whole composite object as a single postgres.js parameter -- that is \
+         the #225 fallback firing because analyzed.composites was empty; got:\n{query_fn}"
     );
 }

@@ -159,9 +159,17 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
     // only through a composite field -- is not left with the same gap this
     // recursion exists to close.
     let mut composite_field_types: Vec<String> = Vec::new();
+    // ~keep `params` must feed this worklist the same way `columns` does (#225):
+    // a composite bound only as a query parameter -- e.g. an `INSERT` whose
+    // composite column never appears in `RETURNING` -- never reached
+    // `analyzed.composites` before this chain, so codegen's
+    // `pg_composite_bind_expr` silently fell back to binding the whole object
+    // instead of emitting `ROW(a, b)::type_name`. The enum scan below already
+    // chains `params`; this brings the composite worklist in line with it.
     let mut composite_worklist: VecDeque<String> = columns
         .iter()
         .map(|c| c.neutral_type.as_str())
+        .chain(params.iter().map(|p| p.neutral_type.as_str()))
         .chain(nested_field_types.iter().copied())
         .filter_map(|nt| nt.strip_prefix("composite::"))
         .filter(|name| seen_composites.insert((*name).to_string()))

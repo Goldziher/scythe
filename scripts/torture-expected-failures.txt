@@ -75,31 +75,36 @@
 # listed project that passes fails the run, which is the whole point of the
 # both-directions rule above.
 
-# --- Class 3: a composite-typed parameter cannot be bound by postgres.js.
-# The torture schema's home_address column is a composite type, and the
-# generated code interpolates it straight into the tagged template:
+# --- Class 3 is now empty, and the entry it held is worth keeping as a
+# record. The torture schema's home_address column is a composite type, and
+# the generated code interpolated it straight into the tagged template:
 #
 #   generated/queries.ts(91,81): error TS2345: Argument of type
 #     'TortureAddress | null' is not assignable to parameter of type
 #     'ParameterOrFragment<never>'.
 #   generated/queries.ts(89,15): error TS1320: Type of 'await' operand ...
 #
-# The TS1320 is a cascade of the TS2345: with one argument unassignable,
-# `sql<CreateWidgetRow[]>` no longer resolves to a valid promise. postgres.js
-# accepts only values it knows how to serialize, and a plain object holding a
-# PostgreSQL composite is not one of them; binding it needs an explicit
-# encoding decision (a row literal, or sql.json for the json case), which the
-# backend does not make today.
+# The TS1320 was a cascade of the TS2345: with one argument unassignable,
+# `sql<CreateWidgetRow[]>` no longer resolved to a valid promise. The codegen
+# emit fix for this (a `ROW(a, b)::type_name` row constructor, one `${}` per
+# scalar field) had already landed and was correct -- it just never fired,
+# because it looks composites up in `analyzed.composites`, which was empty.
+# The real defect was one stage upstream, in the analyzer: `CreateWidget`
+# binds home_address only as a parameter (it is not in the RETURNING list),
+# and the analyzer's composite worklist seeded itself from columns and
+# nested-struct fields but never from params, so a param-only composite never
+# reached `analyzed.composites` at all. The worklist now chains params the
+# same way the enum scan beside it always did.
 #
-# This is a *newly visible* defect, not a new one: until the entry below was
-# re-derived, all six TypeScript projects failed on `class` as a parameter
-# name (TS1390), and tsc stops at a syntax error before it type-checks
-# anything. Fixing the syntax error is what let the type error be seen. The
-# other five projects pass now and have been deleted from this list.
-# Filed as #225 once the defect had been re-derived from the compiler; it
-# carried "(unfiled)" until then, because an invented issue reference is worse
-# than an honest blank.
-typescript-postgres : a composite-typed param is not assignable to postgres.js's ParameterOrFragment (#225)
+# This is a *newly visible* defect, not a new one: until this entry was first
+# derived, all six TypeScript projects failed on `class` as a parameter name
+# (TS1390), and tsc stops at a syntax error before it type-checks anything.
+# Fixing the syntax error is what let the type error be seen. The other five
+# projects passed already and were deleted from this list at that time.
+#
+# typescript-postgres now passes and this entry is deleted rather than kept
+# "just in case": a listed project that passes fails the run, which is the
+# whole point of the both-directions rule above. Filed and closed as #225.
 
 # --- Resolved, kept as a record of what this list is for.
 #

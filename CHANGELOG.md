@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A composite-typed query parameter was bound to postgres.js as a whole object, so
+  `typescript-postgres` output did not type-check** (`TS2345: 'TortureAddress | null' is not
+  assignable to 'ParameterOrFragment<never>'`). The codegen that renders `ROW(a, b)::type_name` for
+  a bound composite was already correct but never ran: it looks the composite up in
+  `analyzed.composites`, and the analyzer's composite worklist seeded itself from a query's columns
+  and nested-struct fields but never from its params. A composite bound only as a parameter — an
+  `INSERT` whose composite column never appears in `RETURNING` — therefore never reached that list
+  at all, and the emitter took its silent whole-object fallback. The worklist now chains params the
+  way the enum scan beside it always did. This was the last entry in
+  `scripts/torture-expected-failures.txt`, which is now empty. (#225)
+
 - **A `UNION` whose `NULL`-projecting arm came first failed type resolution instead of widening.**
   `SELECT id AS tag FROM accounts UNION SELECT NULL AS tag FROM users` compiled; swapping the arms
   produced `INTERNAL_ERROR: type resolution failed for column 'tag': unknown neutral type: unknown`.
