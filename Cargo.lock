@@ -2213,7 +2213,7 @@ dependencies = [
 
 [[package]]
 name = "scythe-backend"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "ahash 0.8.12",
  "serde",
@@ -2223,7 +2223,7 @@ dependencies = [
 
 [[package]]
 name = "scythe-cli"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "ahash 0.8.12",
  "assert_cmd",
@@ -2249,7 +2249,7 @@ dependencies = [
 
 [[package]]
 name = "scythe-codegen"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "ahash 0.8.12",
  "criterion",
@@ -2287,7 +2287,7 @@ dependencies = [
 
 [[package]]
 name = "scythe-core"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "ahash 0.8.12",
  "serde",
@@ -2298,7 +2298,7 @@ dependencies = [
 
 [[package]]
 name = "scythe-inspect"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "async-trait",
  "mysql_async",
@@ -2318,7 +2318,7 @@ dependencies = [
 
 [[package]]
 name = "scythe-lint"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "ahash 0.8.12",
  "scythe-core",

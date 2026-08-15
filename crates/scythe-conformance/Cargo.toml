@@ -33,7 +33,7 @@ glob = "0.3"
 
 mysql_async = { version = "0.37", optional = true }
 rusqlite = { version = "0.40", features = ["bundled"], optional = true }
-scythe-backend = { path = "../scythe-backend", version = "0.15.0" }
+scythe-backend = { path = "../scythe-backend", version = "0.16.0" }
 scythe-codegen = { path = "../scythe-codegen" }
 scythe-core = { path = "../scythe-core" }
 serde = { version = "1", features = ["derive"] }

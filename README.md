@@ -81,7 +81,7 @@ platforms, proxy configuration and cache control.
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.15.0
+    rev: v0.16.0
     hooks:
       - id: scythe-fmt        # format SQL
       - id: scythe-lint       # lint with auto-fix

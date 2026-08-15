@@ -1,4 +1,4 @@
-// scythe:provenance v=0.15.0 backend=typescript-pg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:a33ec5812d75d376
+// scythe:provenance v=0.16.0 backend=typescript-pg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:a33ec5812d75d376
 import type { PoolClient } from "pg";
 import { z } from "zod";
 
