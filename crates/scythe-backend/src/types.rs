@@ -237,8 +237,11 @@ pub fn parse_rendered_nullable(
 mod tests {
     use super::*;
 
+    // Reads the manifest scythe actually ships (`scythe-codegen/manifests/`), not a private
+    // copy, so these tests fail the moment the shipped manifest drifts from what they assert.
+    // ~keep: cross-boundary invariant -- see GH #157.
     fn test_manifest() -> BackendManifest {
-        let toml_str = include_str!("../test-manifests/rust-sqlx.toml");
+        let toml_str = include_str!("../../scythe-codegen/manifests/rust-sqlx.toml");
         toml::from_str(toml_str).unwrap()
     }
 
@@ -349,6 +352,15 @@ mod tests {
         let m = test_manifest();
         assert_eq!(
             resolve_type("json_typed<EventData>", &m, false).unwrap(),
+            "sqlx::types::Json<EventData>"
+        );
+    }
+
+    #[test]
+    fn test_json_nested_container() {
+        let m = test_manifest();
+        assert_eq!(
+            resolve_type("json_nested<EventData>", &m, false).unwrap(),
             "sqlx::types::Json<EventData>"
         );
     }

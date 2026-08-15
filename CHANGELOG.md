@@ -1018,6 +1018,17 @@ direct caller that builds one by struct literal rather than through the parser. 
   unsupported `gen.<lang>` target: a hard error on the mere presence of `plugins:` would fail
   ordinary, fully-convertible v2 configs that declare it only to satisfy sqlc's own plugin
   resolution alongside an otherwise-unremarkable `gen.go` block. (#152)
+- **`scythe-backend`'s type tests ran against a stale private copy of the manifests, not what
+  scythe actually ships.** `crates/scythe-backend/test-manifests/{rust-sqlx,rust-tokio-postgres}.toml`
+  had drifted from `crates/scythe-codegen/manifests/`: the private copies were missing
+  `json_nested`, `sanitize_field_names` and the ~50-entry `reserved` keyword list entirely, and the
+  tokio-postgres copy declared `range = "String"` where the shipped manifest declares
+  `PgRange<{T}>`. Worse, a test asserted that stale `"String"` value directly, so it wasn't merely
+  blind to drift — it actively pinned the bug, and would have broken the moment someone pointed it
+  at the real file. `4ef83676` had already proven `PgRange<{T}>` correct by compiling the emitted
+  wrapper with `rustc`. The private copies are deleted; both `types.rs` and `manifest.rs` tests now
+  `include_str!` the manifests `scythe-codegen` ships, and assertions cover `reserved`,
+  `sanitize_field_names`, `json_nested` and the corrected `range` value. (#157)
 
 ### Added
 

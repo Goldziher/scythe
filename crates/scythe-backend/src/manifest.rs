@@ -355,22 +355,32 @@ impl BackendManifest {
 mod tests {
     use super::*;
 
+    // Both tests below read the manifest scythe actually ships
+    // (`scythe-codegen/manifests/`), not a private copy, so an assertion here fails the
+    // moment the shipped manifest drifts from it. ~keep: cross-boundary invariant -- see
+    // GH #157.
+
     #[test]
     fn test_load_manifest_from_string() {
-        let toml_str = include_str!("../test-manifests/rust-sqlx.toml");
+        let toml_str = include_str!("../../scythe-codegen/manifests/rust-sqlx.toml");
         let manifest: BackendManifest = toml::from_str(toml_str).unwrap();
         assert_eq!(manifest.backend.name, "rust-sqlx");
         assert_eq!(manifest.backend.language, "rust");
         assert_eq!(manifest.backend.file_extension, "rs");
         assert_eq!(manifest.types.scalars["int32"], "i32");
         assert_eq!(manifest.types.containers["array"], "Vec<{T}>");
+        assert_eq!(manifest.types.containers["json_nested"], "sqlx::types::Json<{T}>");
         assert_eq!(manifest.naming.struct_case, "PascalCase");
         assert_eq!(manifest.naming.row_suffix, "Row");
+        assert!(manifest.naming.sanitize_field_names);
+        assert!(manifest.naming.reserved.contains(&"async".to_string()));
+        assert!(manifest.naming.reserved.contains(&"try".to_string()));
+        assert_eq!(manifest.naming.reserved.len(), 50);
     }
 
     #[test]
     fn test_load_tokio_postgres_manifest() {
-        let toml_str = include_str!("../test-manifests/rust-tokio-postgres.toml");
+        let toml_str = include_str!("../../scythe-codegen/manifests/rust-tokio-postgres.toml");
         let manifest: BackendManifest = toml::from_str(toml_str).unwrap();
         assert_eq!(manifest.backend.name, "rust-tokio-postgres");
         assert_eq!(manifest.backend.language, "rust");
@@ -382,15 +392,21 @@ mod tests {
         assert_eq!(manifest.types.scalars["interval"], "String");
         assert_eq!(manifest.types.containers["array"], "Vec<{T}>");
         assert_eq!(manifest.types.containers["json_typed"], "{T}");
-        assert_eq!(manifest.types.containers["range"], "String");
+        assert_eq!(manifest.types.containers["json_nested"], "postgres_types::Json<{T}>");
+        // Pins the *shipped* value. `4ef83676` compiled the emitted `PgRange<{T}>` wrapper
+        // with real rustc to prove it -- an assertion of "String" here would be pinning a
+        // manifest bug, not the contract. ~keep: regression guard, see GH #157.
+        assert_eq!(manifest.types.containers["range"], "PgRange<{T}>");
         assert_eq!(manifest.naming.struct_case, "PascalCase");
         assert_eq!(manifest.naming.row_suffix, "Row");
+        assert!(manifest.naming.sanitize_field_names);
+        assert_eq!(manifest.naming.reserved.len(), 50);
         let imports = manifest.imports.unwrap();
         assert_eq!(imports.rules["std::net::"], "use std::net::IpAddr;");
     }
 
     fn base_manifest() -> BackendManifest {
-        toml::from_str(include_str!("../test-manifests/rust-sqlx.toml")).unwrap()
+        toml::from_str(include_str!("../../scythe-codegen/manifests/rust-sqlx.toml")).unwrap()
     }
 
     /// Map-valued tables merge per leaf key: the mentioned key is replaced and
