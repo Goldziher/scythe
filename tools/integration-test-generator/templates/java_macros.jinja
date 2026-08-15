@@ -1,0 +1,17 @@
+    private static int passed = 0;
+    private static int failed = 0;
+
+    private static void pass(String name) {
+        System.out.println("PASS: " + name);
+        passed++;
+    }
+
+    private static void fail(String name, Exception e) {
+        System.out.println("FAIL: " + name + " - " + e.getMessage());
+        failed++;
+    }
+
+    private static void fail(String name, String message) {
+        System.out.println("FAIL: " + name + " - " + message);
+        failed++;
+    }

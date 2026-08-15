@@ -1,0 +1,17 @@
+var passed = 0
+var failed = 0
+
+fun pass(name: String) {
+    println("PASS: $name")
+    passed++
+}
+
+fun fail(name: String, message: String) {
+    println("FAIL: $name - $message")
+    failed++
+}
+
+fun fail(name: String, e: Exception) {
+    println("FAIL: $name - ${e.message}")
+    failed++
+}

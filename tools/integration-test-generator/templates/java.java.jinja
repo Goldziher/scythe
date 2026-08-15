@@ -30,23 +30,7 @@ import java.util.NoSuchElementException;
 // java-jdbc's own migration helper already establishes for this generator.
 public class IntegrationTest {
 
-    private static int passed = 0;
-    private static int failed = 0;
-
-    private static void pass(String name) {
-        System.out.println("PASS: " + name);
-        passed++;
-    }
-
-    private static void fail(String name, Exception e) {
-        System.out.println("FAIL: " + name + " - " + e.getMessage());
-        failed++;
-    }
-
-    private static void fail(String name, String message) {
-        System.out.println("FAIL: " + name + " - " + message);
-        failed++;
-    }
+{% include "java_macros.jinja" %}
 
     public static void main(String[] args) throws Exception {
         String databaseUrl = System.getenv("{{ connection_env }}");
@@ -401,23 +385,7 @@ import java.sql.SQLException;
 // (io.asyncer:r2dbc-mysql speaks the MySQL wire protocol MariaDB also uses).
 public class IntegrationTest {
 
-    private static int passed = 0;
-    private static int failed = 0;
-
-    private static void pass(String name) {
-        System.out.println("PASS: " + name);
-        passed++;
-    }
-
-    private static void fail(String name, Exception e) {
-        System.out.println("FAIL: " + name + " - " + e.getMessage());
-        failed++;
-    }
-
-    private static void fail(String name, String message) {
-        System.out.println("FAIL: " + name + " - " + message);
-        failed++;
-    }
+{% include "java_macros.jinja" %}
 
     public static void main(String[] args) throws Exception {
         String dbUrl = System.getenv("{{ connection_env }}");
@@ -769,23 +737,7 @@ import java.sql.SQLException;
 
 public class IntegrationTest {
 
-    private static int passed = 0;
-    private static int failed = 0;
-
-    private static void pass(String name) {
-        System.out.println("PASS: " + name);
-        passed++;
-    }
-
-    private static void fail(String name, Exception e) {
-        System.out.println("FAIL: " + name + " - " + e.getMessage());
-        failed++;
-    }
-
-    private static void fail(String name, String message) {
-        System.out.println("FAIL: " + name + " - " + message);
-        failed++;
-    }
+{% include "java_macros.jinja" %}
 
     public static void main(String[] args) throws Exception {
         String databaseUrl = System.getenv("{{ connection_env }}");
@@ -1142,23 +1094,7 @@ import java.sql.SQLException;
 
 public class IntegrationTest {
 
-    private static int passed = 0;
-    private static int failed = 0;
-
-    private static void pass(String name) {
-        System.out.println("PASS: " + name);
-        passed++;
-    }
-
-    private static void fail(String name, Exception e) {
-        System.out.println("FAIL: " + name + " - " + e.getMessage());
-        failed++;
-    }
-
-    private static void fail(String name, String message) {
-        System.out.println("FAIL: " + name + " - " + message);
-        failed++;
-    }
+{% include "java_macros.jinja" %}
 
     public static void main(String[] args) throws Exception {
         String mysqlUrl = System.getenv("{{ connection_env }}");
@@ -1509,23 +1445,7 @@ import java.sql.SQLException;
 
 public class IntegrationTest {
 
-    private static int passed = 0;
-    private static int failed = 0;
-
-    private static void pass(String name) {
-        System.out.println("PASS: " + name);
-        passed++;
-    }
-
-    private static void fail(String name, Exception e) {
-        System.out.println("FAIL: " + name + " - " + e.getMessage());
-        failed++;
-    }
-
-    private static void fail(String name, String message) {
-        System.out.println("FAIL: " + name + " - " + message);
-        failed++;
-    }
+{% include "java_macros.jinja" %}
 
     public static void main(String[] args) throws Exception {
         String mariadbUrl = System.getenv("{{ connection_env }}");
@@ -1873,23 +1793,7 @@ import java.sql.SQLException;
 
 public class IntegrationTest {
 
-    private static int passed = 0;
-    private static int failed = 0;
-
-    private static void pass(String name) {
-        System.out.println("PASS: " + name);
-        passed++;
-    }
-
-    private static void fail(String name, Exception e) {
-        System.out.println("FAIL: " + name + " - " + e.getMessage());
-        failed++;
-    }
-
-    private static void fail(String name, String message) {
-        System.out.println("FAIL: " + name + " - " + message);
-        failed++;
-    }
+{% include "java_macros.jinja" %}
 
     public static void main(String[] args) throws Exception {
         String oracleUrl = System.getenv("{{ connection_env }}");
@@ -2152,23 +2056,7 @@ import java.sql.DriverManager;
 
 public class IntegrationTest {
 
-    private static int passed = 0;
-    private static int failed = 0;
-
-    private static void pass(String name) {
-        System.out.println("PASS: " + name);
-        passed++;
-    }
-
-    private static void fail(String name, Exception e) {
-        System.out.println("FAIL: " + name + " - " + e.getMessage());
-        failed++;
-    }
-
-    private static void fail(String name, String message) {
-        System.out.println("FAIL: " + name + " - " + message);
-        failed++;
-    }
+{% include "java_macros.jinja" %}
 
     public static void main(String[] args) throws Exception {
         try (Connection conn = DriverManager.getConnection("jdbc:sqlite::memory:")) {
@@ -2521,23 +2409,7 @@ import java.sql.DriverManager;
 
 public class IntegrationTest {
 
-    private static int passed = 0;
-    private static int failed = 0;
-
-    private static void pass(String name) {
-        System.out.println("PASS: " + name);
-        passed++;
-    }
-
-    private static void fail(String name, Exception e) {
-        System.out.println("FAIL: " + name + " - " + e.getMessage());
-        failed++;
-    }
-
-    private static void fail(String name, String message) {
-        System.out.println("FAIL: " + name + " - " + message);
-        failed++;
-    }
+{% include "java_macros.jinja" %}
 
     public static void main(String[] args) throws Exception {
         try (Connection conn = DriverManager.getConnection("jdbc:duckdb:")) {
@@ -2869,23 +2741,7 @@ import java.sql.SQLException;
 
 public class IntegrationTest {
 
-    private static int passed = 0;
-    private static int failed = 0;
-
-    private static void pass(String name) {
-        System.out.println("PASS: " + name);
-        passed++;
-    }
-
-    private static void fail(String name, Exception e) {
-        System.out.println("FAIL: " + name + " - " + e.getMessage());
-        failed++;
-    }
-
-    private static void fail(String name, String message) {
-        System.out.println("FAIL: " + name + " - " + message);
-        failed++;
-    }
+{% include "java_macros.jinja" %}
 
     public static void main(String[] args) throws Exception {
         String mssqlUrl = System.getenv("{{ connection_env }}");
@@ -3239,23 +3095,7 @@ import java.sql.SQLException;
 
 public class IntegrationTest {
 
-    private static int passed = 0;
-    private static int failed = 0;
-
-    private static void pass(String name) {
-        System.out.println("PASS: " + name);
-        passed++;
-    }
-
-    private static void fail(String name, Exception e) {
-        System.out.println("FAIL: " + name + " - " + e.getMessage());
-        failed++;
-    }
-
-    private static void fail(String name, String message) {
-        System.out.println("FAIL: " + name + " - " + message);
-        failed++;
-    }
+{% include "java_macros.jinja" %}
 
     public static void main(String[] args) throws Exception {
         String databaseUrl = System.getenv("{{ connection_env }}");
@@ -3510,23 +3350,7 @@ import java.sql.SQLException;
 
 public class IntegrationTest {
 
-    private static int passed = 0;
-    private static int failed = 0;
-
-    private static void pass(String name) {
-        System.out.println("PASS: " + name);
-        passed++;
-    }
-
-    private static void fail(String name, Exception e) {
-        System.out.println("FAIL: " + name + " - " + e.getMessage());
-        failed++;
-    }
-
-    private static void fail(String name, String message) {
-        System.out.println("FAIL: " + name + " - " + message);
-        failed++;
-    }
+{% include "java_macros.jinja" %}
 
     public static void main(String[] args) throws Exception {
         String snowflakeUrl = System.getenv("{{ connection_env }}");

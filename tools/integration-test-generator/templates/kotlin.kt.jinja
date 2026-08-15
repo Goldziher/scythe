@@ -15,23 +15,7 @@ import org.jetbrains.exposed.sql.transactions.transaction
 // functions with query arguments only -- unlike every kotlin-jdbc branch
 // below, which threads `conn` through every test.
 
-var passed = 0
-var failed = 0
-
-fun pass(name: String) {
-    println("PASS: $name")
-    passed++
-}
-
-fun fail(name: String, message: String) {
-    println("FAIL: $name - $message")
-    failed++
-}
-
-fun fail(name: String, e: Exception) {
-    println("FAIL: $name - ${e.message}")
-    failed++
-}
+{% include "kotlin_macros.jinja" %}
 
 var createdUserId = 0
 var bobId = 0
@@ -447,23 +431,7 @@ import kotlin.system.exitProcess
 // below sits inside the `runBlocking` block that produced the value it
 // checks, so a wrong expected value fails the assertion it is paired with --
 // there is no suspend call left dangling without being run.
-var passed = 0
-var failed = 0
-
-fun pass(name: String) {
-    println("PASS: $name")
-    passed++
-}
-
-fun fail(name: String, message: String) {
-    println("FAIL: $name - $message")
-    failed++
-}
-
-fun fail(name: String, e: Exception) {
-    println("FAIL: $name - ${e.message}")
-    failed++
-}
+{% include "kotlin_macros.jinja" %}
 
 var createdUserId = 0
 
@@ -781,23 +749,7 @@ import kotlin.system.exitProcess
 
 // See the postgresql branch above for the full reasoning behind
 // `runBlocking { ... }` as the subscription point.
-var passed = 0
-var failed = 0
-
-fun pass(name: String) {
-    println("PASS: $name")
-    passed++
-}
-
-fun fail(name: String, message: String) {
-    println("FAIL: $name - $message")
-    failed++
-}
-
-fun fail(name: String, e: Exception) {
-    println("FAIL: $name - ${e.message}")
-    failed++
-}
+{% include "kotlin_macros.jinja" %}
 
     {%- if engine == "mariadb" %}
 // The mariadb schema's id columns are UUID, and this backend's manifest maps
@@ -1128,23 +1080,7 @@ import java.sql.DriverManager
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-var passed = 0
-var failed = 0
-
-fun pass(name: String) {
-    println("PASS: $name")
-    passed++
-}
-
-fun fail(name: String, message: String) {
-    println("FAIL: $name - $message")
-    failed++
-}
-
-fun fail(name: String, e: Exception) {
-    println("FAIL: $name - ${e.message}")
-    failed++
-}
+{% include "kotlin_macros.jinja" %}
 
 var createdUserId = 0
 
@@ -1499,23 +1435,7 @@ import java.sql.DriverManager
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-var passed = 0
-var failed = 0
-
-fun pass(name: String) {
-    println("PASS: $name")
-    passed++
-}
-
-fun fail(name: String, message: String) {
-    println("FAIL: $name - $message")
-    failed++
-}
-
-fun fail(name: String, e: Exception) {
-    println("FAIL: $name - ${e.message}")
-    failed++
-}
+{% include "kotlin_macros.jinja" %}
 
 var createdUserId = 0
 
@@ -1764,23 +1684,7 @@ import java.sql.DriverManager
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-var passed = 0
-var failed = 0
-
-fun pass(name: String) {
-    println("PASS: $name")
-    passed++
-}
-
-fun fail(name: String, message: String) {
-    println("FAIL: $name - $message")
-    failed++
-}
-
-fun fail(name: String, e: Exception) {
-    println("FAIL: $name - ${e.message}")
-    failed++
-}
+{% include "kotlin_macros.jinja" %}
 
 var createdUserId = 0
 
@@ -2122,23 +2026,7 @@ import java.sql.DriverManager
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-var passed = 0
-var failed = 0
-
-fun pass(name: String) {
-    println("PASS: $name")
-    passed++
-}
-
-fun fail(name: String, message: String) {
-    println("FAIL: $name - $message")
-    failed++
-}
-
-fun fail(name: String, e: Exception) {
-    println("FAIL: $name - ${e.message}")
-    failed++
-}
+{% include "kotlin_macros.jinja" %}
 
 var createdUserId = ""
 
@@ -2479,23 +2367,7 @@ import java.sql.SQLException
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-var passed = 0
-var failed = 0
-
-fun pass(name: String) {
-    println("PASS: $name")
-    passed++
-}
-
-fun fail(name: String, message: String) {
-    println("FAIL: $name - $message")
-    failed++
-}
-
-fun fail(name: String, e: Exception) {
-    println("FAIL: $name - ${e.message}")
-    failed++
-}
+{% include "kotlin_macros.jinja" %}
 
 var createdUserId: Long = 0
 
@@ -2753,23 +2625,7 @@ import java.sql.DriverManager
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-var passed = 0
-var failed = 0
-
-fun pass(name: String) {
-    println("PASS: $name")
-    passed++
-}
-
-fun fail(name: String, message: String) {
-    println("FAIL: $name - $message")
-    failed++
-}
-
-fun fail(name: String, e: Exception) {
-    println("FAIL: $name - ${e.message}")
-    failed++
-}
+{% include "kotlin_macros.jinja" %}
 
 var createdUserId = 0
 
@@ -3110,23 +2966,7 @@ import java.sql.DriverManager
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-var passed = 0
-var failed = 0
-
-fun pass(name: String) {
-    println("PASS: $name")
-    passed++
-}
-
-fun fail(name: String, message: String) {
-    println("FAIL: $name - $message")
-    failed++
-}
-
-fun fail(name: String, e: Exception) {
-    println("FAIL: $name - ${e.message}")
-    failed++
-}
+{% include "kotlin_macros.jinja" %}
 
 // SQLite INTEGER is 8-byte, so generated id columns are Long.
 var createdUserId: Long = 0
@@ -3467,23 +3307,7 @@ import java.sql.DriverManager
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-var passed = 0
-var failed = 0
-
-fun pass(name: String) {
-    println("PASS: $name")
-    passed++
-}
-
-fun fail(name: String, message: String) {
-    println("FAIL: $name - $message")
-    failed++
-}
-
-fun fail(name: String, e: Exception) {
-    println("FAIL: $name - ${e.message}")
-    failed++
-}
+{% include "kotlin_macros.jinja" %}
 
 // DuckDB's INTEGER is 4-byte, so generated id columns are Int (see
 // kotlin-jdbc.duckdb.toml's int32 = "Int").
@@ -3809,23 +3633,7 @@ import java.sql.DriverManager
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-var passed = 0
-var failed = 0
-
-fun pass(name: String) {
-    println("PASS: $name")
-    passed++
-}
-
-fun fail(name: String, message: String) {
-    println("FAIL: $name - $message")
-    failed++
-}
-
-fun fail(name: String, e: Exception) {
-    println("FAIL: $name - ${e.message}")
-    failed++
-}
+{% include "kotlin_macros.jinja" %}
 
 // Snowflake aliases every integer spelling to NUMBER(38,0), so its id columns
 // are Long. Kotlin does not implicitly widen Int, so an Int here is a
