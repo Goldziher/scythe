@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A set-returning function in the select list, and a multi-field `ROW(...)`, passed analysis and
+  then failed every backend with `INTERNAL_ERROR: unknown neutral type: unknown`.**
+  `SELECT jsonb_each(data) FROM documents` and `SELECT array_agg(ROW(o.id, o.total)) FROM orders o`
+  both reported an internal error — "file a bug against scythe" — for input scythe had diagnosed
+  perfectly well. PostgreSQL's anonymous `record` and a bare multi-field row genuinely have no
+  neutral type, but that is a fact to report, not an internal fault. Both now fail at analyze time
+  with `UNRESOLVED_TYPE`, naming the column and the construct; the set-returning-function message
+  points at the `FROM`-clause form (`FROM documents, jsonb_each(data) AS kv`), which already
+  resolves to real `key` and `value` columns. The same treatment covers `json_each_text`, the
+  `json_populate_record` family, `unnest` over a non-array, and nine other expression shapes that
+  previously reached codegen as a bare `"unknown"`. (#223)
+
+- **An unresolved marker wrapped in a container leaked its internal spelling to the user.**
+  `SELECT array_agg(bogus_fn(id)) FROM t` reported
+  `INTERNAL_ERROR: unknown neutral type: __unknown_func__:bogus_fn` — scythe's own internal marker,
+  verbatim. The markers that stand for "ambiguous column", "unknown column" and "unknown function"
+  were matched only at the start of a neutral type, so `array_agg` wrapping one as
+  `array<__unknown_func__:…>` slipped past every check. This is the #173 failure mode the marker
+  family's own doc comment warns about, still live for the container case. It now reports
+  `UNKNOWN_FUNCTION: function "bogus_fn" does not exist`.
+
 - **Two CLI integration tests gated their generated output on its byte count.**
   `test_generate_pagila_writes_file`'s entire body, after checking the file existed, was
   `content.len() > 500` — pagila generates 7016 bytes, so the check permitted losing 93% of it, and

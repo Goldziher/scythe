@@ -3,7 +3,7 @@ use sqlparser::ast::{self, JoinOperator, TableFactor};
 
 use crate::errors::ScytheError;
 
-use super::helpers::{function_arg_exprs, object_name_to_string, widen_neutral_type};
+use super::helpers::{UNRESOLVED_EXPR_MARKER, function_arg_exprs, object_name_to_string, widen_neutral_type};
 use super::type_conversion::sql_type_to_neutral;
 use super::types::*;
 
@@ -250,7 +250,12 @@ impl<'a> Analyzer<'a> {
                         let result_type = self.generate_series_result_type(args, &*scope);
                         vec![ScopeColumn::new("generate_series", result_type, false)]
                     }
-                    "unnest" => vec![ScopeColumn::new("unnest", "unknown", true)],
+                    // The element type isn't inspected here (unlike the
+                    // select-list `unnest(...)` arm in `expressions.rs`, which
+                    // does), so there is no type to give this column -- mark
+                    // it rather than leave a bare "unknown" that could reach
+                    // codegen unexplained if it's ever selected (#223).
+                    "unnest" => vec![ScopeColumn::new("unnest", UNRESOLVED_EXPR_MARKER, true)],
                     "jsonb_array_elements" | "json_array_elements" => vec![ScopeColumn::new("value", "json", true)],
                     "jsonb_each" | "json_each" => vec![
                         ScopeColumn::new("key", "string", false),
@@ -268,9 +273,16 @@ impl<'a> Analyzer<'a> {
 
                 let cols = if let Some(a) = alias {
                     if !a.columns.is_empty() {
+                        // An explicit column-alias list on a table function
+                        // scythe has no per-column type mapping for (or a
+                        // known function whose columns were just redeclared --
+                        // a separate, pre-existing limitation this fix does
+                        // not attempt to lift). Mark each column rather than
+                        // leave a bare "unknown" that could reach codegen
+                        // unexplained if selected (#223).
                         a.columns
                             .iter()
-                            .map(|c| ScopeColumn::new(c.name.value.to_lowercase(), "unknown", true))
+                            .map(|c| ScopeColumn::new(c.name.value.to_lowercase(), UNRESOLVED_EXPR_MARKER, true))
                             .collect()
                     } else {
                         cols

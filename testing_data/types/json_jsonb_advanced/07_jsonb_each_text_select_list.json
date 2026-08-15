@@ -1,30 +1,16 @@
 {
   "category": "types/json_jsonb_advanced",
-  "description": "Test jsonb_each_text in select-list position: still an anonymous (key, value) record, not text, even though both fields are text-typed",
+  "description": "jsonb_each_text in select-list position (PostgreSQL SRF-in-target-list) yields an anonymous record scythe cannot name a type for -- rejected with an actionable error instead of reaching codegen as INTERNAL_ERROR (#223); see 08_jsonb_each_text_from.json for the FROM-clause form that resolves correctly",
   "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "kv",
-          "note": "jsonb_each_text in select-list position yields an anonymous (key, value) record; the neutral type vocabulary cannot name it, so unknown rather than string",
-          "nullable": true,
-          "type": "unknown"
-        }
-      ],
-      "command": "many",
-      "name": "GetDocEntryText",
-      "params": []
-    },
-    "success": true
+    "success": false,
+    "error": {
+      "code": "UNRESOLVED_TYPE",
+      "message_contains": "jsonb_each_text"
+    }
   },
   "name": "jsonb_each_text_select_list",
   "query_sql": "-- @name GetDocEntryText\n-- @returns :many\nSELECT id, jsonb_each_text(data) AS kv FROM documents",
   "schema_sql": ["CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);"],
   "source": "original",
-  "tags": ["jsonb", "set_returning_function", "each_text", "select_list"]
+  "tags": ["jsonb", "set_returning_function", "each_text", "select_list", "error"]
 }

@@ -452,139 +452,67 @@ fn test_group_by_multiple_aggregates() {
 }
 
 #[test]
-fn test_array_agg_row_constructor_is_unknown() {
-    // From: testing_data/aggregates/nested_json/09_array_agg_row_constructor_is_unknown.json
-    // "array_agg of a multi-field ROW() constructor must not silently collapse to the first field's type -- it has no single neutral type today, so it must surface as an unresolved element type instead of a confidently wrong scalar one"
+fn test_array_agg_row_constructor_is_rejected() {
+    // From: testing_data/aggregates/nested_json/09_array_agg_row_constructor_is_rejected.json
+    // "array_agg of a multi-field ROW() constructor must not silently collapse to the first field's type -- it has no single neutral type today, so it is rejected with an actionable error instead of reaching codegen as an unresolved element type (#223)"
     let schema_sql = &["CREATE TABLE orders (id SERIAL PRIMARY KEY, total NUMERIC NOT NULL);"];
 
     let query_sql =
         "-- @name GetOrderRows\n-- @returns :one\nSELECT array_agg(ROW(o.id, o.total)) AS rows FROM orders o;";
 
-    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
-    let query = scythe_core::parser::parse_query(query_sql).unwrap();
-    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
-
-    assert_eq!(analyzed.name, "GetOrderRows", "query name");
-    assert_eq!(analyzed.command.to_string(), "one", "query command");
-    assert_eq!(analyzed.columns.len(), 1, "column count");
-    assert_eq!(analyzed.columns[0].name, "rows", "column name");
-    assert_eq!(
-        analyzed.columns[0].neutral_type, "array<unknown>",
-        "column neutral_type for rows"
-    );
-    assert!(analyzed.columns[0].nullable, "column nullable for rows");
-    assert_eq!(analyzed.nested_structs.len(), 0, "nested struct count");
-
-    // Codegen verification: every backend that supports this fixture's engine
-    // should produce valid output. The list below is derived at generation
-    // time from the fixture's engine via the real `get_backend` registry, so
-    // every entry here is expected to construct -- a construction failure
-    // below is a real regression, not an expected engine mismatch. See #156.
-    let engine = "postgresql";
-    let all_backends = [
-        "rust-sqlx",
-        "rust-tokio-postgres",
-        "python-psycopg3",
-        "python-asyncpg",
-        "typescript-postgres",
-        "typescript-pg",
-        "typescript-kysely",
-        "go-pgx",
-        "java-jdbc",
-        "java-r2dbc",
-        "kotlin-exposed",
-        "kotlin-jdbc",
-        "kotlin-r2dbc",
-        "csharp-npgsql",
-        "elixir-postgrex",
-        "elixir-ecto",
-        "ruby-pg",
-        "php-pdo",
-        "php-amphp",
-    ];
-    for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, engine) {
-            Ok(b) => b,
-            Err(e) => panic!(
-                "backend {} failed to construct for engine {} in fixture {}: {}",
-                backend_name, engine, "array_agg_row_constructor_is_unknown", e
-            ),
-        };
-        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
-            let preamble = backend.file_preamble();
-            let header = backend.file_header();
-            let mut body = String::new();
-            if header.is_empty() {
-                body.push_str("#![allow(dead_code, unused_imports)]\n");
-            } else {
-                body.push_str(&header);
-                body.push('\n');
-            }
-            if let Some(ref s) = generated.enum_def {
-                body.push_str(s);
-                body.push('\n');
-            }
-            for def in &generated.nested_struct_defs {
-                body.push_str(&def.code);
-                body.push('\n');
-            }
-            if let Some(ref s) = generated.model_struct {
-                body.push_str(s);
-                body.push('\n');
-            }
-            if let Some(ref s) = generated.row_struct {
-                body.push_str(s);
-                body.push('\n');
-            }
-            if let Some(ref s) = generated.query_fn {
-                body.push_str(s);
-                body.push('\n');
-            }
-            let code = scythe_codegen::provenance::assemble_file(
-                &preamble,
-                &scythe_codegen::provenance::header_line(
-                    &*backend,
-                    env!("CARGO_PKG_VERSION"),
-                    engine,
-                    "sch1:0123456789abcdef",
-                    "q1:fedcba9876543210",
-                ),
-                &body,
-            );
-            if body.lines().count() > 1 {
-                // Only validate Rust syntax with syn for Rust backends
-                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "array_agg_row_constructor_is_unknown"
-                    );
-                } else {
-                    // Structural validation for non-Rust backends
-                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
-                    assert!(
-                        errors.is_empty(),
-                        "backend {} structural validation failed for {}: {:?}",
-                        backend_name,
-                        "array_agg_row_constructor_is_unknown",
-                        errors
-                    );
-                }
-            }
+    let catalog_result = scythe_core::catalog::Catalog::from_ddl(schema_sql);
+    if let Ok(catalog) = catalog_result {
+        let query_result = scythe_core::parser::parse_query(query_sql);
+        if let Ok(query) = query_result {
+            let result = scythe_core::analyzer::analyze(&catalog, &query);
+            assert!(result.is_err(), "expected analysis to fail");
+            let err = result.unwrap_err();
+            let err_msg = err.to_string();
             assert!(
-                generated.row_struct.is_some() || generated.model_struct.is_some(),
-                "backend {} should produce a struct for {}",
-                backend_name,
-                "array_agg_row_constructor_is_unknown"
+                err_msg.contains("UNRESOLVED_TYPE"),
+                "error should contain code {:?}, got: {}",
+                "UNRESOLVED_TYPE",
+                err_msg
             );
             assert!(
-                generated.query_fn.is_some(),
-                "backend {} should produce query_fn for {}",
-                backend_name,
-                "array_agg_row_constructor_is_unknown"
+                err_msg.contains("ROW(...)"),
+                "error should contain {:?}, got: {}",
+                "ROW(...)",
+                err_msg
+            );
+        } else {
+            // Parse failed -- that counts as expected failure.
+            let err = query_result.unwrap_err();
+            let err_msg = err.to_string();
+            assert!(
+                err_msg.contains("UNRESOLVED_TYPE"),
+                "error should contain code {:?}, got: {}",
+                "UNRESOLVED_TYPE",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("ROW(...)"),
+                "error should contain {:?}, got: {}",
+                "ROW(...)",
+                err_msg
             );
         }
+    } else {
+        // DDL processing failed -- that counts as expected failure.
+        let err = catalog_result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("UNRESOLVED_TYPE"),
+            "error should contain code {:?}, got: {}",
+            "UNRESOLVED_TYPE",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("ROW(...)"),
+            "error should contain {:?}, got: {}",
+            "ROW(...)",
+            err_msg
+        );
     }
 }
 

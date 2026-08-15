@@ -28,6 +28,19 @@ pub enum ErrorCode {
     /// unrecognized option value, a malformed manifest override. Distinct from
     /// [`ErrorCode::InternalError`], which means scythe itself is at fault.
     InvalidConfig,
+    /// A construct the analyzer diagnosed correctly but that has no neutral-type
+    /// representation scythe can hand to codegen: a set-returning function's
+    /// anonymous `record` column referenced in select-list position
+    /// (`json_each`, `json_populate_record`, ...), a multi-element `ROW(...)`/
+    /// tuple constructor, or any other expression `infer_expr_type` genuinely
+    /// cannot resolve. Distinct from [`ErrorCode::TypeMismatch`], which covers
+    /// an expression that *could* have been typed but nothing in the query gave
+    /// it one (a bare NULL/placeholder, both arms of a UNION untyped) — this
+    /// code is for input scythe understood and rejected on purpose (#223),
+    /// mirroring the existing one-code-per-marker-family pattern
+    /// ([`ErrorCode::AmbiguousColumn`], [`ErrorCode::UnknownColumn`],
+    /// [`ErrorCode::UnknownFunction`]) rather than folding into `TypeMismatch`.
+    UnresolvedType,
     InternalError,
 }
 
@@ -46,6 +59,7 @@ impl fmt::Display for ErrorCode {
             ErrorCode::DuplicateAlias => write!(f, "DUPLICATE_ALIAS"),
             ErrorCode::InvalidRecursion => write!(f, "INVALID_RECURSION"),
             ErrorCode::InvalidConfig => write!(f, "INVALID_CONFIG"),
+            ErrorCode::UnresolvedType => write!(f, "UNRESOLVED_TYPE"),
             ErrorCode::InternalError => write!(f, "INTERNAL_ERROR"),
         }
     }
@@ -136,5 +150,57 @@ impl ScytheError {
     /// scythe's own state.
     pub fn invalid_config(msg: impl Into<String>) -> Self {
         Self::new(ErrorCode::InvalidConfig, msg)
+    }
+
+    /// A set-returning function's anonymous `record` column referenced in
+    /// select-list position -- `json_each`/`jsonb_each`/`json_each_text`/
+    /// `jsonb_each_text` and the `json_populate_record`/`jsonb_populate_record`/
+    /// `json_populate_recordset`/`jsonb_populate_recordset` family. PostgreSQL's
+    /// `record` pseudo-type has no neutral-type representation, but every one
+    /// of these functions has a FROM-clause form that expands into real,
+    /// typeable columns instead (#223).
+    ///
+    /// The message deliberately does not hardcode `.key`/`.value` as the
+    /// worked example: that's the right rewrite for the `json_each`/
+    /// `json_each_text` family (see
+    /// `testing_data/types/json_jsonb_advanced/06_jsonb_each_from.json`) but
+    /// wrong for `json_populate_record`, whose columns come from a caller-supplied
+    /// row type instead -- one message covering both families has to stay
+    /// generic about the field names.
+    pub fn untypeable_record(column: &str, function: &str) -> Self {
+        Self::new(
+            ErrorCode::UnresolvedType,
+            format!(
+                "column \"{column}\": {function}(...) in the select list returns PostgreSQL's anonymous \
+                 `record` type, which scythe cannot resolve to a type it can generate code for -- move it \
+                 into the FROM clause instead (e.g. `FROM ..., {function}(...) AS {column}`) and select \
+                 {column}'s fields directly instead of the whole record"
+            ),
+        )
+    }
+
+    /// A multi-element `ROW(...)`/tuple constructor -- `(a, b)` (parses as
+    /// `Expr::Tuple`) or the explicit `ROW(a, b)` call (parses as a function
+    /// named `row`) -- neither of which has a single neutral type (#117, #223).
+    pub fn untypeable_row_constructor(column: &str) -> Self {
+        Self::new(
+            ErrorCode::UnresolvedType,
+            format!(
+                "column \"{column}\": ROW(...) builds a row with no single neutral type scythe can name -- \
+                 CAST it to a named composite type, or select its fields individually instead of one ROW(...) value"
+            ),
+        )
+    }
+
+    /// A generic fallback for any other expression `infer_expr_type` cannot
+    /// resolve to a type: an unresolved composite field access, `unnest` over
+    /// a non-array argument, a subquery producing no columns, a table-valued
+    /// function scythe has no column-type mapping for, and the handful of AST
+    /// shapes with no dedicated inference arm (#223).
+    pub fn unresolved_expression_type(column: &str) -> Self {
+        Self::new(
+            ErrorCode::UnresolvedType,
+            format!("column \"{column}\": scythe could not determine a type for this expression"),
+        )
     }
 }

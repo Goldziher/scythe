@@ -3237,138 +3237,64 @@ fn test_jsonb_each_from() {
 #[test]
 fn test_jsonb_each_select_list() {
     // From: testing_data/types/json_jsonb_advanced/05_jsonb_each_select_list.json
-    // "Test jsonb_each in select-list position (PostgreSQL SRF-in-target-list): the result is a single anonymous record column, not text"
+    // "jsonb_each in select-list position (PostgreSQL SRF-in-target-list) yields an anonymous record scythe cannot name a type for -- rejected with an actionable error instead of reaching codegen as INTERNAL_ERROR (#223); see 06_jsonb_each_from.json for the FROM-clause form that resolves correctly"
     let schema_sql = &["CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);"];
 
     let query_sql = "-- @name GetDocEntries\n-- @returns :many\nSELECT id, jsonb_each(data) AS kv FROM documents";
 
-    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
-    let query = scythe_core::parser::parse_query(query_sql).unwrap();
-    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
-
-    assert_eq!(analyzed.name, "GetDocEntries", "query name");
-    assert_eq!(analyzed.command.to_string(), "many", "query command");
-    assert_eq!(analyzed.columns.len(), 2, "column count");
-    assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert!(!analyzed.columns[0].nullable, "column nullable for id");
-    assert_eq!(analyzed.columns[1].name, "kv", "column name");
-    assert_eq!(
-        analyzed.columns[1].neutral_type, "unknown",
-        "column neutral_type for kv"
-    );
-    assert!(analyzed.columns[1].nullable, "column nullable for kv");
-
-    // Codegen verification: every backend that supports this fixture's engine
-    // should produce valid output. The list below is derived at generation
-    // time from the fixture's engine via the real `get_backend` registry, so
-    // every entry here is expected to construct -- a construction failure
-    // below is a real regression, not an expected engine mismatch. See #156.
-    let engine = "postgresql";
-    let all_backends = [
-        "rust-sqlx",
-        "rust-tokio-postgres",
-        "python-psycopg3",
-        "python-asyncpg",
-        "typescript-postgres",
-        "typescript-pg",
-        "typescript-kysely",
-        "go-pgx",
-        "java-jdbc",
-        "java-r2dbc",
-        "kotlin-exposed",
-        "kotlin-jdbc",
-        "kotlin-r2dbc",
-        "csharp-npgsql",
-        "elixir-postgrex",
-        "elixir-ecto",
-        "ruby-pg",
-        "php-pdo",
-        "php-amphp",
-    ];
-    for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, engine) {
-            Ok(b) => b,
-            Err(e) => panic!(
-                "backend {} failed to construct for engine {} in fixture {}: {}",
-                backend_name, engine, "jsonb_each_select_list", e
-            ),
-        };
-        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
-            let preamble = backend.file_preamble();
-            let header = backend.file_header();
-            let mut body = String::new();
-            if header.is_empty() {
-                body.push_str("#![allow(dead_code, unused_imports)]\n");
-            } else {
-                body.push_str(&header);
-                body.push('\n');
-            }
-            if let Some(ref s) = generated.enum_def {
-                body.push_str(s);
-                body.push('\n');
-            }
-            for def in &generated.nested_struct_defs {
-                body.push_str(&def.code);
-                body.push('\n');
-            }
-            if let Some(ref s) = generated.model_struct {
-                body.push_str(s);
-                body.push('\n');
-            }
-            if let Some(ref s) = generated.row_struct {
-                body.push_str(s);
-                body.push('\n');
-            }
-            if let Some(ref s) = generated.query_fn {
-                body.push_str(s);
-                body.push('\n');
-            }
-            let code = scythe_codegen::provenance::assemble_file(
-                &preamble,
-                &scythe_codegen::provenance::header_line(
-                    &*backend,
-                    env!("CARGO_PKG_VERSION"),
-                    engine,
-                    "sch1:0123456789abcdef",
-                    "q1:fedcba9876543210",
-                ),
-                &body,
-            );
-            if body.lines().count() > 1 {
-                // Only validate Rust syntax with syn for Rust backends
-                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "jsonb_each_select_list"
-                    );
-                } else {
-                    // Structural validation for non-Rust backends
-                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
-                    assert!(
-                        errors.is_empty(),
-                        "backend {} structural validation failed for {}: {:?}",
-                        backend_name,
-                        "jsonb_each_select_list",
-                        errors
-                    );
-                }
-            }
+    let catalog_result = scythe_core::catalog::Catalog::from_ddl(schema_sql);
+    if let Ok(catalog) = catalog_result {
+        let query_result = scythe_core::parser::parse_query(query_sql);
+        if let Ok(query) = query_result {
+            let result = scythe_core::analyzer::analyze(&catalog, &query);
+            assert!(result.is_err(), "expected analysis to fail");
+            let err = result.unwrap_err();
+            let err_msg = err.to_string();
             assert!(
-                generated.row_struct.is_some() || generated.model_struct.is_some(),
-                "backend {} should produce a struct for {}",
-                backend_name,
-                "jsonb_each_select_list"
+                err_msg.contains("UNRESOLVED_TYPE"),
+                "error should contain code {:?}, got: {}",
+                "UNRESOLVED_TYPE",
+                err_msg
             );
             assert!(
-                generated.query_fn.is_some(),
-                "backend {} should produce query_fn for {}",
-                backend_name,
-                "jsonb_each_select_list"
+                err_msg.contains("jsonb_each"),
+                "error should contain {:?}, got: {}",
+                "jsonb_each",
+                err_msg
+            );
+        } else {
+            // Parse failed -- that counts as expected failure.
+            let err = query_result.unwrap_err();
+            let err_msg = err.to_string();
+            assert!(
+                err_msg.contains("UNRESOLVED_TYPE"),
+                "error should contain code {:?}, got: {}",
+                "UNRESOLVED_TYPE",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("jsonb_each"),
+                "error should contain {:?}, got: {}",
+                "jsonb_each",
+                err_msg
             );
         }
+    } else {
+        // DDL processing failed -- that counts as expected failure.
+        let err = catalog_result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("UNRESOLVED_TYPE"),
+            "error should contain code {:?}, got: {}",
+            "UNRESOLVED_TYPE",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("jsonb_each"),
+            "error should contain {:?}, got: {}",
+            "jsonb_each",
+            err_msg
+        );
     }
 }
 
@@ -3519,139 +3445,65 @@ fn test_jsonb_each_text_from() {
 #[test]
 fn test_jsonb_each_text_select_list() {
     // From: testing_data/types/json_jsonb_advanced/07_jsonb_each_text_select_list.json
-    // "Test jsonb_each_text in select-list position: still an anonymous (key, value) record, not text, even though both fields are text-typed"
+    // "jsonb_each_text in select-list position (PostgreSQL SRF-in-target-list) yields an anonymous record scythe cannot name a type for -- rejected with an actionable error instead of reaching codegen as INTERNAL_ERROR (#223); see 08_jsonb_each_text_from.json for the FROM-clause form that resolves correctly"
     let schema_sql = &["CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);"];
 
     let query_sql =
         "-- @name GetDocEntryText\n-- @returns :many\nSELECT id, jsonb_each_text(data) AS kv FROM documents";
 
-    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
-    let query = scythe_core::parser::parse_query(query_sql).unwrap();
-    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
-
-    assert_eq!(analyzed.name, "GetDocEntryText", "query name");
-    assert_eq!(analyzed.command.to_string(), "many", "query command");
-    assert_eq!(analyzed.columns.len(), 2, "column count");
-    assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert!(!analyzed.columns[0].nullable, "column nullable for id");
-    assert_eq!(analyzed.columns[1].name, "kv", "column name");
-    assert_eq!(
-        analyzed.columns[1].neutral_type, "unknown",
-        "column neutral_type for kv"
-    );
-    assert!(analyzed.columns[1].nullable, "column nullable for kv");
-
-    // Codegen verification: every backend that supports this fixture's engine
-    // should produce valid output. The list below is derived at generation
-    // time from the fixture's engine via the real `get_backend` registry, so
-    // every entry here is expected to construct -- a construction failure
-    // below is a real regression, not an expected engine mismatch. See #156.
-    let engine = "postgresql";
-    let all_backends = [
-        "rust-sqlx",
-        "rust-tokio-postgres",
-        "python-psycopg3",
-        "python-asyncpg",
-        "typescript-postgres",
-        "typescript-pg",
-        "typescript-kysely",
-        "go-pgx",
-        "java-jdbc",
-        "java-r2dbc",
-        "kotlin-exposed",
-        "kotlin-jdbc",
-        "kotlin-r2dbc",
-        "csharp-npgsql",
-        "elixir-postgrex",
-        "elixir-ecto",
-        "ruby-pg",
-        "php-pdo",
-        "php-amphp",
-    ];
-    for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name, engine) {
-            Ok(b) => b,
-            Err(e) => panic!(
-                "backend {} failed to construct for engine {} in fixture {}: {}",
-                backend_name, engine, "jsonb_each_text_select_list", e
-            ),
-        };
-        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
-            let preamble = backend.file_preamble();
-            let header = backend.file_header();
-            let mut body = String::new();
-            if header.is_empty() {
-                body.push_str("#![allow(dead_code, unused_imports)]\n");
-            } else {
-                body.push_str(&header);
-                body.push('\n');
-            }
-            if let Some(ref s) = generated.enum_def {
-                body.push_str(s);
-                body.push('\n');
-            }
-            for def in &generated.nested_struct_defs {
-                body.push_str(&def.code);
-                body.push('\n');
-            }
-            if let Some(ref s) = generated.model_struct {
-                body.push_str(s);
-                body.push('\n');
-            }
-            if let Some(ref s) = generated.row_struct {
-                body.push_str(s);
-                body.push('\n');
-            }
-            if let Some(ref s) = generated.query_fn {
-                body.push_str(s);
-                body.push('\n');
-            }
-            let code = scythe_codegen::provenance::assemble_file(
-                &preamble,
-                &scythe_codegen::provenance::header_line(
-                    &*backend,
-                    env!("CARGO_PKG_VERSION"),
-                    engine,
-                    "sch1:0123456789abcdef",
-                    "q1:fedcba9876543210",
-                ),
-                &body,
-            );
-            if body.lines().count() > 1 {
-                // Only validate Rust syntax with syn for Rust backends
-                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "jsonb_each_text_select_list"
-                    );
-                } else {
-                    // Structural validation for non-Rust backends
-                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
-                    assert!(
-                        errors.is_empty(),
-                        "backend {} structural validation failed for {}: {:?}",
-                        backend_name,
-                        "jsonb_each_text_select_list",
-                        errors
-                    );
-                }
-            }
+    let catalog_result = scythe_core::catalog::Catalog::from_ddl(schema_sql);
+    if let Ok(catalog) = catalog_result {
+        let query_result = scythe_core::parser::parse_query(query_sql);
+        if let Ok(query) = query_result {
+            let result = scythe_core::analyzer::analyze(&catalog, &query);
+            assert!(result.is_err(), "expected analysis to fail");
+            let err = result.unwrap_err();
+            let err_msg = err.to_string();
             assert!(
-                generated.row_struct.is_some() || generated.model_struct.is_some(),
-                "backend {} should produce a struct for {}",
-                backend_name,
-                "jsonb_each_text_select_list"
+                err_msg.contains("UNRESOLVED_TYPE"),
+                "error should contain code {:?}, got: {}",
+                "UNRESOLVED_TYPE",
+                err_msg
             );
             assert!(
-                generated.query_fn.is_some(),
-                "backend {} should produce query_fn for {}",
-                backend_name,
-                "jsonb_each_text_select_list"
+                err_msg.contains("jsonb_each_text"),
+                "error should contain {:?}, got: {}",
+                "jsonb_each_text",
+                err_msg
+            );
+        } else {
+            // Parse failed -- that counts as expected failure.
+            let err = query_result.unwrap_err();
+            let err_msg = err.to_string();
+            assert!(
+                err_msg.contains("UNRESOLVED_TYPE"),
+                "error should contain code {:?}, got: {}",
+                "UNRESOLVED_TYPE",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("jsonb_each_text"),
+                "error should contain {:?}, got: {}",
+                "jsonb_each_text",
+                err_msg
             );
         }
+    } else {
+        // DDL processing failed -- that counts as expected failure.
+        let err = catalog_result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("UNRESOLVED_TYPE"),
+            "error should contain code {:?}, got: {}",
+            "UNRESOLVED_TYPE",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("jsonb_each_text"),
+            "error should contain {:?}, got: {}",
+            "jsonb_each_text",
+            err_msg
+        );
     }
 }
 

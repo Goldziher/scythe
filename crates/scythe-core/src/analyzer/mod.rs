@@ -2077,12 +2077,22 @@ WITH cte AS (SELECT NULL AS tag FROM users) SELECT tag FROM cte;",
         );
     }
 
-    /// A `jsonb_each` column reaches `"unknown"` through `infer_function_type`,
-    /// never through the two `Expr::Value` arms that set `untyped_literal` --
-    /// carrying it out through a derived table must not accidentally pick up the
-    /// taint the way a bare NULL/placeholder would.
+    /// A `jsonb_each` column carries `UNTYPEABLE_RECORD_MARKER` (not the bare
+    /// `"unknown"` this test used to assert -- see #223) all the way through a
+    /// derived-table boundary, but not because anything here specially threads
+    /// it across the scope crossing: `analyze_select` calls
+    /// `reject_unresolved_columns` unconditionally on *every* `SELECT` it
+    /// analyzes, nested subqueries included. So the inner
+    /// `SELECT jsonb_each(j) AS kv FROM t` is rejected at that inner call --
+    /// inside `build_scope_from_from`'s `TableFactor::Derived` arm, before the
+    /// outer `SELECT kv FROM (...) sub` is even analyzed -- the same way it
+    /// would be rejected as a top-level query. Contrast
+    /// `test_null_projection_through_derived_table_is_rejected`, where
+    /// `untyped_literal` genuinely does need `ScopeColumn::from_analyzed_column`
+    /// to carry it across that boundary, because a bare `NULL` alone is not
+    /// rejected by `reject_unresolved_columns`.
     #[test]
-    fn test_json_each_through_derived_table_is_not_rejected() {
+    fn test_json_each_through_derived_table_is_rejected() {
         let catalog = Catalog::from_ddl(&["CREATE TABLE t (id INTEGER PRIMARY KEY, j JSONB);"]).unwrap();
         let query = parse_query(
             "-- @name KvViaSubquery
@@ -2090,22 +2100,34 @@ WITH cte AS (SELECT NULL AS tag FROM users) SELECT tag FROM cte;",
 SELECT kv FROM (SELECT jsonb_each(j) AS kv FROM t) sub;",
         )
         .unwrap();
-        let result =
-            analyze(&catalog, &query).expect("a jsonb_each record column through a derived table must not be rejected");
-        assert_eq!(result.columns[0].neutral_type, "unknown");
+        let err = analyze(&catalog, &query).expect_err(
+            "a jsonb_each record column through a derived table must be rejected, the same as select-list position",
+        );
+        assert_eq!(err.code, crate::errors::ErrorCode::UnresolvedType);
+        assert!(
+            err.message.contains("kv") && err.message.contains("jsonb_each"),
+            "the error must name both the column and the function, got: {}",
+            err.message
+        );
     }
 
-    /// `jsonb_each` in select-list position produces a column whose
-    /// `neutral_type` is legitimately `"unknown"` (PostgreSQL's `record`
-    /// pseudo-type has no neutral-type representation) -- it must never be
-    /// rejected, because it reaches `TypeInfo::new("unknown", true)` through
-    /// `infer_function_type`, never through the two `Expr::Value` arms that set
-    /// `untyped_literal`. This is the exact shape a previous, reverted attempt at
-    /// this fix broke by rejecting on `neutral_type` alone (it broke
-    /// `generated::test_types::test_jsonb_each_select_list` /
-    /// `..._text_select_list` in `scythe-cli`).
+    /// `jsonb_each` in select-list position used to produce a column whose
+    /// `neutral_type` was the bare string `"unknown"` (PostgreSQL's `record`
+    /// pseudo-type has no neutral-type representation) and reached codegen
+    /// unrejected, where every backend failed with
+    /// `INTERNAL_ERROR: unknown neutral type: unknown` -- input scythe
+    /// diagnosed correctly, reported as if scythe itself were broken (#223).
+    /// This is the exact shape a previous, reverted attempt at this fix broke
+    /// by rejecting on `neutral_type == "unknown"` directly: that also caught
+    /// the *harmless* accumulator seed `widen_neutral_type` uses (see
+    /// `test_widen_neutral_type_unknown_absorbed` in `helpers.rs`), which
+    /// broke `test_jsonb_each_select_list` / `..._text_select_list` in
+    /// `crates/scythe-codegen/tests/generated/test_types.rs`.
+    /// `UNTYPEABLE_RECORD_MARKER` is a value no legitimate neutral type or
+    /// widening seed ever produces, which is what makes it safe to reject
+    /// unconditionally here.
     #[test]
-    fn test_json_each_in_select_list_is_not_rejected() {
+    fn test_json_each_in_select_list_is_rejected() {
         let catalog = Catalog::from_ddl(&["CREATE TABLE t (id INTEGER PRIMARY KEY, j JSONB);"]).unwrap();
         let query = parse_query(
             "-- @name GetKv
@@ -2113,8 +2135,16 @@ SELECT kv FROM (SELECT jsonb_each(j) AS kv FROM t) sub;",
 SELECT jsonb_each(j) AS kv FROM t;",
         )
         .unwrap();
-        let result = analyze(&catalog, &query).expect("a jsonb_each record column must not be rejected");
-        assert_eq!(result.columns[0].neutral_type, "unknown");
+        let err = analyze(&catalog, &query).expect_err(
+            "a jsonb_each record column must be rejected with an actionable error, not reach codegen \
+             as a bare \"unknown\"",
+        );
+        assert_eq!(err.code, crate::errors::ErrorCode::UnresolvedType);
+        assert!(
+            err.message.contains("kv") && err.message.contains("jsonb_each"),
+            "the error must name both the column and the function, got: {}",
+            err.message
+        );
     }
 
     // Regression tests for the unfiled defect found alongside the JVM composite `fromText`

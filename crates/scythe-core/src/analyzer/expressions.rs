@@ -28,7 +28,11 @@ impl<'a> Analyzer<'a> {
                     let col_name = parts[parts.len() - 1].value.to_lowercase();
                     self.resolve_column_in_scope(&col_name, Some(&qualifier), scope)
                 } else {
-                    TypeInfo::unknown()
+                    // Unreachable via `Parser::parse_sql` -- sqlparser never emits a
+                    // zero/one-part `CompoundIdentifier` -- but a marker here still
+                    // beats a bare "unknown" reaching codegen unexplained if some
+                    // future AST change makes it reachable (#223).
+                    TypeInfo::new(UNRESOLVED_EXPR_MARKER, true)
                 }
             }
 
@@ -288,7 +292,12 @@ impl<'a> Analyzer<'a> {
                     };
                     return TypeInfo::new(first.neutral_type.clone(), nullable);
                 }
-                TypeInfo::unknown()
+                // The inner query failed to analyze (its error is dropped here,
+                // a pre-existing and separate gap from #223) or produced no
+                // columns -- either way there is nothing to give this scalar
+                // subquery a type, so mark it rather than surface a bare
+                // "unknown".
+                TypeInfo::new(UNRESOLVED_EXPR_MARKER, true)
             }
 
             Expr::Exists { .. } => TypeInfo::new("bool", false),
@@ -332,20 +341,21 @@ impl<'a> Analyzer<'a> {
             Expr::Tuple(exprs) => {
                 // A single-element tuple is just a parenthesized expression;
                 // its type is that element's type. A real row constructor
-                // (`ROW(a, b, ...)`, more than one element) has no single
-                // neutral type today -- taking the first field's type and
-                // silently dropping the rest produced a confidently wrong
+                // (`ROW(a, b, ...)`, zero or more than one element) has no
+                // single neutral type today -- taking the first field's type
+                // and silently dropping the rest produced a confidently wrong
                 // answer (e.g. `array_agg(ROW(o.id, o.total))` inferring
-                // `array<int32>`, see #117). `unknown` surfaces as an
-                // unresolved-type error at codegen instead.
+                // `array<int32>`, see #117). The marker turns that into an
+                // actionable `UNRESOLVED_TYPE` error at analyze time instead
+                // of a bare "unknown" reaching codegen as `INTERNAL_ERROR`
+                // (#223).
                 match exprs.as_slice() {
-                    [] => TypeInfo::unknown(),
                     [only] => self.infer_expr_type(only, scope),
                     _ => {
                         for e in exprs {
                             let _ = self.infer_expr_type(e, scope);
                         }
-                        TypeInfo::unknown()
+                        TypeInfo::new(UNTYPEABLE_ROW_MARKER, true)
                     }
                 }
             }
@@ -406,7 +416,9 @@ impl<'a> Analyzer<'a> {
                         return TypeInfo::new(neutral, true);
                     }
                 }
-                TypeInfo::unknown()
+                // Either `root` isn't a known composite, or the field name
+                // doesn't exist on it -- nothing here can be given a type.
+                TypeInfo::new(UNRESOLVED_EXPR_MARKER, true)
             }
 
             Expr::Ceil { expr: inner, .. } | Expr::Floor { expr: inner, .. } => {
@@ -414,7 +426,8 @@ impl<'a> Analyzer<'a> {
                 TypeInfo::new(ti.neutral_type, ti.nullable)
             }
 
-            _ => TypeInfo::unknown(),
+            // No dedicated inference arm for this expression shape.
+            _ => TypeInfo::new(UNRESOLVED_EXPR_MARKER, true),
         }
     }
 
@@ -464,7 +477,14 @@ impl<'a> Analyzer<'a> {
             return TypeInfo::new(format!("{UNKNOWN_COLUMN_MARKER}{col_name}"), true);
         }
 
-        TypeInfo::unknown()
+        // ~keep No source in scope carries any typed columns at all (no FROM clause,
+        // or every FROM-clause function is one scythe cannot type). The name still
+        // resolves against nothing, so this is the same user error as the branch
+        // above and reports identically -- PostgreSQL says `column "x" does not
+        // exist` for `SELECT COALESCE(x, 'y')` too. Deliberately not the generic
+        // #223 marker: "scythe could not determine a type for this expression" would
+        // describe scythe's difficulty rather than the user's typo.
+        TypeInfo::new(format!("{UNKNOWN_COLUMN_MARKER}{col_name}"), true)
     }
 
     pub(super) fn infer_function_type(&mut self, func: &ast::Function, scope: &Scope) -> TypeInfo {
@@ -608,17 +628,18 @@ impl<'a> Analyzer<'a> {
             // "no single neutral type for more than one field" treatment
             // `Expr::Tuple` gets, for the same reason (#117): silently
             // collapsing to the first field's type produced a confidently
-            // wrong answer for e.g. `array_agg(ROW(o.id, o.total))`.
+            // wrong answer for e.g. `array_agg(ROW(o.id, o.total))`. The
+            // marker turns that into an actionable error instead of a bare
+            // "unknown" reaching codegen as `INTERNAL_ERROR` (#223).
             "row" => {
                 let args = self.get_function_args(func);
                 match args.as_slice() {
-                    [] => TypeInfo::unknown(),
                     [only] => self.infer_expr_type(only, scope),
                     _ => {
                         for arg in &args {
                             let _ = self.infer_expr_type(arg, scope);
                         }
-                        TypeInfo::unknown()
+                        TypeInfo::new(UNTYPEABLE_ROW_MARKER, true)
                     }
                 }
             }
@@ -894,16 +915,24 @@ impl<'a> Analyzer<'a> {
             // the value on the wire is a native PostgreSQL record, not JSON
             // text, so `json_nested<...>` would tell backends to decode it
             // the wrong way. `string` was worse still -- a silent wrong
-            // answer, not merely an imprecise one. `unknown` is the same
-            // honest fallback already used a few lines down for
-            // `json_populate_record`/`jsonb_populate_recordset`, another
+            // answer, not merely an imprecise one. A bare `unknown` used to be
+            // the fallback here, but it reached codegen unexplained as
+            // `INTERNAL_ERROR: unknown neutral type: unknown` on every backend
+            // (#223) -- `UNTYPEABLE_RECORD_MARKER` turns it into an analyze-time
+            // error that names the function and points at the FROM-clause form
+            // that resolves correctly instead (see
+            // `testing_data/types/json_jsonb_advanced/06_jsonb_each_from.json`).
+            // Same reasoning applies to `json_populate_record`/
+            // `jsonb_populate_recordset` and friends just below, another
             // record-shaped result the vocabulary cannot name.
-            "json_each" | "jsonb_each" | "json_each_text" | "jsonb_each_text" => TypeInfo::new("unknown", true),
+            "json_each" | "jsonb_each" | "json_each_text" | "jsonb_each_text" => {
+                TypeInfo::new(format!("{UNTYPEABLE_RECORD_MARKER}{func_name}"), true)
+            }
             "json_object_keys" | "jsonb_object_keys" => TypeInfo::new("string", false),
             "json_populate_record"
             | "jsonb_populate_record"
             | "json_populate_recordset"
-            | "jsonb_populate_recordset" => TypeInfo::new("unknown", true),
+            | "jsonb_populate_recordset" => TypeInfo::new(format!("{UNTYPEABLE_RECORD_MARKER}{func_name}"), true),
             // ~keep Unlike `json_each`, these are `SETOF json`/`SETOF jsonb` --
             // one scalar JSON value per row, not a record -- so in
             // select-list position (`SELECT json_array_elements(j) FROM t`)
@@ -927,7 +956,11 @@ impl<'a> Analyzer<'a> {
                 let inner = if ti.neutral_type.starts_with("array<") && ti.neutral_type.ends_with('>') {
                     ti.neutral_type[6..ti.neutral_type.len() - 1].to_string()
                 } else {
-                    "unknown".to_string()
+                    // The argument isn't (or didn't resolve to) an array
+                    // type, so there is no element type to give this column
+                    // -- mark it rather than reach codegen as a bare
+                    // "unknown" (#223).
+                    UNRESOLVED_EXPR_MARKER.to_string()
                 };
                 TypeInfo::new(inner, true)
             }
@@ -1346,16 +1379,19 @@ mod tests {
 
     /// Regression for #117: a bare parenthesized tuple with more than one
     /// element (`(a, b)`, e.g. `VALUES` or `x IN ((1, 2), (3, 4))`) has no
-    /// single neutral type. Taking the first element's type silently
-    /// dropped every other field; `unknown` surfaces the gap instead.
+    /// single neutral type. Taking the first element's type silently dropped
+    /// every other field; `UNTYPEABLE_ROW_MARKER` surfaces the gap instead --
+    /// a plain `"unknown"` would reach codegen unexplained as
+    /// `INTERNAL_ERROR` (#223), and the marker is what
+    /// `reject_unresolved_columns` turns into an actionable error.
     #[test]
-    fn test_tuple_multi_element_is_unknown() {
+    fn test_tuple_multi_element_is_untypeable_row_marker() {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
         let scope = empty_scope();
         let expr = Expr::Tuple(vec![int_literal(), string_literal("a")]);
         let ti = analyzer.infer_expr_type(&expr, &scope);
-        assert_eq!(ti.neutral_type, "unknown");
+        assert_eq!(ti.neutral_type, UNTYPEABLE_ROW_MARKER);
         assert!(ti.nullable);
     }
 
@@ -1373,15 +1409,15 @@ mod tests {
 
     /// Regression for #117: the explicit `ROW(...)` syntax parses as a
     /// function call named "row", not `Expr::Tuple` -- it needs the same
-    /// treatment through a separate code path.
+    /// `UNTYPEABLE_ROW_MARKER` treatment through a separate code path (#223).
     #[test]
-    fn test_row_function_multi_arg_is_unknown() {
+    fn test_row_function_multi_arg_is_untypeable_row_marker() {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
         let scope = empty_scope();
         let func = make_func("row", vec![int_literal(), string_literal("a")]);
         let ti = analyzer.infer_function_type(&func, &scope);
-        assert_eq!(ti.neutral_type, "unknown");
+        assert_eq!(ti.neutral_type, UNTYPEABLE_ROW_MARKER);
     }
 
     /// A single-source scope with one column `c` of the given neutral type,
@@ -1897,12 +1933,16 @@ mod tests {
         assert!(!ti.nullable);
     }
 
+    /// The scope has to carry the column this resolves: against an empty scope `x`
+    /// names nothing, and a bare identifier that resolves against no source is the
+    /// `UNKNOWN_COLUMN` error PostgreSQL reports too -- not an input from which
+    /// COALESCE's fallback literal should be allowed to infer a type (#223).
     #[test]
     fn test_coalesce_with_literal_is_not_nullable() {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
-        let scope = empty_scope();
-        let func = make_func("coalesce", vec![col_expr("x"), string_literal("default")]);
+        let scope = scope_with_nullable_column("string");
+        let func = make_func("coalesce", vec![col_expr("c"), string_literal("default")]);
         let ti = analyzer.infer_function_type(&func, &scope);
         assert_eq!(ti.neutral_type, "string");
         assert!(!ti.nullable, "coalesce with a literal fallback should not be nullable");

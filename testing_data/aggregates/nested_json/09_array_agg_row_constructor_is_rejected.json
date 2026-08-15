@@ -1,0 +1,17 @@
+{
+  "category": "aggregates/nested_json",
+  "config": { "engine": "postgresql" },
+  "description": "array_agg of a multi-field ROW() constructor must not silently collapse to the first field's type -- it has no single neutral type today, so it is rejected with an actionable error instead of reaching codegen as an unresolved element type (#223)",
+  "expected": {
+    "success": false,
+    "error": {
+      "code": "UNRESOLVED_TYPE",
+      "message_contains": "ROW(...)"
+    }
+  },
+  "name": "array_agg_row_constructor_is_rejected",
+  "query_sql": "-- @name GetOrderRows\n-- @returns :one\nSELECT array_agg(ROW(o.id, o.total)) AS rows FROM orders o;",
+  "schema_sql": ["CREATE TABLE orders (id SERIAL PRIMARY KEY, total NUMERIC NOT NULL);"],
+  "source": "original",
+  "tags": ["aggregate", "array_agg", "tuple", "regression", "error"]
+}
