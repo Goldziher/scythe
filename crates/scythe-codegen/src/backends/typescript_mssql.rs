@@ -11,10 +11,11 @@ use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
     TsFieldCase, TsRowShape, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
+    generate_js_grouped_typedef_structs, generate_js_typedef, generate_js_typedef_row_struct, generate_jsdoc_fn_header,
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_many_row_remap,
     generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_grouped_structs, generate_zod_row_struct,
-    generate_zod_union_row_struct, parse_bool_option, ts_index_access, ts_member_access, ts_property_key,
-    ts_row_not_found_throw,
+    generate_zod_union_row_struct, js_fn_signature_line, parse_bool_option, ts_index_access, ts_member_access,
+    ts_property_key, ts_row_not_found_throw,
 };
 
 /// Map neutral type to mssql SQL type constant.
@@ -57,6 +58,17 @@ pub struct TypescriptMssqlBackend {
     /// [`generate_ts_one_row_remap`]/[`generate_ts_many_row_remap`]. `Snake`
     /// (the default) keeps that generic, which is sound there.
     field_case: TsFieldCase,
+    /// Emit plain, JSDoc-annotated `.js` instead of `.ts` -- the
+    /// `javascript-mssql` registry name (#93). See
+    /// `TypescriptPgBackend::js_mode` for the shared rationale. Like
+    /// `javascript-oracledb`, this backend keeps its driver import even in JS
+    /// mode -- see `file_header` -- because `request.input(name, sql.Int,
+    /// value)` reads a runtime constant off it, not just a type. Unlike
+    /// every other `javascript-*` backend's row read, this one's `:one`/
+    /// `:many`/`:grouped` carry **no** JSDoc cast at all -- see
+    /// `generate_query_fn_js`'s doc comment for why that is not an
+    /// oversight.
+    js_mode: bool,
 }
 
 impl TypescriptMssqlBackend {
@@ -77,14 +89,37 @@ impl TypescriptMssqlBackend {
             outer_join_unions: false,
             structs_only: false,
             field_case: TsFieldCase::default(),
+            js_mode: false,
         })
+    }
+
+    /// As [`Self::new`], but selecting the `javascript-mssql` JSDoc emit mode.
+    pub fn new_js(engine: &str) -> Result<Self, ScytheError> {
+        let mut backend = Self::new(engine)?;
+        backend.js_mode = true;
+        Ok(backend)
     }
 }
 
 /// Rewrite $1, $2, ... positional params to @p1, @p2, ... for MSSQL.
 impl CodegenBackend for TypescriptMssqlBackend {
     fn name(&self) -> &str {
-        "typescript-mssql"
+        if self.js_mode {
+            "javascript-mssql"
+        } else {
+            "typescript-mssql"
+        }
+    }
+
+    /// The manifest is shared with `typescript-mssql` and says `ts`; JSDoc
+    /// output is plain JavaScript and must land in a `.js` file to be
+    /// runnable.
+    fn output_extension(&self) -> &str {
+        if self.js_mode {
+            "js"
+        } else {
+            &self.manifest.backend.file_extension
+        }
     }
 
     fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
@@ -100,14 +135,27 @@ impl CodegenBackend for TypescriptMssqlBackend {
     }
 
     fn file_header(&self) -> String {
+        // ~keep Unlike most `javascript-*` backends, this one keeps its
+        // runtime driver import in JS mode too: `request.input(name,
+        // sql.Int, value)` reads `sql.Int`/`sql.NVarChar`/... as real
+        // values, not just a type in a `@param` tag -- same situation as
+        // `javascript-oracledb`'s `oracledb.BIND_OUT`. See that backend's
+        // `file_header` for the fuller rationale, including why `@param
+        // {sql.ConnectionPool}` resolving through this same default import
+        // needs no separate `import("mssql").ConnectionPool` spelling
+        // (verified against the real `@types/mssql@12.3.0` package, which
+        // -- unlike `@types/oracledb` -- has no `export =` at all, only
+        // plain named exports; `--module nodenext` still synthesizes the
+        // default binding because the real `mssql` runtime package is
+        // CommonJS).
         if self.structs_only {
-            if self.row_type == TsRowType::Zod {
+            if !self.js_mode && self.row_type == TsRowType::Zod {
                 return "import { z } from \"zod\";\n".to_string();
             }
             return String::new();
         }
         let mut header = "import sql from \"mssql\";\n".to_string();
-        if self.row_type == TsRowType::Zod {
+        if !self.js_mode && self.row_type == TsRowType::Zod {
             header.push_str("import { z } from \"zod\";\n");
         }
         header
@@ -119,6 +167,9 @@ impl CodegenBackend for TypescriptMssqlBackend {
         query_name: &str,
         columns: &[ResolvedColumn],
     ) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return Ok(generate_js_typedef_row_struct(struct_name, query_name, columns));
+        }
         if self.row_type == TsRowType::Zod {
             if self.outer_join_unions {
                 return Ok(generate_zod_union_row_struct(struct_name, query_name, columns));
@@ -138,6 +189,9 @@ impl CodegenBackend for TypescriptMssqlBackend {
         columns: &[ResolvedColumn],
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return self.generate_query_fn_js(analyzed, struct_name, params);
+        }
         if self.structs_only {
             return Ok(String::new());
         }
@@ -394,6 +448,14 @@ impl CodegenBackend for TypescriptMssqlBackend {
         child_columns: &[ResolvedColumn],
         _key_column: &str,
     ) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return Ok(generate_js_grouped_typedef_structs(
+                child_struct_name,
+                parent_struct_name,
+                parent_columns,
+                child_columns,
+            ));
+        }
         if self.row_type == TsRowType::Zod {
             return Ok(generate_zod_grouped_structs(
                 child_struct_name,
@@ -411,6 +473,9 @@ impl CodegenBackend for TypescriptMssqlBackend {
     }
 
     fn generate_grouped_query_fn(&self, request: &GroupedQueryFn<'_>) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return self.generate_grouped_query_fn_js(request);
+        }
         let analyzed = request.analyzed;
         let parent_struct_name = request.parent_struct_name;
         let child_struct_name = request.child_struct_name;
@@ -476,6 +541,9 @@ impl CodegenBackend for TypescriptMssqlBackend {
     }
 
     fn generate_enum_def(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return self.generate_enum_def_js(enum_info);
+        }
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         if self.row_type == TsRowType::Zod {
             return Ok(super::typescript_common::generate_zod_enum(
@@ -491,6 +559,9 @@ impl CodegenBackend for TypescriptMssqlBackend {
     }
 
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return self.generate_composite_def_js(composite);
+        }
         let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "/** Composite type {}. */", composite.sql_name);
@@ -526,7 +597,364 @@ impl CodegenBackend for TypescriptMssqlBackend {
             self.field_case = TsFieldCase::from_option(value)?;
             self.manifest.naming.field_case = value.clone();
         }
+
+        // ~keep See `TypescriptWasmSqliteBackend::apply_options` for why these
+        // three are rejected outright in JSDoc mode rather than silently
+        // ignored.
+        if self.js_mode {
+            if self.row_type == TsRowType::Zod {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    "javascript-mssql does not support row_type = \"zod\": the inferred `export type X = \
+                     z.infer<...>` alias is TypeScript-only syntax a plain .js file cannot carry -- use \
+                     typescript-mssql for Zod row types"
+                        .to_string(),
+                ));
+            }
+            if self.outer_join_unions {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    "javascript-mssql does not support outer_join_unions: the discriminated union is a \
+                     TypeScript `type X = A & (B | C)` alias, which plain .js cannot carry -- use \
+                     typescript-mssql"
+                        .to_string(),
+                ));
+            }
+            if self.field_case == TsFieldCase::Camel {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    "javascript-mssql does not support field_case = \"camelCase\": the field remap needs a \
+                     TypeScript `as T` assertion, which plain .js cannot carry -- use typescript-mssql"
+                        .to_string(),
+                ));
+            }
+        }
         Ok(())
+    }
+}
+
+impl TypescriptMssqlBackend {
+    /// JSDoc-mode counterpart of `generate_query_fn` (see
+    /// `CodegenBackend::generate_query_fn`).
+    ///
+    /// ~keep No cast appears anywhere in `:one`/`:many` here, and that is not
+    /// an omission. The TS path's row safety for the default (Snake) field
+    /// case comes entirely from `request.query<StructName>(...)`'s *explicit*
+    /// generic type argument (verified against the real
+    /// `@types/mssql@12.3.0`: `Request.query<Entity>(command): Promise<IResult<Entity>>`),
+    /// which plain JSDoc has no syntax to spell at a call site at all --
+    /// there is no JSDoc equivalent of `foo.bar<T>(...)`. Falling back to the
+    /// same package's non-generic overload (`query(command):
+    /// Promise<IResult<any>>`) makes every read `any`, and `any` is
+    /// assignable to (and from) anything with no diagnostic in either
+    /// `--strict` TS or `--checkJs`. So unlike every other backend in this
+    /// crate, `javascript-mssql`'s generated row shape carries *zero*
+    /// compile-time verification from real `tsc` -- confirmed empirically: a
+    /// deliberately wrong field list in this shape (`return
+    /// result.recordset.map(() => ({ wrongField: 1 }))`) does still get
+    /// caught, because that expression's type comes from the object literal,
+    /// not from `any` -- but the direct pass-through this backend actually
+    /// emits (`return row;` / `return result.recordset;`) is never checked.
+    /// The `js_mode`-tagged unit tests below, which pin the exact generated
+    /// body and assert no `/** @type */` cast appears, are what stand in for
+    /// that missing compiler guarantee.
+    fn generate_query_fn_js(
+        &self,
+        analyzed: &AnalyzedQuery,
+        struct_name: &str,
+        params: &[ResolvedParam],
+    ) -> Result<String, ScytheError> {
+        if self.structs_only {
+            return Ok(String::new());
+        }
+
+        const POOL_TYPE: &str = "sql.ConnectionPool";
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let mut out = String::new();
+
+        let sql = escape_ts_template_literal(&super::rewrite_pg_placeholders(
+            &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+            |n| format!("@p{n}"),
+        ));
+
+        let sig_params: Vec<(String, String)> = std::iter::once(("pool".to_string(), POOL_TYPE.to_string()))
+            .chain(params.iter().map(|p| (p.field_name.clone(), p.full_type.clone())))
+            .collect();
+
+        let write_signature = |out: &mut String, description: &str, ret: &str| {
+            out.push_str(&generate_jsdoc_fn_header(description, &sig_params, ret));
+            let _ = writeln!(out);
+            let _ = writeln!(out, "{}", js_fn_signature_line(true, &func_name, &sig_params));
+        };
+
+        let write_inputs = |out: &mut String| {
+            for (i, p) in params.iter().enumerate() {
+                let sql_type = neutral_to_sql_type(&p.neutral_type);
+                let _ = writeln!(out, "\trequest.input(\"p{}\", {}, {});", i + 1, sql_type, p.field_name);
+            }
+        };
+
+        match &analyzed.command {
+            QueryCommand::One => {
+                write_signature(
+                    &mut out,
+                    &format!("Fetch a single {}.", struct_name),
+                    &format!("Promise<{}>", struct_name),
+                );
+                let _ = writeln!(out, "\tconst request = pool.request();");
+                write_inputs(&mut out);
+                let _ = writeln!(out, "\tconst result = await request.query(`{sql}`);");
+                let _ = writeln!(out, "\tconst row = result.recordset[0];");
+                let _ = writeln!(out, "\tif (row === undefined) {{");
+                let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\treturn row;");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Opt => {
+                write_signature(
+                    &mut out,
+                    &format!("Fetch a single {} or null.", struct_name),
+                    &format!("Promise<{} | null>", struct_name),
+                );
+                let _ = writeln!(out, "\tconst request = pool.request();");
+                write_inputs(&mut out);
+                let _ = writeln!(out, "\tconst result = await request.query(`{sql}`);");
+                let _ = writeln!(out, "\treturn result.recordset[0] ?? null;");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Many => {
+                write_signature(
+                    &mut out,
+                    &format!("Fetch all {} rows.", struct_name),
+                    &format!("Promise<{}[]>", struct_name),
+                );
+                let _ = writeln!(out, "\tconst request = pool.request();");
+                write_inputs(&mut out);
+                let _ = writeln!(out, "\tconst result = await request.query(`{sql}`);");
+                let _ = writeln!(out, "\treturn result.recordset;");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}Batch", func_name);
+                if params.len() > 1 {
+                    let params_type_name = format!("{}BatchParams", struct_name);
+                    let fields: Vec<(String, String)> = params
+                        .iter()
+                        .map(|p| (p.field_name.clone(), p.full_type.clone()))
+                        .collect();
+                    out.push_str(&generate_js_typedef(
+                        &params_type_name,
+                        &format!("Params for {} batch operation.", struct_name),
+                        &fields,
+                    ));
+                    let _ = writeln!(out);
+                    let _ = writeln!(out);
+                    let batch_sig_params = vec![
+                        ("pool".to_string(), POOL_TYPE.to_string()),
+                        ("items".to_string(), format!("Array<{}>", params_type_name)),
+                    ];
+                    out.push_str(&generate_jsdoc_fn_header(
+                        &format!("Execute {} for each item in the batch.", analyzed.name),
+                        &batch_sig_params,
+                        "Promise<void>",
+                    ));
+                    let _ = writeln!(out);
+                    let _ = writeln!(out, "{}", js_fn_signature_line(true, &batch_fn_name, &batch_sig_params));
+                    let _ = writeln!(out, "\tconst transaction = pool.transaction();");
+                    let _ = writeln!(out, "\tawait transaction.begin();");
+                    let _ = writeln!(out, "\ttry {{");
+                    let _ = writeln!(out, "\t\tfor (const item of items) {{");
+                    let _ = writeln!(out, "\t\t\tconst request = transaction.request();");
+                    for (i, p) in params.iter().enumerate() {
+                        let sql_type = neutral_to_sql_type(&p.neutral_type);
+                        let _ = writeln!(
+                            out,
+                            "\t\t\trequest.input(\"p{}\", {}, {});",
+                            i + 1,
+                            sql_type,
+                            ts_member_access("item", &p.field_name)
+                        );
+                    }
+                    let _ = writeln!(out, "\t\t\tawait request.query(`{}`);", sql);
+                    let _ = writeln!(out, "\t\t}}");
+                    let _ = writeln!(out, "\t\tawait transaction.commit();");
+                    let _ = writeln!(out, "\t}} catch (e) {{");
+                    let _ = writeln!(out, "\t\tawait transaction.rollback();");
+                    let _ = writeln!(out, "\t\tthrow e;");
+                    let _ = writeln!(out, "\t}}");
+                    let _ = write!(out, "}}");
+                } else if params.len() == 1 {
+                    let batch_sig_params = vec![
+                        ("pool".to_string(), POOL_TYPE.to_string()),
+                        ("items".to_string(), format!("Array<{}>", params[0].full_type)),
+                    ];
+                    out.push_str(&generate_jsdoc_fn_header(
+                        &format!("Execute {} for each item in the batch.", analyzed.name),
+                        &batch_sig_params,
+                        "Promise<void>",
+                    ));
+                    let _ = writeln!(out);
+                    let _ = writeln!(out, "{}", js_fn_signature_line(true, &batch_fn_name, &batch_sig_params));
+                    let _ = writeln!(out, "\tconst transaction = pool.transaction();");
+                    let _ = writeln!(out, "\tawait transaction.begin();");
+                    let _ = writeln!(out, "\ttry {{");
+                    let _ = writeln!(out, "\t\tfor (const item of items) {{");
+                    let _ = writeln!(out, "\t\t\tconst request = transaction.request();");
+                    let sql_type = neutral_to_sql_type(&params[0].neutral_type);
+                    let _ = writeln!(out, "\t\t\trequest.input(\"p1\", {}, item);", sql_type);
+                    let _ = writeln!(out, "\t\t\tawait request.query(`{}`);", sql);
+                    let _ = writeln!(out, "\t\t}}");
+                    let _ = writeln!(out, "\t\tawait transaction.commit();");
+                    let _ = writeln!(out, "\t}} catch (e) {{");
+                    let _ = writeln!(out, "\t\tawait transaction.rollback();");
+                    let _ = writeln!(out, "\t\tthrow e;");
+                    let _ = writeln!(out, "\t}}");
+                    let _ = write!(out, "}}");
+                } else {
+                    let batch_sig_params = vec![
+                        ("pool".to_string(), POOL_TYPE.to_string()),
+                        ("count".to_string(), "number".to_string()),
+                    ];
+                    out.push_str(&generate_jsdoc_fn_header(
+                        &format!("Execute {} for each item in the batch.", analyzed.name),
+                        &batch_sig_params,
+                        "Promise<void>",
+                    ));
+                    let _ = writeln!(out);
+                    let _ = writeln!(out, "{}", js_fn_signature_line(true, &batch_fn_name, &batch_sig_params));
+                    let _ = writeln!(out, "\tconst transaction = pool.transaction();");
+                    let _ = writeln!(out, "\tawait transaction.begin();");
+                    let _ = writeln!(out, "\ttry {{");
+                    let _ = writeln!(out, "\t\tfor (let i = 0; i < count; i++) {{");
+                    let _ = writeln!(out, "\t\t\tconst request = transaction.request();");
+                    let _ = writeln!(out, "\t\t\tawait request.query(`{}`);", sql);
+                    let _ = writeln!(out, "\t\t}}");
+                    let _ = writeln!(out, "\t\tawait transaction.commit();");
+                    let _ = writeln!(out, "\t}} catch (e) {{");
+                    let _ = writeln!(out, "\t\tawait transaction.rollback();");
+                    let _ = writeln!(out, "\t\tthrow e;");
+                    let _ = writeln!(out, "\t}}");
+                    let _ = write!(out, "}}");
+                }
+            }
+            QueryCommand::Exec => {
+                write_signature(&mut out, "Execute a query returning no rows.", "Promise<void>");
+                let _ = writeln!(out, "\tconst request = pool.request();");
+                write_inputs(&mut out);
+                let _ = writeln!(out, "\tawait request.query(`{sql}`);");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Grouped => {
+                unreachable!("Grouped command is routed through generate_grouped_query_fn, not generate_query_fn")
+            }
+            QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                write_signature(
+                    &mut out,
+                    "Execute a query and return the number of affected rows.",
+                    "Promise<number>",
+                );
+                let _ = writeln!(out, "\tconst request = pool.request();");
+                write_inputs(&mut out);
+                let _ = writeln!(out, "\tconst result = await request.query(`{sql}`);");
+                let _ = writeln!(out, "\treturn result.rowsAffected[0] ?? 0;");
+                let _ = write!(out, "}}");
+            }
+        }
+
+        Ok(out)
+    }
+
+    /// JSDoc-mode counterpart of `generate_grouped_query_fn`. Same "no cast"
+    /// situation as `generate_query_fn_js`: `request.query(...)` with no
+    /// explicit generic returns `IResult<any>`, so `flatRows` -- and every
+    /// bracket read off it in the shared fold body -- is `any` throughout.
+    fn generate_grouped_query_fn_js(&self, request: &GroupedQueryFn<'_>) -> Result<String, ScytheError> {
+        let analyzed = request.analyzed;
+        let parent_struct_name = request.parent_struct_name;
+        let child_struct_name = request.child_struct_name;
+        let parent_columns = request.parent_columns;
+        let child_columns = request.child_columns;
+        let params = request.params;
+        let key_column = request.key_column;
+
+        if self.structs_only {
+            return Ok(String::new());
+        }
+
+        const POOL_TYPE: &str = "sql.ConnectionPool";
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let sql_clean = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = escape_ts_template_literal(&super::rewrite_pg_placeholders(&sql_clean, |n| format!("@p{n}")));
+
+        let sig_params: Vec<(String, String)> = std::iter::once(("pool".to_string(), POOL_TYPE.to_string()))
+            .chain(params.iter().map(|p| (p.field_name.clone(), p.full_type.clone())))
+            .collect();
+        let ret = format!("Promise<{parent_struct_name}[]>");
+
+        let mut out = String::new();
+        out.push_str(&generate_jsdoc_fn_header(
+            &format!("Fetch grouped {} rows.", analyzed.name),
+            &sig_params,
+            &ret,
+        ));
+        let _ = writeln!(out);
+        let _ = writeln!(out, "{}", js_fn_signature_line(true, &func_name, &sig_params));
+
+        let _ = writeln!(out, "\tconst request = pool.request();");
+        for (i, rp) in params.iter().enumerate() {
+            let sql_type = neutral_to_sql_type(&rp.neutral_type);
+            let _ = writeln!(out, "\trequest.input('p{}', {}, {});", i + 1, sql_type, rp.field_name);
+        }
+        let _ = writeln!(out, "\tconst {{ recordset: flatRows }} = await request.query(`{sql}`);");
+
+        let fold = generate_ts_grouped_fold_body(
+            parent_struct_name,
+            child_struct_name,
+            parent_columns,
+            child_columns,
+            key_column,
+            true,
+            |name, _ty| ts_index_access("row", name),
+        );
+        out.push_str(&fold);
+        let _ = write!(out, "}}");
+        Ok(out)
+    }
+
+    /// JSDoc-mode counterpart of `generate_enum_def`. The TS path's default
+    /// (non-Zod) shape here is already just a string-literal union type
+    /// alias with no backing runtime value, so a bare `@typedef` carries the
+    /// same union directly, matching `generate_enum_def`'s own (unescaped)
+    /// shape above.
+    fn generate_enum_def_js(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
+        let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
+        let variants: Vec<String> = enum_info.values.iter().map(|v| format!("\"{}\"", v)).collect();
+        Ok(format!("/** @typedef {{({})}} {} */", variants.join(" | "), type_name))
+    }
+
+    /// JSDoc-mode counterpart of `generate_composite_def`. Matches the TS
+    /// path's plain-interface shape: this backend has no pg-style
+    /// text-wire-format parser to port, so a bare `@typedef` is a complete
+    /// equivalent.
+    fn generate_composite_def_js(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
+        let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
+        let mut fields = Vec::with_capacity(composite.fields.len());
+        for field in &composite.fields {
+            let ts_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                .map(|t| t.into_owned())
+                .map_err(|e| {
+                    ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
+                })?;
+            fields.push((to_camel_case(&field.name).into_owned(), ts_type));
+        }
+        Ok(generate_js_typedef(
+            &name,
+            &format!("Composite type {}.", composite.sql_name),
+            &fields,
+        ))
     }
 }
 
@@ -1057,5 +1485,192 @@ mod tests {
             query_fn.contains("\titems: string[],"),
             "the json param's type must survive intact on the items line; got:\n{query_fn}"
         );
+    }
+
+    fn js_backend() -> TypescriptMssqlBackend {
+        TypescriptMssqlBackend::new_js("mssql").unwrap()
+    }
+
+    #[test]
+    fn test_js_mode_name_is_javascript_mssql() {
+        assert_eq!(js_backend().name(), "javascript-mssql");
+    }
+
+    #[test]
+    fn test_js_mode_output_extension_is_js() {
+        assert_eq!(js_backend().output_extension(), "js");
+    }
+
+    /// Unlike most `javascript-*` backends, this one's header is *not*
+    /// empty: the generated bodies read `sql.Int`/`sql.NVarChar`/... as
+    /// runtime values, so JS mode still needs the real driver import -- only
+    /// the `zod` import (unreachable in JS mode, since `row_type = "zod"` is
+    /// rejected) is ever dropped.
+    #[test]
+    fn test_js_mode_file_header_keeps_the_driver_import() {
+        let header = js_backend().file_header();
+        assert!(header.contains("import sql from \"mssql\";"), "got:\n{header}");
+        assert!(!header.contains("zod"), "got:\n{header}");
+    }
+
+    #[test]
+    fn test_js_mode_structs_only_drops_the_driver_import() {
+        let mut backend = js_backend();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "structs_only".to_string(),
+                "true".to_string(),
+            )]))
+            .unwrap();
+        let header = backend.file_header();
+        assert!(!header.contains("mssql"), "got:\n{header}");
+    }
+
+    #[test]
+    fn test_js_mode_row_struct_emits_nullable_column_as_type_or_null() {
+        let backend = js_backend();
+        let row_struct = backend
+            .generate_row_struct("GetSession", &discriminated_join_columns())
+            .unwrap();
+
+        assert!(
+            row_struct.contains(" * @property {string | null} total"),
+            "nullable column must be `{{T | null}}`, never optional; got:\n{row_struct}"
+        );
+        assert!(row_struct.contains(" * @property {number} id"), "got:\n{row_struct}");
+        assert!(!row_struct.contains("[total]"), "{row_struct}");
+        assert!(!row_struct.contains("total?"), "{row_struct}");
+    }
+
+    /// This is the one `javascript-*` backend in this crate whose row read
+    /// carries **no** JSDoc cast at all -- see `generate_query_fn_js`'s doc
+    /// comment for the empirically-verified reason (`request.query(...)`
+    /// with no explicit generic returns `IResult<any>` under the real
+    /// `@types/mssql` declaration, and `any` needs no assertion to flow into
+    /// a concrete type). If a cast is ever added here it should be treated
+    /// as a regression to investigate, not a hardening: it would mean this
+    /// pinned assumption about the driver's overload resolution changed.
+    #[test]
+    fn test_js_mode_one_and_many_query_fns_have_no_jsdoc_cast() {
+        let backend = js_backend();
+        let one_query = make_one_query_with_snake_case_column();
+        let one_result = crate::generate_with_backend(&one_query, &backend).unwrap();
+        let one_fn = one_result.query_fn.as_deref().unwrap();
+
+        assert!(one_fn.contains("@param {sql.ConnectionPool} pool"), "got:\n{one_fn}");
+        assert!(
+            one_fn.contains("@returns {Promise<GetSessionRow>}"),
+            "`:one` must not be nullable; got:\n{one_fn}"
+        );
+        assert!(
+            one_fn.contains("export async function getSession(pool) {"),
+            "got:\n{one_fn}"
+        );
+        assert!(
+            one_fn.contains("const row = result.recordset[0];"),
+            "the row must be returned straight from the driver with no per-field \
+             reconstruction; got:\n{one_fn}"
+        );
+        assert!(!one_fn.contains("@type"), "got:\n{one_fn}");
+        assert!(
+            !one_fn.contains(" as "),
+            "must not use a TS `as` assertion; got:\n{one_fn}"
+        );
+
+        let mut many_query = make_one_query_with_snake_case_column();
+        many_query.command = QueryCommand::Many;
+        let many_result = crate::generate_with_backend(&many_query, &backend).unwrap();
+        let many_fn = many_result.query_fn.as_deref().unwrap();
+
+        assert!(
+            many_fn.contains("@returns {Promise<GetSessionRow[]>}"),
+            "got:\n{many_fn}"
+        );
+        assert!(many_fn.contains("return result.recordset;"), "got:\n{many_fn}");
+        assert!(!many_fn.contains("@type"), "got:\n{many_fn}");
+        assert!(!many_fn.contains(" as "), "got:\n{many_fn}");
+    }
+
+    #[test]
+    fn test_js_mode_exec_result_query_fn_returns_rows_affected_uncast() {
+        let backend = js_backend();
+        let mut query = make_one_query("SELECT id FROM users WHERE id = $1");
+        query.command = QueryCommand::ExecResult;
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("return result.rowsAffected[0] ?? 0;"),
+            "got:\n{query_fn}"
+        );
+        assert!(!query_fn.contains(" as "), "got:\n{query_fn}");
+    }
+
+    #[test]
+    fn test_js_mode_batch_query_fn_uses_transaction() {
+        let backend = js_backend();
+        let query = make_batch_query(
+            "InsertUser",
+            "INSERT INTO users (name) VALUES ($1)",
+            vec![AnalyzedParam {
+                name: "name".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+                position: 1,
+                source_relation: None,
+            }],
+        );
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("export async function insertUserBatch(pool, items) {"),
+            "missing batch fn; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("const transaction = pool.transaction();"),
+            "must use a transaction; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("request.input(\"p1\", sql.NVarChar, item);"),
+            "single-param batch must bind `item` directly; got:\n{query_fn}"
+        );
+        assert!(!query_fn.contains("@type"), "got:\n{query_fn}");
+        assert!(!query_fn.contains(" as "), "got:\n{query_fn}");
+    }
+
+    #[test]
+    fn test_js_mode_grouped_query_fn_has_no_cast_on_flat_rows() {
+        let backend = js_backend();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("const { recordset: flatRows } = await request.query(`"),
+            "got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("@returns {Promise<GetUsersWithOrdersRow[]>}"),
+            "got:\n{query_fn}"
+        );
+        assert!(query_fn.contains("row['id']"), "got:\n{query_fn}");
+        assert!(!query_fn.contains("@type"), "got:\n{query_fn}");
+        assert!(!query_fn.contains(" as "), "got:\n{query_fn}");
+    }
+
+    #[test]
+    fn test_js_mode_rejects_zod_row_type_and_camel_case_and_outer_join_unions() {
+        for (key, value) in [
+            ("row_type", "zod"),
+            ("field_case", "camelCase"),
+            ("outer_join_unions", "true"),
+        ] {
+            let mut backend = js_backend();
+            let err = backend
+                .apply_options(&std::collections::HashMap::from([(key.to_string(), value.to_string())]))
+                .expect_err(&format!("javascript-mssql must reject {key} = {value}"));
+            assert!(err.to_string().contains("javascript-mssql"), "{err}");
+        }
     }
 }

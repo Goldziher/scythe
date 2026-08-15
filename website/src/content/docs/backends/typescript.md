@@ -7,7 +7,7 @@ Backends: `typescript-postgres` (postgres.js), `typescript-pg` (node-postgres), 
 
 All three backends share the same type mappings and TypeScript interfaces. They differ in query execution. Two further TypeScript backends, `typescript-node-sqlite` and `typescript-wasm-sqlite`, target SQLite only and generate synchronous code -- see [typescript-node-sqlite and typescript-wasm-sqlite](#typescript-node-sqlite-and-typescript-wasm-sqlite) below.
 
-Seven of the eleven TypeScript backends are also reachable under a `javascript-*` name that emits plain JSDoc-typed `.js` instead of `.ts` -- see [JavaScript output (JSDoc)](#javascript-output-jsdoc).
+Ten of the eleven TypeScript backends are also reachable under a `javascript-*` name that emits plain JSDoc-typed `.js` instead of `.ts` -- see [JavaScript output (JSDoc)](#javascript-output-jsdoc).
 
 ## SQL input
 
@@ -349,7 +349,7 @@ for the full backend list.
 
 ## JavaScript output (JSDoc)
 
-Seven registry names emit plain JavaScript instead of TypeScript. They are an emit mode on the
+Ten registry names emit plain JavaScript instead of TypeScript. They are an emit mode on the
 TypeScript backend structs above -- not separate backends, and not separate manifests -- selected by
 the name you write in `backend`:
 
@@ -359,14 +359,21 @@ the name you write in `backend`:
 | `javascript-pg` | `typescript-pg` | `import("pg").PoolClient` | PostgreSQL, CockroachDB, Redshift |
 | `javascript-mysql2` | `typescript-mysql2` | `import("mysql2/promise").Pool` | MySQL, MariaDB |
 | `javascript-better-sqlite3` | `typescript-better-sqlite3` | `import("better-sqlite3").Database` | SQLite |
+| `javascript-duckdb` | `typescript-duckdb` | `import("@duckdb/node-api").DuckDBConnection` | DuckDB |
 | `javascript-node-sqlite` | `typescript-node-sqlite` | `import("node:sqlite").DatabaseSync` | SQLite |
 | `javascript-wasm-sqlite` | `typescript-wasm-sqlite` | `import("@sqlite.org/sqlite-wasm").Database` | SQLite |
+| `javascript-mssql` | `typescript-mssql` | `sql.ConnectionPool` | MSSQL |
+| `javascript-oracledb` | `typescript-oracledb` | `oracledb.Connection` | Oracle |
 | `javascript-snowflake` | `typescript-snowflake` | `import("snowflake-sdk").Connection` | Snowflake |
 
-The other four TypeScript backends (`typescript-duckdb`, `typescript-kysely`, `typescript-mssql`,
-`typescript-oracledb`) have no JavaScript counterpart. There are no aliases for these seven names.
-`javascript-node-sqlite` and `javascript-wasm-sqlite` are synchronous, mirroring their TypeScript
-counterparts and inheriting the same `--experimental-sqlite` requirement on Node 22.
+`typescript-kysely` is the only TypeScript backend with no JavaScript counterpart. There are no
+aliases for these ten names. `javascript-node-sqlite` and `javascript-wasm-sqlite` are synchronous,
+mirroring their TypeScript counterparts and inheriting the same `--experimental-sqlite` requirement
+on Node 22. `javascript-mssql` and `javascript-oracledb` keep a real runtime driver import
+(`import sql from "mssql"` / `import oracledb from 'oracledb'`) even in JSDoc mode, since their
+generated bodies read driver constants (`sql.Int`, `oracledb.BIND_OUT`, ...) as values, not just as
+types -- see the handle type column above, which is not an `import("...")` type-only spelling for
+either.
 
 ```toml
 [[sql.gen]]

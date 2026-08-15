@@ -12,9 +12,11 @@ use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
     TsFieldCase, TsRowShape, TsRowType, escape_ts_double_quoted_literal, escape_ts_template_literal,
-    generate_grouped_interface_structs, generate_ts_grouped_fold_body, generate_ts_interface_row_struct,
-    generate_ts_union_row_struct, generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct,
-    parse_bool_option, ts_index_access, ts_property_key, ts_row_not_found_throw,
+    generate_grouped_interface_structs, generate_js_grouped_typedef_structs, generate_js_typedef,
+    generate_js_typedef_row_struct, generate_jsdoc_fn_header, generate_ts_grouped_fold_body,
+    generate_ts_interface_row_struct, generate_ts_union_row_struct, generate_zod_grouped_structs,
+    generate_zod_row_struct, generate_zod_union_row_struct, js_fn_signature_line, js_type_cast, parse_bool_option,
+    ts_index_access, ts_property_key, ts_row_not_found_throw,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-oracledb.toml");
@@ -66,6 +68,14 @@ pub struct TypescriptOracledbBackend {
     /// composites) — no query functions, and no `oracledb` driver import
     /// (which would otherwise be unused).
     structs_only: bool,
+    /// Emit plain, JSDoc-annotated `.js` instead of `.ts` -- the
+    /// `javascript-oracledb` registry name (#93). See
+    /// `TypescriptPgBackend::js_mode` for the shared rationale. Unlike every
+    /// other `javascript-*` backend, this one keeps its driver import even in
+    /// JS mode -- see `file_header` -- because the generated bodies read
+    /// runtime constants (`oracledb.BIND_OUT`, `oracledb.OUT_FORMAT_OBJECT`,
+    /// ...) off it, not just types.
+    js_mode: bool,
 }
 
 impl TypescriptOracledbBackend {
@@ -85,14 +95,37 @@ impl TypescriptOracledbBackend {
             row_type: TsRowType::default(),
             outer_join_unions: false,
             structs_only: false,
+            js_mode: false,
         })
+    }
+
+    /// As [`Self::new`], but selecting the `javascript-oracledb` JSDoc emit mode.
+    pub fn new_js(engine: &str) -> Result<Self, ScytheError> {
+        let mut backend = Self::new(engine)?;
+        backend.js_mode = true;
+        Ok(backend)
     }
 }
 
 /// Rewrite $1, $2, ... positional params to :1, :2, ... for Oracle.
 impl CodegenBackend for TypescriptOracledbBackend {
     fn name(&self) -> &str {
-        "typescript-oracledb"
+        if self.js_mode {
+            "javascript-oracledb"
+        } else {
+            "typescript-oracledb"
+        }
+    }
+
+    /// The manifest is shared with `typescript-oracledb` and says `ts`;
+    /// JSDoc output is plain JavaScript and must land in a `.js` file to be
+    /// runnable.
+    fn output_extension(&self) -> &str {
+        if self.js_mode {
+            "js"
+        } else {
+            &self.manifest.backend.file_extension
+        }
     }
 
     fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
@@ -139,15 +172,77 @@ impl CodegenBackend for TypescriptOracledbBackend {
             TsFieldCase::from_option(value)?;
             self.manifest.naming.field_case = value.clone();
         }
+
+        // ~keep See `TypescriptWasmSqliteBackend::apply_options` for why
+        // `row_type = "zod"` and `outer_join_unions` are rejected outright in
+        // JSDoc mode rather than silently ignored: both are TS-only alias
+        // syntax `generate_js_typedef_row_struct` cannot carry.
+        //
+        // `field_case = "camelCase"` is rejected here too, for consistency
+        // with every other `javascript-*` backend, even though this
+        // particular backend does not strictly need to: unlike
+        // `javascript-pg`/`javascript-duckdb`, this backend has no "blind
+        // driver-generic cast" fast path that a Camel remap replaces --
+        // `generate_query_fn_js` below always reconstructs every field
+        // individually (see `oracle_row_key`), regardless of field_case, so
+        // the reconstruction itself would work unchanged under
+        // `field_case = "camelCase"`. Kept rejected anyway so this backend's
+        // accepted-options surface does not silently diverge from its six
+        // siblings.
+        if self.js_mode {
+            if self.row_type == TsRowType::Zod {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    "javascript-oracledb does not support row_type = \"zod\": the inferred `export type X = \
+                     z.infer<...>` alias is TypeScript-only syntax a plain .js file cannot carry -- use \
+                     typescript-oracledb for Zod row types"
+                        .to_string(),
+                ));
+            }
+            if self.outer_join_unions {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    "javascript-oracledb does not support outer_join_unions: the discriminated union is a \
+                     TypeScript `type X = A & (B | C)` alias, which plain .js cannot carry -- use \
+                     typescript-oracledb"
+                        .to_string(),
+                ));
+            }
+            if let Some(value) = options.get("field_case")
+                && TsFieldCase::from_option(value)? == TsFieldCase::Camel
+            {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    "javascript-oracledb does not support field_case = \"camelCase\" -- use \
+                     typescript-oracledb"
+                        .to_string(),
+                ));
+            }
+        }
         Ok(())
     }
 
     fn file_header(&self) -> String {
+        // ~keep Unlike every other `javascript-*` backend, this one keeps a
+        // real runtime import of its driver even in JS mode: the generated
+        // query bodies read `oracledb.BIND_OUT`/`oracledb.NUMBER`/
+        // `oracledb.DATE`/`oracledb.STRING`/`oracledb.OUT_FORMAT_OBJECT` as
+        // *values*, not just as a JSDoc type in a `@param` tag the way
+        // `javascript-pg`'s `import("pg").PoolClient` is. Dropping the
+        // import the way `javascript-pg`/`javascript-duckdb` do would leave
+        // those identifiers unbound at runtime, not merely untyped. The
+        // JSDoc `@param {oracledb.Connection}` type position below resolves
+        // through this same import (verified against real `tsc --checkJs
+        // --strict`, not assumed): a default import of a CJS `export =`
+        // module under `--module nodenext` carries both its value and its
+        // merged namespace type, so no separate `import("oracledb").Connection`
+        // type-only spelling is needed the way it is for every sibling
+        // driver.
         let mut header = String::new();
         if !self.structs_only {
             header.push_str("import oracledb from 'oracledb';\n");
         }
-        if self.row_type == TsRowType::Zod {
+        if !self.js_mode && self.row_type == TsRowType::Zod {
             header.push_str("import { z } from \"zod\";\n");
         }
         header
@@ -159,6 +254,9 @@ impl CodegenBackend for TypescriptOracledbBackend {
         query_name: &str,
         columns: &[ResolvedColumn],
     ) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return Ok(generate_js_typedef_row_struct(struct_name, query_name, columns));
+        }
         if self.row_type == TsRowType::Zod {
             if self.outer_join_unions {
                 return Ok(generate_zod_union_row_struct(struct_name, query_name, columns));
@@ -178,6 +276,9 @@ impl CodegenBackend for TypescriptOracledbBackend {
         columns: &[ResolvedColumn],
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return self.generate_query_fn_js(analyzed, struct_name, columns, params);
+        }
         if self.structs_only {
             return Ok(String::new());
         }
@@ -406,6 +507,14 @@ impl CodegenBackend for TypescriptOracledbBackend {
         child_columns: &[ResolvedColumn],
         _key_column: &str,
     ) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return Ok(generate_js_grouped_typedef_structs(
+                child_struct_name,
+                parent_struct_name,
+                parent_columns,
+                child_columns,
+            ));
+        }
         if self.row_type == TsRowType::Zod {
             return Ok(generate_zod_grouped_structs(
                 child_struct_name,
@@ -423,6 +532,9 @@ impl CodegenBackend for TypescriptOracledbBackend {
     }
 
     fn generate_grouped_query_fn(&self, request: &GroupedQueryFn<'_>) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return self.generate_grouped_query_fn_js(request);
+        }
         let analyzed = request.analyzed;
         let parent_struct_name = request.parent_struct_name;
         let child_struct_name = request.child_struct_name;
@@ -508,6 +620,9 @@ impl CodegenBackend for TypescriptOracledbBackend {
     }
 
     fn generate_enum_def(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return self.generate_enum_def_js(enum_info);
+        }
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         if self.row_type == TsRowType::Zod {
             return Ok(super::typescript_common::generate_zod_enum(
@@ -527,6 +642,9 @@ impl CodegenBackend for TypescriptOracledbBackend {
     }
 
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return self.generate_composite_def_js(composite);
+        }
         let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "export interface {} {{", name);
@@ -540,6 +658,376 @@ impl CodegenBackend for TypescriptOracledbBackend {
         }
         let _ = write!(out, "}}");
         Ok(out)
+    }
+}
+
+impl TypescriptOracledbBackend {
+    /// JSDoc-mode counterpart of `generate_query_fn` (see
+    /// `CodegenBackend::generate_query_fn`). This backend has no "blind cast
+    /// the whole row" fast path in either emit mode -- every read
+    /// reconstructs the row field by field, case-folded through
+    /// `oracle_row_key` exactly like the TS path -- so the only difference
+    /// from the TS path is the cast spelling: a JSDoc inline `/** @type {T}
+    /// */ (expr)` in place of `expr as T`.
+    ///
+    /// Both spellings are single-step here because the source is `unknown`
+    /// in both modes: `conn.execute(...)` is called with no explicit type
+    /// argument (verified against the real `@types/oracledb` -- see
+    /// `Connection.execute<T>`, which has no default for `T`), so `T` has
+    /// nothing to infer from and resolves to `unknown`; `result.rows` /
+    /// `result.outBinds` are therefore `unknown[] | undefined` /
+    /// `unknown | undefined`. A single-step assertion off `unknown` is
+    /// always accepted by both `as` and the JSDoc inline cast -- there is no
+    /// `unknown`-hop question here the way there is for a driver whose read
+    /// returns a *concrete* record type (contrast
+    /// `TypescriptDuckdbBackend::generate_query_fn_js`, where
+    /// `getRowObjects()` returns `Record<string, DuckDBValue>[]`, not
+    /// `unknown[]`).
+    fn generate_query_fn_js(
+        &self,
+        analyzed: &AnalyzedQuery,
+        struct_name: &str,
+        columns: &[ResolvedColumn],
+        params: &[ResolvedParam],
+    ) -> Result<String, ScytheError> {
+        if self.structs_only {
+            return Ok(String::new());
+        }
+
+        const CONN_TYPE: &str = "oracledb.Connection";
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let sql = escape_ts_double_quoted_literal(&super::rewrite_pg_placeholders(
+            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+            |n| format!(":{n}"),
+        ));
+
+        let bind_array = if params.is_empty() {
+            "[]".to_string()
+        } else {
+            format!(
+                "[{}]",
+                params
+                    .iter()
+                    .map(|p| p.field_name.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+
+        let has_returning = sql.to_uppercase().contains("RETURNING");
+        let row_shape = TsRowShape::from_outer_join_unions(self.outer_join_unions);
+
+        let sig_params: Vec<(String, String)> = std::iter::once(("conn".to_string(), CONN_TYPE.to_string()))
+            .chain(params.iter().map(|p| (p.field_name.clone(), p.full_type.clone())))
+            .collect();
+
+        let mut out = String::new();
+
+        let write_signature = |out: &mut String, description: &str, ret: &str| {
+            out.push_str(&generate_jsdoc_fn_header(description, &sig_params, ret));
+            let _ = writeln!(out);
+            let _ = writeln!(out, "{}", js_fn_signature_line(true, &func_name, &sig_params));
+        };
+
+        // ~keep Shared by the `:one`/`:opt` arms below, same split as the TS
+        // path's `write_one_or_opt`: both read a row through the same
+        // `has_returning` / `OUT_FORMAT_OBJECT` split and differ only in what
+        // the missing-row branch does (#192).
+        let write_row_read = |out: &mut String, missing_stmt: &str| {
+            if has_returning {
+                let out_bind_entries: Vec<String> = columns
+                    .iter()
+                    .map(|col| {
+                        let nt = col.neutral_type.as_str();
+                        let oratype = match nt {
+                            "int32" | "int64" | "float32" | "float64" | "decimal" => "oracledb.NUMBER",
+                            "date" | "datetime" | "datetime_tz" | "time" | "time_tz" => "oracledb.DATE",
+                            _ => "oracledb.STRING",
+                        };
+                        format!("{{ dir: oracledb.BIND_OUT, type: {} }}", oratype)
+                    })
+                    .collect();
+                let into_clause = columns
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| format!(":{}", params.len() + i + 1))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let full_sql = format!("{} INTO {}", sql, into_clause);
+                let all_binds = if params.is_empty() {
+                    format!("[{}]", out_bind_entries.join(", "))
+                } else {
+                    let input_names: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+                    format!("[{}, {}]", input_names.join(", "), out_bind_entries.join(", "))
+                };
+                let _ = writeln!(
+                    out,
+                    "\tconst result = await conn.execute(\"{}\", {});",
+                    full_sql, all_binds
+                );
+                let _ = writeln!(out, "\tif (!result.outBinds) {{");
+                let _ = writeln!(out, "\t\t{}", missing_stmt);
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(
+                    out,
+                    "\tconst outBinds = {};",
+                    js_type_cast("unknown[][]", "result.outBinds")
+                );
+                let _ = writeln!(out, "\treturn {{");
+                for (i, col) in columns.iter().enumerate() {
+                    let _ = writeln!(
+                        out,
+                        "\t\t{}: {},",
+                        ts_property_key(&col.field_name),
+                        js_type_cast(row_shape.cast_type(col), &format!("(outBinds[{}] ?? [])[0]", i))
+                    );
+                }
+                let _ = writeln!(out, "\t}};");
+                let _ = write!(out, "}}");
+            } else {
+                let _ = writeln!(
+                    out,
+                    "\tconst result = await conn.execute(\"{}\", {}, {{ outFormat: oracledb.OUT_FORMAT_OBJECT }});",
+                    sql, bind_array
+                );
+                let _ = writeln!(out, "\tif (!result.rows || result.rows.length === 0) {{");
+                let _ = writeln!(out, "\t\t{}", missing_stmt);
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(
+                    out,
+                    "\tconst row = {};",
+                    js_type_cast("Record<string, unknown>", "result.rows[0]")
+                );
+                let _ = writeln!(out, "\treturn {{");
+                for col in columns {
+                    let _ = writeln!(
+                        out,
+                        "\t\t{}: {},",
+                        ts_property_key(&col.field_name),
+                        js_type_cast(
+                            row_shape.cast_type(col),
+                            &format!("row[\"{}\"]", oracle_row_key(&col.name))
+                        )
+                    );
+                }
+                let _ = writeln!(out, "\t}};");
+                let _ = write!(out, "}}");
+            }
+        };
+
+        match &analyzed.command {
+            QueryCommand::One => {
+                write_signature(
+                    &mut out,
+                    &format!("Fetch a single {}.", struct_name),
+                    &format!("Promise<{}>", struct_name),
+                );
+                write_row_read(&mut out, &ts_row_not_found_throw(&analyzed.name));
+            }
+            QueryCommand::Opt => {
+                write_signature(
+                    &mut out,
+                    &format!("Fetch a single {} or null.", struct_name),
+                    &format!("Promise<{} | null>", struct_name),
+                );
+                write_row_read(&mut out, "return null;");
+            }
+            QueryCommand::Many => {
+                write_signature(
+                    &mut out,
+                    &format!("Fetch all {} rows.", struct_name),
+                    &format!("Promise<{}[]>", struct_name),
+                );
+                let _ = writeln!(
+                    out,
+                    "\tconst result = await conn.execute(\"{}\", {}, {{ outFormat: oracledb.OUT_FORMAT_OBJECT }});",
+                    sql, bind_array
+                );
+                let _ = writeln!(out, "\tif (!result.rows) {{");
+                let _ = writeln!(out, "\t\treturn [];");
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\treturn result.rows.map((rawRow) => {{");
+                let _ = writeln!(
+                    out,
+                    "\t\tconst row = {};",
+                    js_type_cast("Record<string, unknown>", "rawRow")
+                );
+                let _ = writeln!(out, "\t\treturn {{");
+                for col in columns {
+                    let _ = writeln!(
+                        out,
+                        "\t\t\t{}: {},",
+                        ts_property_key(&col.field_name),
+                        js_type_cast(
+                            row_shape.cast_type(col),
+                            &format!("row[\"{}\"]", oracle_row_key(&col.name))
+                        )
+                    );
+                }
+                let _ = writeln!(out, "\t\t}};");
+                let _ = writeln!(out, "\t}});");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Exec => {
+                write_signature(&mut out, "Execute a query returning no rows.", "Promise<void>");
+                let _ = writeln!(out, "\tawait conn.execute(\"{}\", {});", sql, bind_array);
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                write_signature(
+                    &mut out,
+                    "Execute a query and return the number of affected rows.",
+                    "Promise<number>",
+                );
+                let _ = writeln!(out, "\tconst result = await conn.execute(\"{}\", {});", sql, bind_array);
+                let _ = writeln!(out, "\treturn result.rowsAffected ?? 0;");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}Batch", func_name);
+                let items_type = if params.len() > 1 {
+                    let tuple_types: Vec<String> = params.iter().map(|p| p.full_type.clone()).collect();
+                    format!("[{}]", tuple_types.join(", "))
+                } else if params.len() == 1 {
+                    params[0].full_type.clone()
+                } else {
+                    "number".to_string()
+                };
+                let batch_sig_params = vec![
+                    ("conn".to_string(), CONN_TYPE.to_string()),
+                    ("items".to_string(), format!("Array<{}>", items_type)),
+                ];
+                out.push_str(&generate_jsdoc_fn_header(
+                    &format!("Execute {} for each item in the batch.", analyzed.name),
+                    &batch_sig_params,
+                    "Promise<void>",
+                ));
+                let _ = writeln!(out);
+                let _ = writeln!(out, "{}", js_fn_signature_line(true, &batch_fn_name, &batch_sig_params));
+                if params.is_empty() {
+                    let _ = writeln!(out, "\tfor (let i = 0; i < items.length; i++) {{");
+                    let _ = writeln!(out, "\t\tawait conn.execute(\"{}\");", sql);
+                    let _ = writeln!(out, "\t}}");
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "\tawait conn.executeMany(\"{}\", items.map(item => Array.isArray(item) ? item : [item]));",
+                        sql
+                    );
+                }
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Grouped => {
+                unreachable!("Grouped command is routed through generate_grouped_query_fn, not generate_query_fn")
+            }
+        }
+
+        Ok(out)
+    }
+
+    /// JSDoc-mode counterpart of `generate_grouped_query_fn`.
+    fn generate_grouped_query_fn_js(&self, request: &GroupedQueryFn<'_>) -> Result<String, ScytheError> {
+        let analyzed = request.analyzed;
+        let parent_struct_name = request.parent_struct_name;
+        let child_struct_name = request.child_struct_name;
+        let parent_columns = request.parent_columns;
+        let child_columns = request.child_columns;
+        let params = request.params;
+        let key_column = request.key_column;
+
+        if self.structs_only {
+            return Ok(String::new());
+        }
+
+        const CONN_TYPE: &str = "oracledb.Connection";
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let sql_clean =
+            super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = escape_ts_template_literal(&super::rewrite_pg_placeholders(&sql_clean, |n| format!(":{n}")));
+
+        let sig_params: Vec<(String, String)> = std::iter::once(("conn".to_string(), CONN_TYPE.to_string()))
+            .chain(params.iter().map(|p| (p.field_name.clone(), p.full_type.clone())))
+            .collect();
+        let ret = format!("Promise<{parent_struct_name}[]>");
+
+        let mut out = String::new();
+        out.push_str(&generate_jsdoc_fn_header(
+            &format!("Fetch grouped {} rows.", analyzed.name),
+            &sig_params,
+            &ret,
+        ));
+        let _ = writeln!(out);
+        let _ = writeln!(out, "{}", js_fn_signature_line(true, &func_name, &sig_params));
+
+        if params.is_empty() {
+            let _ = writeln!(out, "\tconst queryResult = await conn.execute(");
+            let _ = writeln!(out, "\t\t`{sql}`,");
+            let _ = writeln!(out, "\t\t[],");
+        } else {
+            let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+            let _ = writeln!(out, "\tconst queryResult = await conn.execute(");
+            let _ = writeln!(out, "\t\t`{sql}`,");
+            let _ = writeln!(out, "\t\t[{}],", args.join(", "));
+        }
+        let _ = writeln!(out, "\t\t{{ outFormat: oracledb.OUT_FORMAT_OBJECT }},");
+        let _ = writeln!(out, "\t);");
+        let _ = writeln!(
+            out,
+            "\tconst flatRows = {};",
+            js_type_cast("Array<Record<string, unknown>>", "queryResult.rows ?? []")
+        );
+
+        let fold = generate_ts_grouped_fold_body(
+            parent_struct_name,
+            child_struct_name,
+            parent_columns,
+            child_columns,
+            key_column,
+            true,
+            |name, _ty| ts_index_access("row", &oracle_row_key(name)),
+        );
+        out.push_str(&fold);
+        let _ = write!(out, "}}");
+        Ok(out)
+    }
+
+    /// JSDoc-mode counterpart of `generate_enum_def`. Escapes a `"` inside a
+    /// variant, matching `generate_enum_def`'s own TS-mode shape above --
+    /// unlike the SQLite/DuckDB family's bare (unescaped) enum backends, this
+    /// one already needed the escape in TS mode, and the JSDoc `@typedef`'s
+    /// union is embedded in the same double-quoted-string-literal position.
+    fn generate_enum_def_js(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
+        let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
+        let variants: Vec<String> = enum_info
+            .values
+            .iter()
+            .map(|v| format!("\"{}\"", escape_ts_double_quoted_literal(v)))
+            .collect();
+        Ok(format!("/** @typedef {{({})}} {} */", variants.join(" | "), type_name))
+    }
+
+    /// JSDoc-mode counterpart of `generate_composite_def`. Matches the TS
+    /// path's plain-interface shape: this backend has no pg-style
+    /// text-wire-format parser to port, so a bare `@typedef` is a complete
+    /// equivalent.
+    fn generate_composite_def_js(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
+        let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
+        let mut fields = Vec::with_capacity(composite.fields.len());
+        for field in &composite.fields {
+            let ts_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                .map(|t| t.into_owned())
+                .map_err(|e| {
+                    ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
+                })?;
+            fields.push((to_camel_case(&field.name).into_owned(), ts_type));
+        }
+        Ok(generate_js_typedef(
+            &name,
+            &format!("Composite type {}.", composite.sql_name),
+            &fields,
+        ))
     }
 }
 
@@ -1097,5 +1585,167 @@ mod tests {
             query_fn.contains(r#"total: row["TOTAL"] as string | null,"#),
             "flat rows declare the column nullable, so the cast stays nullable; got:\n{query_fn}"
         );
+    }
+
+    fn js_backend() -> TypescriptOracledbBackend {
+        TypescriptOracledbBackend::new_js("oracle").unwrap()
+    }
+
+    #[test]
+    fn test_js_mode_name_is_javascript_oracledb() {
+        assert_eq!(js_backend().name(), "javascript-oracledb");
+    }
+
+    #[test]
+    fn test_js_mode_output_extension_is_js() {
+        assert_eq!(js_backend().output_extension(), "js");
+    }
+
+    /// Unlike every other `javascript-*` backend, this one's header is
+    /// *not* empty: the generated bodies read `oracledb.BIND_OUT`/
+    /// `oracledb.OUT_FORMAT_OBJECT`/etc as runtime values, so JS mode still
+    /// needs the real driver import -- only the `zod` import (unreachable in
+    /// JS mode, since `row_type = "zod"` is rejected) is ever dropped.
+    #[test]
+    fn test_js_mode_file_header_keeps_the_driver_import() {
+        let header = js_backend().file_header();
+        assert!(header.contains("import oracledb from 'oracledb';"), "got:\n{header}");
+        assert!(!header.contains("zod"), "got:\n{header}");
+    }
+
+    #[test]
+    fn test_js_mode_structs_only_drops_the_driver_import() {
+        let mut backend = js_backend();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "structs_only".to_string(),
+                "true".to_string(),
+            )]))
+            .unwrap();
+        let header = backend.file_header();
+        assert!(!header.contains("oracledb"), "got:\n{header}");
+    }
+
+    #[test]
+    fn test_js_mode_row_struct_emits_nullable_column_as_type_or_null() {
+        let backend = js_backend();
+        let query = make_one_query_with_nullable_column();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains(" * @property {string | null} nickname"),
+            "nullable column must be `{{T | null}}`, never optional; got:\n{row_struct}"
+        );
+        assert!(!row_struct.contains("[nickname]"), "{row_struct}");
+        assert!(!row_struct.contains("nickname?"), "{row_struct}");
+    }
+
+    /// The single-step JSDoc cast on a case-folded read: `row["NICKNAME"]`
+    /// (uppercased, unquoted identifier) is `unknown` (`Connection.execute`
+    /// is called with no explicit type argument against the real
+    /// `@types/oracledb` declaration, so `T` resolves to `unknown` and
+    /// `result.rows` is `unknown[] | undefined`) -- a single-step assertion
+    /// off `unknown` is always accepted, so this backend never needs the
+    /// `unknown`-hop `javascript-duckdb` needs for its concrete
+    /// `Record<string, DuckDBValue>[]` read.
+    #[test]
+    fn test_js_mode_one_query_fn_casts_case_folded_field_in_one_step() {
+        let backend = js_backend();
+        let query = make_one_query_with_nullable_column();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("@param {oracledb.Connection} conn"),
+            "got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("@returns {Promise<GetUserByIdRow>}"),
+            "`:one` must not be nullable; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("export async function getUserById(conn) {"),
+            "got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains(r#"nickname: /** @type {string | null} */ (row["NICKNAME"]),"#),
+            "must cast through full_type in a single JSDoc step, using the case-folded raw key; \
+             got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains(" as "),
+            "must not use a TS `as` assertion; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_js_mode_many_query_fn_casts_case_folded_fields_in_one_step() {
+        let backend = js_backend();
+        let mut query = make_one_query_with_nullable_column();
+        query.command = QueryCommand::Many;
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("@returns {Promise<GetUserByIdRow[]>}"),
+            "got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains(r#"nickname: /** @type {string | null} */ (row["NICKNAME"]),"#),
+            "got:\n{query_fn}"
+        );
+        assert!(!query_fn.contains(" as "), "got:\n{query_fn}");
+    }
+
+    #[test]
+    fn test_js_mode_exec_result_query_fn_returns_rows_affected_uncast() {
+        let backend = js_backend();
+        let mut query = make_one_query("SELECT id FROM users WHERE id = $1");
+        query.command = QueryCommand::ExecResult;
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("return result.rowsAffected ?? 0;"),
+            "got:\n{query_fn}"
+        );
+        assert!(!query_fn.contains(" as "), "got:\n{query_fn}");
+    }
+
+    #[test]
+    fn test_js_mode_grouped_query_fn_casts_flat_rows_and_case_folds_the_fold_access() {
+        let backend = js_backend();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn
+                .contains("const flatRows = /** @type {Array<Record<string, unknown>>} */ (queryResult.rows ?? []);"),
+            "got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("row['ID']"),
+            "the fold access goes through `ts_index_access`, which always brackets with single \
+             quotes (unlike the non-grouped `row[\"...\"]` reconstruction above) -- the \
+             case-folded uppercase key must still be present; got:\n{query_fn}"
+        );
+        assert!(!query_fn.contains(" as "), "got:\n{query_fn}");
+    }
+
+    #[test]
+    fn test_js_mode_rejects_zod_row_type_and_outer_join_unions_and_camel_case() {
+        for (key, value) in [
+            ("row_type", "zod"),
+            ("outer_join_unions", "true"),
+            ("field_case", "camelCase"),
+        ] {
+            let mut backend = js_backend();
+            let err = backend
+                .apply_options(&std::collections::HashMap::from([(key.to_string(), value.to_string())]))
+                .expect_err(&format!("javascript-oracledb must reject {key} = {value}"));
+            assert!(err.to_string().contains("javascript-oracledb"), "{err}");
+        }
     }
 }

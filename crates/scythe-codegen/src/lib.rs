@@ -2345,6 +2345,7 @@ mod tests {
         "typescript-better-sqlite3",
         "javascript-better-sqlite3",
         "typescript-duckdb",
+        "javascript-duckdb",
         "typescript-node-sqlite",
         "javascript-node-sqlite",
         "typescript-wasm-sqlite",
@@ -2373,12 +2374,14 @@ mod tests {
         "rust-tiberius",
         "python-pyodbc",
         "typescript-mssql",
+        "javascript-mssql",
         "csharp-sqlclient",
         "ruby-tiny-tds",
         "elixir-tds",
         "rust-sibyl",
         "python-oracledb",
         "typescript-oracledb",
+        "javascript-oracledb",
         "go-godror",
         "csharp-oracle",
         "ruby-oci8",
@@ -2530,6 +2533,21 @@ mod tests {
         },
         BackendNote {
             backend: "javascript-snowflake",
+            reason: "js_mode types via JSDoc comments only; no runtime identifier for either side of \
+                      the check to find once comments are stripped",
+        },
+        BackendNote {
+            backend: "javascript-duckdb",
+            reason: "js_mode types via JSDoc comments only; no runtime identifier for either side of \
+                      the check to find once comments are stripped",
+        },
+        BackendNote {
+            backend: "javascript-oracledb",
+            reason: "js_mode types via JSDoc comments only; no runtime identifier for either side of \
+                      the check to find once comments are stripped",
+        },
+        BackendNote {
+            backend: "javascript-mssql",
             reason: "js_mode types via JSDoc comments only; no runtime identifier for either side of \
                       the check to find once comments are stripped",
         },

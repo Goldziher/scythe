@@ -71,7 +71,7 @@ rather than preceding it, since nothing may come before that tag.
 
 ## Supported backends
 
-Scythe provides 59 selectable backend names across 10 languages (plus plain JavaScript, emitted by the TypeScript backends' JSDoc mode) and 10 database engines, implemented by 52 `CodegenBackend` types: the seven `javascript-*` names are a JSDoc emit mode on the matching TypeScript backend rather than separate implementations (see [JavaScript output](/scythe/backends/typescript/#javascript-output-jsdoc)). Some backends (like `java-jdbc`) support multiple engines via engine-specific manifests loaded at runtime.
+Scythe provides 62 selectable backend names across 10 languages (plus plain JavaScript, emitted by the TypeScript backends' JSDoc mode) and 10 database engines, implemented by 52 `CodegenBackend` types: the ten `javascript-*` names are a JSDoc emit mode on the matching TypeScript backend rather than separate implementations (see [JavaScript output](/scythe/backends/typescript/#javascript-output-jsdoc)). Some backends (like `java-jdbc`) support multiple engines via engine-specific manifests loaded at runtime.
 
 ### PostgreSQL
 
@@ -149,6 +149,7 @@ Scythe provides 59 selectable backend names across 10 languages (plus plain Java
 |---------|----------|---------|
 | `python-duckdb` | Python | duckdb |
 | `typescript-duckdb` | TypeScript | duckdb-node |
+| `javascript-duckdb` | JavaScript | duckdb-node (JSDoc types) |
 | `go-database-sql` | Go | database/sql (DuckDB driver) |
 | `java-jdbc` | Java | JDBC (DuckDB JDBC driver) |
 | `kotlin-jdbc` | Kotlin | JDBC (DuckDB JDBC driver) |
@@ -175,6 +176,7 @@ per-backend `*.redshift.toml` manifest, which is why its column is narrower — 
 | `rust-tiberius` | Rust | tiberius |
 | `python-pyodbc` | Python | pyodbc |
 | `typescript-mssql` | TypeScript | mssql (tedious) |
+| `javascript-mssql` | JavaScript | mssql (tedious, JSDoc types) |
 | `typescript-kysely` | TypeScript | Kysely (any dialect) |
 | `go-database-sql` | Go | database/sql (MSSQL driver) |
 | `java-jdbc` | Java | JDBC (Microsoft JDBC Driver) |
@@ -195,6 +197,7 @@ per-backend `*.redshift.toml` manifest, which is why its column is narrower — 
 | `rust-sibyl` | Rust | sibyl |
 | `python-oracledb` | Python | oracledb |
 | `typescript-oracledb` | TypeScript | oracledb (node-oracledb) |
+| `javascript-oracledb` | JavaScript | oracledb (node-oracledb, JSDoc types) |
 | `go-godror` | Go | godror |
 | `java-jdbc` | Java | JDBC (Oracle JDBC / ojdbc) |
 | `kotlin-jdbc` | Kotlin | JDBC (Oracle JDBC / ojdbc) |
@@ -273,7 +276,7 @@ Redshift uses PostgreSQL backends with Redshift-specific type resolution:
 | Rust | sqlx, tokio-postgres | sqlx | sqlx | -- | sqlx, tokio-postgres | tiberius | sibyl | sqlx | sqlx, tokio-postgres | -- |
 | Python | psycopg3, asyncpg | aiomysql | aiosqlite | duckdb | psycopg3, asyncpg | pyodbc | oracledb | aiomysql | psycopg3, asyncpg | snowflake-connector |
 | TypeScript | postgres.js, pg, Kysely | mysql2, Kysely | better-sqlite3, Kysely, node:sqlite, wasm-sqlite | duckdb-node | postgres.js, pg, Kysely | mssql, Kysely | oracledb | mysql2, Kysely | postgres.js, pg, Kysely | snowflake-sdk |
-| JavaScript | postgres.js, pg | mysql2 | better-sqlite3, node:sqlite, wasm-sqlite | -- | postgres.js, pg | -- | -- | mysql2 | postgres.js, pg | snowflake-sdk |
+| JavaScript | postgres.js, pg | mysql2 | better-sqlite3, node:sqlite, wasm-sqlite | duckdb-node | postgres.js, pg | mssql | oracledb | mysql2 | postgres.js, pg | snowflake-sdk |
 | Go | pgx | database/sql | database/sql | database/sql | pgx | database/sql | godror | database/sql | pgx | gosnowflake |
 | Java | JDBC, R2DBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC, R2DBC | JDBC | JDBC | JDBC, R2DBC | JDBC | JDBC |
 | Kotlin | JDBC, R2DBC, Exposed | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC, R2DBC, Exposed | JDBC | JDBC | JDBC, R2DBC | JDBC | JDBC |
@@ -286,8 +289,8 @@ Redshift uses PostgreSQL backends with Redshift-specific type resolution:
 MSSQL, Oracle, Redshift, or Snowflake. `elixir-ecto` and `kotlin-exposed` cover PostgreSQL/CockroachDB
 only. `php-amphp` covers PostgreSQL/CockroachDB, MySQL, and MariaDB only. `php-pdo` has no Oracle
 support despite a manifest existing for it. The JavaScript row is the `javascript-*` JSDoc emit mode
-of the seven TypeScript backends it names -- the remaining four TypeScript backends (`typescript-duckdb`,
-`typescript-kysely`, `typescript-mssql`, `typescript-oracledb`) have no JavaScript counterpart.
+of the ten TypeScript backends it names -- `typescript-kysely` is the only TypeScript backend with no
+JavaScript counterpart.
 
 ## Adding a new backend
 

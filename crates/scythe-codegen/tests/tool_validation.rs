@@ -1001,6 +1001,31 @@ const JS_MODE_SNOWFLAKE_SCHEMA: [&str; 2] = [
 const JS_MODE_SNOWFLAKE_ONE: &str = "-- @name GetUserById\n-- @returns :one\n\
     SELECT id, name, bio FROM users WHERE id = ?;";
 
+// DuckDB has no `SqlDialect` variant of its own; it speaks PostgreSQL's
+// identifier and placeholder syntax, which is what the engine resolves to
+// (see `ts_identifier_quoting_regression.rs`'s `TS_BACKENDS`/`JS_BACKENDS`
+// for the same convention).
+const JS_MODE_DUCKDB_SCHEMA: [&str; 2] = [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, bio TEXT);",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total NUMERIC);",
+];
+const JS_MODE_DUCKDB_ONE: &str = "-- @name GetUserById\n-- @returns :one\n\
+    SELECT id, name, bio FROM users WHERE id = $1;";
+
+const JS_MODE_MSSQL_SCHEMA: [&str; 2] = [
+    "CREATE TABLE users (id INT IDENTITY(1,1) PRIMARY KEY, name NVARCHAR(255) NOT NULL, bio NVARCHAR(255));",
+    "CREATE TABLE orders (id INT IDENTITY(1,1) PRIMARY KEY, user_id INT NOT NULL, total NUMERIC(10,2));",
+];
+const JS_MODE_MSSQL_ONE: &str = "-- @name GetUserById\n-- @returns :one\n\
+    SELECT id, name, bio FROM users WHERE id = @p1;";
+
+const JS_MODE_ORACLE_SCHEMA: [&str; 2] = [
+    "CREATE TABLE users (id NUMBER(10) PRIMARY KEY, name VARCHAR2(255) NOT NULL, bio VARCHAR2(255));",
+    "CREATE TABLE orders (id NUMBER(10) PRIMARY KEY, user_id NUMBER(10) NOT NULL, total NUMBER(10,2));",
+];
+const JS_MODE_ORACLE_ONE: &str = "-- @name GetUserById\n-- @returns :one\n\
+    SELECT id, name, bio FROM users WHERE id = :1;";
+
 // ~keep `:many` is the one command whose JSDoc cast is not a straight
 // `/** @type {T} */ (expr)`: a driver whose row-fetch returns a concrete
 // record type rather than `unknown` cannot be asserted directly to a row
@@ -1227,6 +1252,60 @@ fn test_javascript_snowflake_grouped_and_nullable_pass_real_tools() {
         "expected the grouped parent typedef; got:\n{code}"
     );
     assert_js_mode_tool_validation_passes("javascript-snowflake", &code);
+}
+
+#[test]
+fn test_javascript_duckdb_grouped_and_nullable_pass_real_tools() {
+    let code = generate_js_mode_nullable_and_grouped_file(
+        "javascript-duckdb",
+        "duckdb",
+        &SqlDialect::PostgreSQL,
+        &JS_MODE_DUCKDB_SCHEMA,
+        JS_MODE_DUCKDB_ONE,
+    );
+    eprintln!("\n=== javascript-duckdb (nullable + grouped) ===\n{code}\n=== END ===\n");
+    assert_js_mode_nullable_property_is_type_or_null(&code, "bio");
+    assert!(
+        code.contains("@typedef {object} GetUsersWithOrdersRow"),
+        "expected the grouped parent typedef; got:\n{code}"
+    );
+    assert_js_mode_tool_validation_passes("javascript-duckdb", &code);
+}
+
+#[test]
+fn test_javascript_oracledb_grouped_and_nullable_pass_real_tools() {
+    let code = generate_js_mode_nullable_and_grouped_file(
+        "javascript-oracledb",
+        "oracle",
+        &SqlDialect::Oracle,
+        &JS_MODE_ORACLE_SCHEMA,
+        JS_MODE_ORACLE_ONE,
+    );
+    eprintln!("\n=== javascript-oracledb (nullable + grouped) ===\n{code}\n=== END ===\n");
+    assert_js_mode_nullable_property_is_type_or_null(&code, "bio");
+    assert!(
+        code.contains("@typedef {object} GetUsersWithOrdersRow"),
+        "expected the grouped parent typedef; got:\n{code}"
+    );
+    assert_js_mode_tool_validation_passes("javascript-oracledb", &code);
+}
+
+#[test]
+fn test_javascript_mssql_grouped_and_nullable_pass_real_tools() {
+    let code = generate_js_mode_nullable_and_grouped_file(
+        "javascript-mssql",
+        "mssql",
+        &SqlDialect::MsSql,
+        &JS_MODE_MSSQL_SCHEMA,
+        JS_MODE_MSSQL_ONE,
+    );
+    eprintln!("\n=== javascript-mssql (nullable + grouped) ===\n{code}\n=== END ===\n");
+    assert_js_mode_nullable_property_is_type_or_null(&code, "bio");
+    assert!(
+        code.contains("@typedef {object} GetUsersWithOrdersRow"),
+        "expected the grouped parent typedef; got:\n{code}"
+    );
+    assert_js_mode_tool_validation_passes("javascript-mssql", &code);
 }
 
 #[test]

@@ -203,6 +203,21 @@ working code, but the error now arrives earlier and from a different layer. Fixt
   backend can emit, and that failure reproduces identically whether the cast is written `as` or
   `/** @type */`. (#93)
 
+- **`javascript-duckdb`, `javascript-oracledb` and `javascript-mssql`: the last three JSDoc emit
+  modes.** Ten of the eleven TypeScript backends now have a `javascript-*` counterpart.
+  `typescript-kysely` is the one left out, and deliberately: JSDoc has no way to spell `Kysely<DB>`.
+  Two of the three break the family's "no driver import" rule for a real reason -- `mssql` and
+  `oracledb` generated bodies read driver constants (`sql.Int`, `oracledb.BIND_OUT`) as runtime
+  values and not merely as types, so the import stays live in JS mode and the handle types are
+  `sql.ConnectionPool` / `oracledb.Connection` rather than the inline `import("...")` spelling the
+  other eight use. `javascript-oracledb` carries its TypeScript counterpart's identifier
+  case-folding (#218) into every JS-mode row read, not just into the type annotations.
+  `javascript-mssql` is the one backend in the family whose row read carries no JSDoc cast at all:
+  `mssql`'s typed `query<Entity>()` needs an explicit type argument that JSDoc cannot supply at a
+  call site, and the untyped overload returns `any`, so `tsc` checks nothing there and the
+  string-content assertions are the only guard -- recorded here because it is a real weakness in
+  this backend's verification, not an oversight. (#93)
+
 - **`json_agg(json_build_object(...))`/`jsonb_agg(jsonb_build_object(...))` now infer an inline
   nested field list.** The relation-argument form (`json_agg(o.*)`) already synthesized a struct;
   the inline-object form — what people actually write when the columns they want are not a whole

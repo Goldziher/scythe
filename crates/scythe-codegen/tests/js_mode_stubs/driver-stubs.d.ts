@@ -1,7 +1,8 @@
 // ~keep Hand-written ambient stubs for the driver packages the `javascript-*`
 // (JSDoc emit mode, #81/#93) backends reference via `import("pkg").Type`
 // JSDoc annotations: `pg`, `postgres`, `mysql2/promise`, `better-sqlite3`,
-// `node:sqlite`, `@sqlite.org/sqlite-wasm`, `snowflake-sdk`.
+// `node:sqlite`, `@sqlite.org/sqlite-wasm`, `snowflake-sdk`, `@duckdb/node-api`,
+// `oracledb`, `mssql`.
 //
 // `tsc --checkJs --strict` (see `validate_javascript_tools` in
 // `src/validation.rs`) needs these to resolve those `import("pkg")` type
@@ -60,6 +61,35 @@
 //     `typescript_snowflake.rs::generate_query_fn_js` routes `binds` through
 //     an explicit `unknown` hop, the one JSDoc cast in this file that still
 //     needs one.
+//   - `@duckdb/node-api`'s `DuckDBResult.getRowObjects()` (inherited by the
+//     `DuckDBMaterializedResult` `DuckDBPreparedStatement.run()` returns)
+//     declares `Promise<Record<string, DuckDBValue>[]>` (copied from
+//     `@duckdb/node-api@1.5.5-r.4`'s `lib/DuckDBResult.d.ts`/`values/DuckDBValue.d.ts`,
+//     verified by installing the real package, not approximated) -- a
+//     concrete record type, not `unknown`, so `javascript-duckdb`'s row cast
+//     is a genuine TS2352 as `as` (which is why the TS backend funnels
+//     through `firstRow<T>`/`allRows<T>`, both typed `readonly unknown[]`),
+//     but the JSDoc spelling of the identical direct assertion is accepted,
+//     so `javascript-duckdb` casts in one step everywhere, same as
+//     `javascript-wasm-sqlite`.
+//   - `oracledb`'s `Connection.execute<T>` (copied from
+//     `@types/oracledb@7.0.2`'s `index.d.ts`) is called with no explicit
+//     type argument by both the TS and JS backends, so `T` has nothing to
+//     infer from and resolves to `unknown`: `Result<unknown>.rows` /
+//     `.outBinds` are `unknown[] | undefined` / `unknown | undefined`. A
+//     single-step assertion off `unknown` is always accepted by both `as`
+//     and the JSDoc inline cast, so `javascript-oracledb` needs no
+//     `unknown`-hop question at all -- unlike `javascript-duckdb` above,
+//     whose read is concrete, not `unknown`.
+//   - `mssql`'s `Request.query<Entity>` (copied from `@types/mssql@12.3.0`'s
+//     `index.d.ts`) *is* called with an explicit `<Entity>` type argument by
+//     the TS backend (`request.query<GetSessionRow>(...)`), which plain
+//     JSDoc has no syntax to spell at a call site at all. Falling back to
+//     the same package's non-generic overload (`query(command):
+//     Promise<IResult<any>>`) makes every read `any`, and `any` needs no
+//     cast to flow into a concrete type -- so `javascript-mssql` is the one
+//     backend in this file whose row read carries no JSDoc cast whatsoever,
+//     confirmed against this stub rather than assumed.
 //
 // If any of those casts is ever dropped, the corresponding
 // `test_javascript_*_grouped_and_nullable_pass_real_tools` test in
@@ -165,5 +195,122 @@ declare module "snowflake-sdk" {
   }
   export interface Connection {
     execute(options: { sqlText: string; binds?: Binds; complete?: StatementCallback }): RowStatement;
+  }
+}
+
+declare module "@duckdb/node-api" {
+  export class DuckDBBlobValue {
+    readonly bytes: Uint8Array;
+    constructor(bytes: Uint8Array);
+  }
+  export type DuckDBValue = null | boolean | number | bigint | string | DuckDBBlobValue;
+  export class DuckDBMaterializedResult {
+    getRowObjects(): Promise<Record<string, DuckDBValue>[]>;
+    readonly rowsChanged: number;
+  }
+  export class DuckDBPreparedStatement {
+    bind(values: DuckDBValue[] | Record<string, DuckDBValue>): void;
+    run(): Promise<DuckDBMaterializedResult>;
+  }
+  export class DuckDBConnection {
+    prepare(sql: string): Promise<DuckDBPreparedStatement>;
+  }
+}
+
+declare module "oracledb" {
+  namespace OracleDB {
+    const OUT_FORMAT_OBJECT: number;
+    const BIND_OUT: number;
+    const NUMBER: number;
+    const DATE: number;
+    const STRING: number;
+
+    type BindParameter = { dir?: number; type?: number; val?: unknown };
+    type BindParameters =
+      | Record<string, BindParameter | string | number | bigint | boolean | Date | null | undefined>
+      | Array<BindParameter | string | number | bigint | boolean | Date | null | undefined>;
+
+    interface ExecuteOptions {
+      outFormat?: number;
+      [key: string]: unknown;
+    }
+
+    interface Result<T> {
+      outBinds?: T | undefined;
+      rows?: T[] | undefined;
+      rowsAffected?: number | undefined;
+    }
+    interface Results<T> {
+      outBinds?: T[] | undefined;
+      rowsAffected?: number | undefined;
+    }
+
+    interface Connection {
+      execute<T>(sql: string, bindParams: BindParameters, options: ExecuteOptions): Promise<Result<T>>;
+      execute<T>(sql: string, bindParams: BindParameters): Promise<Result<T>>;
+      execute<T>(sql: string): Promise<Result<T>>;
+      executeMany<T>(sql: string, binds: BindParameters[]): Promise<Results<T>>;
+      executeMany<T>(sql: string, iterations: number): Promise<Results<T>>;
+    }
+  }
+  export = OracleDB;
+}
+
+declare module "mssql" {
+  // ~keep Unlike the `oracledb` block above (a `namespace` wrapped in
+  // `export =`), this one mirrors the real `@types/mssql@12.3.0` package's
+  // own shape more directly: plain top-level `export`s, no `export =` and no
+  // explicit `export default`. Verified against the real package (`npm
+  // install @types/mssql`, not approximated): with no `package.json`
+  // anywhere above this file declaring `"type": "module"` (confirmed for
+  // this repo -- there is none between here and the filesystem root), the
+  // real `mssql` runtime package is CommonJS, and `--module nodenext`
+  // synthesizes `import sql from "mssql"`'s default binding as the whole
+  // export table -- which is what makes `sql.ConnectionPool` resolve as a
+  // *type* position, not just `sql.Int` as a value. An earlier draft of this
+  // stub wrapped everything in an explicit `const sql = { ... }; export
+  // default sql;` object literal instead, which compiles but produces a
+  // plain value type with no merged namespace, and `@param
+  // {sql.ConnectionPool}` failed with `TS2503: Cannot find namespace 'sql'`
+  // -- caught by trying it against this exact stub before shipping it.
+  interface ISqlTypeFactory {
+    (): unknown;
+  }
+  export const SmallInt: ISqlTypeFactory;
+  export const Int: ISqlTypeFactory;
+  export const BigInt: ISqlTypeFactory;
+  export const Real: ISqlTypeFactory;
+  export const Float: ISqlTypeFactory;
+  export const VarChar: ISqlTypeFactory;
+  export const Bit: ISqlTypeFactory;
+  export const NVarChar: ISqlTypeFactory;
+  export const Text: ISqlTypeFactory;
+  export const Date: ISqlTypeFactory;
+  export const DateTime: ISqlTypeFactory;
+  export const DateTimeOffset: ISqlTypeFactory;
+  export const UniqueIdentifier: ISqlTypeFactory;
+  export const Binary: ISqlTypeFactory;
+
+  export interface IResult<T> {
+    recordset: IRecordSet<T>;
+    rowsAffected: number[];
+  }
+  export interface IRecordSet<T> extends Array<T> {}
+
+  export class Request {
+    input(name: string, value: unknown): Request;
+    input(name: string, type: unknown, value: unknown): Request;
+    query(command: string): Promise<IResult<any>>;
+    query<Entity>(command: string): Promise<IResult<Entity>>;
+  }
+  export class Transaction {
+    begin(): Promise<void>;
+    commit(): Promise<void>;
+    rollback(): Promise<void>;
+    request(): Request;
+  }
+  export class ConnectionPool {
+    request(): Request;
+    transaction(): Transaction;
   }
 }

@@ -1,6 +1,6 @@
 # Backends Reference
 
-Scythe provides 59 selectable backend names across 10 languages and 10 database engines, implemented by 52 `CodegenBackend` types -- the seven `javascript-*` names are a JSDoc emit mode on the matching TypeScript backend, not separate implementations.
+Scythe provides 62 selectable backend names across 10 languages and 10 database engines, implemented by 52 `CodegenBackend` types -- the ten `javascript-*` names are a JSDoc emit mode on the matching TypeScript backend, not separate implementations.
 
 ## Language Coverage
 
@@ -9,7 +9,7 @@ Scythe provides 59 selectable backend names across 10 languages and 10 database 
 | Rust | sqlx, tokio-postgres | sqlx | sqlx | -- | sqlx, tokio-postgres | tiberius | sibyl | sqlx | sqlx, tokio-postgres | -- |
 | Python | psycopg3, asyncpg | aiomysql | aiosqlite | duckdb | psycopg3, asyncpg | pyodbc | oracledb | aiomysql | psycopg3, asyncpg | snowflake-connector |
 | TypeScript | postgres.js, pg, kysely | mysql2, kysely | better-sqlite3, node:sqlite, sqlite-wasm, kysely | duckdb-node | postgres.js, pg, kysely | mssql, kysely | oracledb | mysql2, kysely | postgres.js, pg, kysely | snowflake-sdk |
-| JavaScript | postgres.js, pg | mysql2 | better-sqlite3, node:sqlite, sqlite-wasm | -- | postgres.js, pg | -- | -- | mysql2 | postgres.js, pg | snowflake-sdk |
+| JavaScript | postgres.js, pg | mysql2 | better-sqlite3, node:sqlite, sqlite-wasm | duckdb-node | postgres.js, pg | mssql | oracledb | mysql2 | postgres.js, pg | snowflake-sdk |
 | Go | pgx | database/sql | database/sql | database/sql | pgx | go-mssqldb | godror | database/sql | pgx | gosnowflake |
 | Java | JDBC, R2DBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC, R2DBC | JDBC | JDBC | JDBC, R2DBC | JDBC | JDBC |
 | Kotlin | JDBC, R2DBC, Exposed | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC, R2DBC, Exposed | JDBC | JDBC | JDBC, R2DBC | JDBC | JDBC |
@@ -34,7 +34,7 @@ MSSQL/Oracle manifests ship for `java-r2dbc` or `kotlin-r2dbc` (see
 
 `typescript-node-sqlite` and `typescript-wasm-sqlite` (and their `javascript-node-sqlite` / `javascript-wasm-sqlite` counterparts) generate synchronous code (plain `export function`, no `async`, no `Promise`), unlike every other TypeScript/JavaScript backend. `typescript-node-sqlite` and `javascript-node-sqlite` require `--experimental-sqlite` on Node 22 and are unflagged from Node 23.4 onward.
 
-The JavaScript row is `javascript-postgres`, `javascript-pg`, `javascript-mysql2`, `javascript-better-sqlite3`, `javascript-node-sqlite`, `javascript-wasm-sqlite`, and `javascript-snowflake` -- a JSDoc emit mode on the matching TypeScript backend, not separate backends. Output is `queries.js`: plain ESM, no driver import (handles are typed inline as `import("pg").PoolClient` in `@param`), row types as `@typedef {object}` with nullable columns always `{T | null}`. `row_type = "zod"`, `outer_join_unions`, and `field_case = "camelCase"` are hard errors there, each naming the TypeScript backend to use instead; `structs_only` and `field_case = "snake_case"` work. The other four TypeScript backends -- `typescript-duckdb`, `typescript-kysely`, `typescript-mssql`, `typescript-oracledb` -- have no JavaScript counterpart.
+The JavaScript row is `javascript-postgres`, `javascript-pg`, `javascript-mysql2`, `javascript-better-sqlite3`, `javascript-duckdb`, `javascript-node-sqlite`, `javascript-wasm-sqlite`, `javascript-mssql`, `javascript-oracledb`, and `javascript-snowflake` -- a JSDoc emit mode on the matching TypeScript backend, not separate backends. Output is `queries.js`: plain ESM, no driver import for most (handles are typed inline as `import("pg").PoolClient` in `@param`), row types as `@typedef {object}` with nullable columns always `{T | null}`. `javascript-mssql` and `javascript-oracledb` are the exception: they keep a real runtime driver import (`import sql from "mssql"` / `import oracledb from 'oracledb'`) because generated bodies read driver constants (`sql.Int`, `oracledb.BIND_OUT`, ...) as values, not just as types, and their handle types (`sql.ConnectionPool`, `oracledb.Connection`) resolve through that same import rather than an `import("...")` type-only spelling. `row_type = "zod"`, `outer_join_unions`, and `field_case = "camelCase"` are hard errors there, each naming the TypeScript backend to use instead; `structs_only` and `field_case = "snake_case"` work. `typescript-kysely` is the only TypeScript backend with no JavaScript counterpart.
 
 ## Backend Names
 
@@ -54,7 +54,7 @@ Use these exact names in `[[sql.gen]] backend = "..."`:
 
 ### DuckDB
 
-`python-duckdb`, `typescript-duckdb`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`
+`python-duckdb`, `typescript-duckdb`, `javascript-duckdb`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`
 
 ### CockroachDB
 
@@ -62,11 +62,11 @@ Use these exact names in `[[sql.gen]] backend = "..."`:
 
 ### MSSQL
 
-`rust-tiberius`, `python-pyodbc`, `typescript-mssql`, `typescript-kysely`, `go-database-sql`, `java-jdbc`, `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`, `csharp-sqlclient`, `ruby-tiny-tds`, `php-pdo`, `elixir-tds`
+`rust-tiberius`, `python-pyodbc`, `typescript-mssql`, `typescript-kysely`, `javascript-mssql`, `go-database-sql`, `java-jdbc`, `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`, `csharp-sqlclient`, `ruby-tiny-tds`, `php-pdo`, `elixir-tds`
 
 ### Oracle
 
-`rust-sibyl`, `python-oracledb`, `typescript-oracledb`, `go-godror`, `java-jdbc`, `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`, `csharp-oracle`, `ruby-oci8`, `elixir-jamdb`
+`rust-sibyl`, `python-oracledb`, `typescript-oracledb`, `javascript-oracledb`, `go-godror`, `java-jdbc`, `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`, `csharp-oracle`, `ruby-oci8`, `elixir-jamdb`
 
 `php-pdo` does not support Oracle.
 

@@ -93,14 +93,19 @@ fn fixture(dialect: &SqlDialect) -> (&'static str, [&'static str; 3]) {
 /// Each pairs with the same engine its `typescript-*` sibling in
 /// [`TS_BACKENDS`] uses, since `get_backend` dispatches both names to the
 /// same per-engine constructor (`new` vs. `new_js`).
-const JS_BACKENDS: [(&str, &str, SqlDialect); 7] = [
+const JS_BACKENDS: [(&str, &str, SqlDialect); 10] = [
     ("javascript-postgres", "postgresql", SqlDialect::PostgreSQL),
     ("javascript-pg", "postgresql", SqlDialect::PostgreSQL),
     ("javascript-mysql2", "mysql", SqlDialect::MySQL),
     ("javascript-better-sqlite3", "sqlite", SqlDialect::SQLite),
     ("javascript-node-sqlite", "sqlite", SqlDialect::SQLite),
     ("javascript-wasm-sqlite", "sqlite", SqlDialect::SQLite),
+    ("javascript-mssql", "mssql", SqlDialect::MsSql),
+    ("javascript-oracledb", "oracle", SqlDialect::Oracle),
     ("javascript-snowflake", "snowflake", SqlDialect::Snowflake),
+    // DuckDB has no `SqlDialect` variant of its own; it speaks PostgreSQL's
+    // identifier and placeholder syntax, which is what the engine resolves to.
+    ("javascript-duckdb", "duckdb", SqlDialect::PostgreSQL),
 ];
 
 /// The three keys every fixture projects, spelled as they must appear in the

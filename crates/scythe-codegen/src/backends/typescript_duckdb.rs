@@ -11,10 +11,11 @@ use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
     TsFieldCase, TsRowShape, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
+    generate_js_grouped_typedef_structs, generate_js_typedef, generate_js_typedef_row_struct, generate_jsdoc_fn_header,
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_many_row_remap,
     generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_grouped_structs, generate_zod_row_struct,
-    generate_zod_union_row_struct, parse_bool_option, ts_index_access, ts_member_access, ts_property_key,
-    ts_row_not_found_throw,
+    generate_zod_union_row_struct, js_fn_signature_line, js_type_cast, parse_bool_option, ts_index_access,
+    ts_member_access, ts_property_key, ts_row_not_found_throw,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-duckdb.toml");
@@ -73,6 +74,10 @@ pub struct TypescriptDuckdbBackend {
     /// see [`generate_ts_one_row_remap`]/[`generate_ts_many_row_remap`].
     /// `Snake` (the default) keeps that cast, which is sound there.
     field_case: TsFieldCase,
+    /// Emit plain, JSDoc-annotated `.js` instead of `.ts` -- the
+    /// `javascript-duckdb` registry name (#93). See
+    /// `TypescriptPgBackend::js_mode` for the shared rationale.
+    js_mode: bool,
 }
 
 impl TypescriptDuckdbBackend {
@@ -84,7 +89,38 @@ impl TypescriptDuckdbBackend {
     /// `Uint8Array` (`Uint8Array` is not part of the driver's own
     /// `DuckDBValue` union either -- see the comment on `write_bind_and_run`
     /// -- which is the same evidence).
+    ///
+    /// The short-circuit for `js_mode` lives in this helper rather than in
+    /// `file_header`/`file_header_for_results` because those are the only
+    /// two callers, and both funnel through here: JSDoc types are
+    /// self-contained (`{import("@duckdb/node-api").DuckDBConnection}`
+    /// written directly in the `@param` tag; `DuckDBValue`/`DuckDBBlobValue`
+    /// referenced the same way at each cast site -- see
+    /// `generate_query_fn_js`), so `.js` output never needs a driver import.
+    /// It also never needs the `firstRow`/`allRows` helpers below: both are
+    /// declared with a TS generic (`<T>`), which plain `.js` cannot parse --
+    /// JS mode reads a row through a direct inline JSDoc cast instead.
+    /// Nothing is left for this header to carry regardless of
+    /// `needs_value_type`/`needs_blob_type`, which only govern the TS import
+    /// list this mode skips outright.
+    ///
+    /// ~keep One gap this does not close: a `bytes` column's declared type is
+    /// the bare manifest string `"DuckDBBlobValue"` (see
+    /// `manifests/typescript-duckdb.toml`), not an `import(...)`-qualified
+    /// one, because the manifest is shared between both emit modes and TS
+    /// mode resolves the bare name through its own `import type { ... }`
+    /// line. With that line dropped here, a `.js` file whose query selects a
+    /// `BLOB` column would emit a JSDoc `@property {DuckDBBlobValue}` with no
+    /// import anywhere binding that name -- an unresolved-identifier error
+    /// under real `tsc --checkJs`. No fixture in this crate's test suite
+    /// selects a `bytes` column through `javascript-duckdb`, so nothing here
+    /// catches it; fixing it properly needs the manifest (or `resolve_type`)
+    /// to carry a JS-mode-qualified spelling, which is out of scope for this
+    /// backend addition.
     fn file_header_with_value_type(&self, needs_value_type: bool, needs_blob_type: bool) -> String {
+        if self.js_mode {
+            return String::new();
+        }
         if self.structs_only {
             let mut header = String::new();
             if needs_blob_type {
@@ -134,13 +170,36 @@ impl TypescriptDuckdbBackend {
             outer_join_unions: false,
             structs_only: false,
             field_case: TsFieldCase::default(),
+            js_mode: false,
         })
+    }
+
+    /// As [`Self::new`], but selecting the `javascript-duckdb` JSDoc emit mode.
+    pub fn new_js(engine: &str) -> Result<Self, ScytheError> {
+        let mut backend = Self::new(engine)?;
+        backend.js_mode = true;
+        Ok(backend)
     }
 }
 
 impl CodegenBackend for TypescriptDuckdbBackend {
     fn name(&self) -> &str {
-        "typescript-duckdb"
+        if self.js_mode {
+            "javascript-duckdb"
+        } else {
+            "typescript-duckdb"
+        }
+    }
+
+    /// The manifest is shared with `typescript-duckdb` and says `ts`; JSDoc
+    /// output is plain JavaScript and must land in a `.js` file to be
+    /// runnable.
+    fn output_extension(&self) -> &str {
+        if self.js_mode {
+            "js"
+        } else {
+            &self.manifest.backend.file_extension
+        }
     }
 
     fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
@@ -205,6 +264,9 @@ impl CodegenBackend for TypescriptDuckdbBackend {
         query_name: &str,
         columns: &[ResolvedColumn],
     ) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return Ok(generate_js_typedef_row_struct(struct_name, query_name, columns));
+        }
         if self.row_type == TsRowType::Zod {
             if self.outer_join_unions {
                 return Ok(generate_zod_union_row_struct(struct_name, query_name, columns));
@@ -224,6 +286,9 @@ impl CodegenBackend for TypescriptDuckdbBackend {
         columns: &[ResolvedColumn],
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return self.generate_query_fn_js(analyzed, struct_name, params);
+        }
         if self.structs_only {
             return Ok(String::new());
         }
@@ -428,6 +493,14 @@ impl CodegenBackend for TypescriptDuckdbBackend {
         child_columns: &[ResolvedColumn],
         _key_column: &str,
     ) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return Ok(generate_js_grouped_typedef_structs(
+                child_struct_name,
+                parent_struct_name,
+                parent_columns,
+                child_columns,
+            ));
+        }
         if self.row_type == TsRowType::Zod {
             return Ok(generate_zod_grouped_structs(
                 child_struct_name,
@@ -445,6 +518,9 @@ impl CodegenBackend for TypescriptDuckdbBackend {
     }
 
     fn generate_grouped_query_fn(&self, request: &GroupedQueryFn<'_>) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return self.generate_grouped_query_fn_js(request);
+        }
         let analyzed = request.analyzed;
         let parent_struct_name = request.parent_struct_name;
         let child_struct_name = request.child_struct_name;
@@ -514,6 +590,9 @@ impl CodegenBackend for TypescriptDuckdbBackend {
     }
 
     fn generate_enum_def(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return self.generate_enum_def_js(enum_info);
+        }
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         if self.row_type == TsRowType::Zod {
             return Ok(super::typescript_common::generate_zod_enum(
@@ -529,6 +608,9 @@ impl CodegenBackend for TypescriptDuckdbBackend {
     }
 
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
+        if self.js_mode {
+            return self.generate_composite_def_js(composite);
+        }
         let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "/** Composite type {}. */", composite.sql_name);
@@ -564,7 +646,370 @@ impl CodegenBackend for TypescriptDuckdbBackend {
             self.field_case = TsFieldCase::from_option(value)?;
             self.manifest.naming.field_case = value.clone();
         }
+
+        // ~keep See `TypescriptWasmSqliteBackend::apply_options` for why these
+        // three are rejected outright in JSDoc mode rather than silently
+        // ignored.
+        if self.js_mode {
+            if self.row_type == TsRowType::Zod {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    "javascript-duckdb does not support row_type = \"zod\": the inferred `export type X = \
+                     z.infer<...>` alias is TypeScript-only syntax a plain .js file cannot carry -- use \
+                     typescript-duckdb for Zod row types"
+                        .to_string(),
+                ));
+            }
+            if self.outer_join_unions {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    "javascript-duckdb does not support outer_join_unions: the discriminated union is a \
+                     TypeScript `type X = A & (B | C)` alias, which plain .js cannot carry -- use \
+                     typescript-duckdb"
+                        .to_string(),
+                ));
+            }
+            if self.field_case == TsFieldCase::Camel {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    "javascript-duckdb does not support field_case = \"camelCase\": the field remap needs a \
+                     TypeScript `as T` assertion, which plain .js cannot carry -- use typescript-duckdb"
+                        .to_string(),
+                ));
+            }
+        }
         Ok(())
+    }
+}
+
+impl TypescriptDuckdbBackend {
+    /// JSDoc-mode counterpart of `generate_query_fn` (see
+    /// `CodegenBackend::generate_query_fn`). `@duckdb/node-api` is Promise-based
+    /// like the TS path, so this stays `async` throughout; the difference is
+    /// entirely in how a row is cast.
+    ///
+    /// Every cast here is a single JSDoc `/** @type {T} */ (expr)` step,
+    /// verified against the real `@duckdb/node-api@1.5.5-r.4` package (not a
+    /// hand-approximated stub): `DuckDBResult.getRowObjects()` (inherited by
+    /// the `DuckDBMaterializedResult` `stmt.run()` returns) declares
+    /// `Promise<Record<string, DuckDBValue>[]>`, a concrete record type, not
+    /// `unknown` -- so `rows[0] as GetUserRow | undefined` is a genuine
+    /// TS2352 on the TypeScript path, which is why it funnels through the
+    /// `firstRow<T>`/`allRows<T>` helpers above (both declared with a
+    /// parameter typed `readonly unknown[]`, so the cast inside always starts
+    /// from `unknown`, which is unconditionally single-step-safe). The JSDoc
+    /// spelling of the identical direct assertion (no `unknown[]`-typed
+    /// funnel) is accepted by real `tsc --checkJs --strict` -- confirmed
+    /// against the published package -- so JS mode casts a row in one step,
+    /// same as `javascript-wasm-sqlite`'s `:one`/`:many`.
+    fn generate_query_fn_js(
+        &self,
+        analyzed: &AnalyzedQuery,
+        struct_name: &str,
+        params: &[ResolvedParam],
+    ) -> Result<String, ScytheError> {
+        if self.structs_only {
+            return Ok(String::new());
+        }
+
+        const DB_TYPE: &str = "import(\"@duckdb/node-api\").DuckDBConnection";
+        const VALUE_ARRAY_TYPE: &str = "import(\"@duckdb/node-api\").DuckDBValue[]";
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let mut out = String::new();
+
+        let sql = escape_ts_template_literal(&super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
+
+        let query_sig_params: Vec<(String, String)> = std::iter::once(("conn".to_string(), DB_TYPE.to_string()))
+            .chain(params.iter().map(|p| (p.field_name.clone(), p.full_type.clone())))
+            .collect();
+
+        let param_args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+
+        // ~keep JS-mode counterpart of the free `write_bind_and_run` above: same
+        // "bind only if there are args, always await run()" shape, but the
+        // bind-array assertion is a JSDoc inline cast rather than `as`.
+        let write_bind_and_run_js = |out: &mut String, indent: &str, result_binding: Option<&str>| {
+            if !param_args.is_empty() {
+                let bind_expr = js_type_cast(VALUE_ARRAY_TYPE, &format!("[{}]", param_args.join(", ")));
+                let _ = writeln!(out, "{indent}stmt.bind({bind_expr});");
+            }
+            match result_binding {
+                Some(name) => {
+                    let _ = writeln!(out, "{indent}const {name} = await stmt.run();");
+                }
+                None => {
+                    let _ = writeln!(out, "{indent}await stmt.run();");
+                }
+            }
+        };
+
+        let write_signature = |out: &mut String, description: &str, sig_params: &[(String, String)], ret: &str| {
+            out.push_str(&generate_jsdoc_fn_header(description, sig_params, ret));
+            let _ = writeln!(out);
+            let _ = writeln!(out, "{}", js_fn_signature_line(true, &func_name, sig_params));
+        };
+
+        match &analyzed.command {
+            QueryCommand::One => {
+                write_signature(
+                    &mut out,
+                    &format!("Fetch a single {}.", struct_name),
+                    &query_sig_params,
+                    &format!("Promise<{}>", struct_name),
+                );
+                let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{sql}`);");
+                write_bind_and_run_js(&mut out, "\t", Some("result"));
+                let _ = writeln!(out, "\tconst rows = await result.getRowObjects();");
+                let _ = writeln!(
+                    out,
+                    "\tconst row = {};",
+                    js_type_cast(&format!("{struct_name} | undefined"), "rows[0]")
+                );
+                let _ = writeln!(out, "\tif (row === undefined) {{");
+                let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\treturn row;");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Opt => {
+                write_signature(
+                    &mut out,
+                    &format!("Fetch a single {} or null.", struct_name),
+                    &query_sig_params,
+                    &format!("Promise<{} | null>", struct_name),
+                );
+                let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{sql}`);");
+                write_bind_and_run_js(&mut out, "\t", Some("result"));
+                let _ = writeln!(out, "\tconst rows = await result.getRowObjects();");
+                let _ = writeln!(
+                    out,
+                    "\tconst row = {};",
+                    js_type_cast(&format!("{struct_name} | undefined"), "rows[0]")
+                );
+                let _ = writeln!(out, "\treturn row ?? null;");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Many => {
+                write_signature(
+                    &mut out,
+                    &format!("Fetch all {} rows.", struct_name),
+                    &query_sig_params,
+                    &format!("Promise<{}[]>", struct_name),
+                );
+                let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{sql}`);");
+                write_bind_and_run_js(&mut out, "\t", Some("result"));
+                let _ = writeln!(
+                    out,
+                    "\treturn {};",
+                    js_type_cast(&format!("{struct_name}[]"), "await result.getRowObjects()")
+                );
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}Batch", func_name);
+                if params.len() > 1 {
+                    let params_type_name = format!("{}BatchParams", struct_name);
+                    let fields: Vec<(String, String)> = params
+                        .iter()
+                        .map(|p| (p.field_name.clone(), p.full_type.clone()))
+                        .collect();
+                    out.push_str(&generate_js_typedef(
+                        &params_type_name,
+                        &format!("Params for {} batch operation.", struct_name),
+                        &fields,
+                    ));
+                    let _ = writeln!(out);
+                    let _ = writeln!(out);
+                    let batch_sig_params = vec![
+                        ("conn".to_string(), DB_TYPE.to_string()),
+                        ("items".to_string(), format!("Array<{}>", params_type_name)),
+                    ];
+                    out.push_str(&generate_jsdoc_fn_header(
+                        &format!("Execute {} for each item in the batch.", analyzed.name),
+                        &batch_sig_params,
+                        "Promise<void>",
+                    ));
+                    let _ = writeln!(out);
+                    let _ = writeln!(out, "{}", js_fn_signature_line(true, &batch_fn_name, &batch_sig_params));
+                    let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{sql}`);");
+                    let _ = writeln!(out, "\tfor (const item of items) {{");
+                    let args: Vec<String> = params.iter().map(|p| ts_member_access("item", &p.field_name)).collect();
+                    let bind_expr = js_type_cast(VALUE_ARRAY_TYPE, &format!("[{}]", args.join(", ")));
+                    let _ = writeln!(out, "\t\tstmt.bind({bind_expr});");
+                    let _ = writeln!(out, "\t\tawait stmt.run();");
+                    let _ = writeln!(out, "\t}}");
+                    let _ = write!(out, "}}");
+                } else if params.len() == 1 {
+                    let batch_sig_params = vec![
+                        ("conn".to_string(), DB_TYPE.to_string()),
+                        ("items".to_string(), format!("Array<{}>", params[0].full_type)),
+                    ];
+                    out.push_str(&generate_jsdoc_fn_header(
+                        &format!("Execute {} for each item in the batch.", analyzed.name),
+                        &batch_sig_params,
+                        "Promise<void>",
+                    ));
+                    let _ = writeln!(out);
+                    let _ = writeln!(out, "{}", js_fn_signature_line(true, &batch_fn_name, &batch_sig_params));
+                    let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{sql}`);");
+                    let _ = writeln!(out, "\tfor (const item of items) {{");
+                    let bind_expr = js_type_cast(VALUE_ARRAY_TYPE, "[item]");
+                    let _ = writeln!(out, "\t\tstmt.bind({bind_expr});");
+                    let _ = writeln!(out, "\t\tawait stmt.run();");
+                    let _ = writeln!(out, "\t}}");
+                    let _ = write!(out, "}}");
+                } else {
+                    let batch_sig_params = vec![
+                        ("conn".to_string(), DB_TYPE.to_string()),
+                        ("count".to_string(), "number".to_string()),
+                    ];
+                    out.push_str(&generate_jsdoc_fn_header(
+                        &format!("Execute {} for each item in the batch.", analyzed.name),
+                        &batch_sig_params,
+                        "Promise<void>",
+                    ));
+                    let _ = writeln!(out);
+                    let _ = writeln!(out, "{}", js_fn_signature_line(true, &batch_fn_name, &batch_sig_params));
+                    let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{sql}`);");
+                    let _ = writeln!(out, "\tfor (let i = 0; i < count; i++) {{");
+                    let _ = writeln!(out, "\t\tawait stmt.run();");
+                    let _ = writeln!(out, "\t}}");
+                    let _ = write!(out, "}}");
+                }
+            }
+            QueryCommand::Exec => {
+                write_signature(
+                    &mut out,
+                    "Execute a query returning no rows.",
+                    &query_sig_params,
+                    "Promise<void>",
+                );
+                let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{sql}`);");
+                write_bind_and_run_js(&mut out, "\t", None);
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Grouped => {
+                unreachable!("Grouped command is routed through generate_grouped_query_fn, not generate_query_fn")
+            }
+            QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                write_signature(
+                    &mut out,
+                    "Execute a query and return the number of affected rows.",
+                    &query_sig_params,
+                    "Promise<number>",
+                );
+                let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{sql}`);");
+                write_bind_and_run_js(&mut out, "\t", Some("result"));
+                let _ = writeln!(out, "\treturn result.rowsChanged;");
+                let _ = write!(out, "}}");
+            }
+        }
+
+        Ok(out)
+    }
+
+    /// JSDoc-mode counterpart of `generate_grouped_query_fn`.
+    fn generate_grouped_query_fn_js(&self, request: &GroupedQueryFn<'_>) -> Result<String, ScytheError> {
+        let analyzed = request.analyzed;
+        let parent_struct_name = request.parent_struct_name;
+        let child_struct_name = request.child_struct_name;
+        let parent_columns = request.parent_columns;
+        let child_columns = request.child_columns;
+        let params = request.params;
+        let key_column = request.key_column;
+
+        if self.structs_only {
+            return Ok(String::new());
+        }
+
+        const DB_TYPE: &str = "import(\"@duckdb/node-api\").DuckDBConnection";
+        const VALUE_ARRAY_TYPE: &str = "import(\"@duckdb/node-api\").DuckDBValue[]";
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let sql = escape_ts_template_literal(&super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
+
+        let sig_params: Vec<(String, String)> = std::iter::once(("conn".to_string(), DB_TYPE.to_string()))
+            .chain(params.iter().map(|p| (p.field_name.clone(), p.full_type.clone())))
+            .collect();
+        let ret = format!("Promise<{parent_struct_name}[]>");
+
+        let mut out = String::new();
+        out.push_str(&generate_jsdoc_fn_header(
+            &format!("Fetch grouped {} rows.", analyzed.name),
+            &sig_params,
+            &ret,
+        ));
+        let _ = writeln!(out);
+        let _ = writeln!(out, "{}", js_fn_signature_line(true, &func_name, &sig_params));
+
+        let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{sql}`);");
+        if !params.is_empty() {
+            let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+            let bind_expr = js_type_cast(VALUE_ARRAY_TYPE, &format!("[{}]", args.join(", ")));
+            let _ = writeln!(out, "\tstmt.bind({bind_expr});");
+        }
+        let _ = writeln!(out, "\tconst _result = await stmt.run();");
+        let _ = writeln!(
+            out,
+            "\tconst flatRows = {};",
+            js_type_cast("Array<Record<string, unknown>>", "await _result.getRowObjects()")
+        );
+
+        let fold = generate_ts_grouped_fold_body(
+            parent_struct_name,
+            child_struct_name,
+            parent_columns,
+            child_columns,
+            key_column,
+            true,
+            |name, _ty| ts_index_access("row", name),
+        );
+        out.push_str(&fold);
+        let _ = write!(out, "}}");
+        Ok(out)
+    }
+
+    /// JSDoc-mode counterpart of `generate_enum_def`. The TS path's default
+    /// (non-Zod) shape here is already just a string-literal union type alias
+    /// with no backing runtime value, so unlike `TypescriptPgBackend`'s JS
+    /// enum a bare `@typedef` carries the same union directly. Matches
+    /// `TypescriptDuckdbBackend::generate_enum_def`'s own TS-mode shape,
+    /// which does not escape a `"` inside a variant either.
+    fn generate_enum_def_js(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
+        let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
+        let variants: Vec<String> = enum_info.values.iter().map(|v| format!("\"{}\"", v)).collect();
+        Ok(format!("/** @typedef {{({})}} {} */", variants.join(" | "), type_name))
+    }
+
+    /// JSDoc-mode counterpart of `generate_composite_def`. Matches the TS
+    /// path's plain-interface shape: this backend has no pg-style
+    /// text-wire-format parser to port, so a bare `@typedef` is a complete
+    /// equivalent.
+    fn generate_composite_def_js(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
+        let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
+        let mut fields = Vec::with_capacity(composite.fields.len());
+        for field in &composite.fields {
+            let ts_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                .map(|t| t.into_owned())
+                .map_err(|e| {
+                    ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
+                })?;
+            fields.push((to_camel_case(&field.name).into_owned(), ts_type));
+        }
+        Ok(generate_js_typedef(
+            &name,
+            &format!("Composite type {}.", composite.sql_name),
+            &fields,
+        ))
     }
 }
 
@@ -1139,5 +1584,212 @@ mod tests {
             !query_fn.contains("Record<string,\n"),
             "the json type must not be split at its internal comma; got:\n{query_fn}"
         );
+    }
+
+    fn js_backend() -> TypescriptDuckdbBackend {
+        TypescriptDuckdbBackend::new_js("duckdb").unwrap()
+    }
+
+    #[test]
+    fn test_js_mode_name_is_javascript_duckdb() {
+        assert_eq!(js_backend().name(), "javascript-duckdb");
+    }
+
+    #[test]
+    fn test_js_mode_output_extension_is_js() {
+        assert_eq!(js_backend().output_extension(), "js");
+    }
+
+    #[test]
+    fn test_js_mode_file_header_has_no_ts_only_imports() {
+        assert_eq!(js_backend().file_header(), "");
+    }
+
+    #[test]
+    fn test_js_mode_row_struct_emits_nullable_column_as_type_or_null() {
+        let backend = js_backend();
+        let row_struct = backend
+            .generate_row_struct("GetSession", &discriminated_join_columns())
+            .unwrap();
+
+        assert!(
+            row_struct.contains(" * @property {string | null} total"),
+            "nullable column must be `{{T | null}}`, never optional; got:\n{row_struct}"
+        );
+        assert!(row_struct.contains(" * @property {number} id"), "got:\n{row_struct}");
+        assert!(!row_struct.contains("[total]"), "{row_struct}");
+        assert!(!row_struct.contains("total?"), "{row_struct}");
+    }
+
+    #[test]
+    fn test_js_mode_one_query_fn_is_async_with_jsdoc_types_and_a_one_step_cast() {
+        let backend = js_backend();
+        let query = make_one_query_with_snake_case_column();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("@param {import(\"@duckdb/node-api\").DuckDBConnection} conn"),
+            "got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("@returns {Promise<GetSessionRow>}"),
+            "`:one` must not be nullable; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("export async function getSession(conn) {"),
+            "got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains(" as "),
+            "must not use a TS `as` assertion; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("const row = /** @type {GetSessionRow | undefined} */ (rows[0]);"),
+            "the blind cast must be a single-step JSDoc inline cast, not funnelled through a generic \
+             helper; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains(
+                "if (row === undefined) {\n\t\tthrow new Error(\"no row found for query: GetSession\");\n\t}\n\t\
+                 return row;"
+            ),
+            "`:one` must throw on a missing row, not return null; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("?? null"),
+            "`:one` must not return null; got:\n{query_fn}"
+        );
+    }
+
+    /// One cast, not the TS path's `firstRow<T>`/`allRows<T>` funnel-through-
+    /// `unknown` trick: `stmt.run()` -> `result.getRowObjects()` returns the
+    /// real `@duckdb/node-api` type `Promise<Record<string, DuckDBValue>[]>`,
+    /// a concrete record type, so `await result.getRowObjects() as
+    /// GetSessionRow[]` is a genuine TS2352 on the TypeScript path -- but the
+    /// JSDoc spelling of the identical assertion is accepted by real `tsc
+    /// --checkJs --strict` (verified against the published package, not a
+    /// hand-approximated stub). The real-`tsc` half of this claim is
+    /// `test_javascript_duckdb_grouped_and_nullable_pass_real_tools` in
+    /// `tests/tool_validation.rs`, which compiles a `:many` query against the
+    /// checked-in `@duckdb/node-api` stub; this assertion only pins the
+    /// spelling.
+    #[test]
+    fn test_js_mode_many_query_fn_casts_rows_in_one_step() {
+        let backend = js_backend();
+        let mut query = make_one_query_with_snake_case_column();
+        query.command = QueryCommand::Many;
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("@returns {Promise<GetSessionRow[]>}"),
+            "got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("return /** @type {GetSessionRow[]} */ (await result.getRowObjects());"),
+            "got:\n{query_fn}"
+        );
+        assert!(!query_fn.contains("@type {unknown}"), "got:\n{query_fn}");
+        assert!(!query_fn.contains(" as "), "got:\n{query_fn}");
+    }
+
+    #[test]
+    fn test_js_mode_exec_query_fn_returns_promise_void() {
+        let backend = js_backend();
+        let mut query = make_one_query("SELECT id FROM users WHERE id = ?");
+        query.command = QueryCommand::Exec;
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(query_fn.contains("@returns {Promise<void>}"), "got:\n{query_fn}");
+        assert!(!query_fn.contains(" as "), "got:\n{query_fn}");
+    }
+
+    /// Regression: `result.rowsChanged` needs no cast to satisfy
+    /// `@returns {Promise<number>}` -- it is a real `number` getter on
+    /// `DuckDBResult` (inherited by `DuckDBMaterializedResult`), unlike the
+    /// row reads above.
+    #[test]
+    fn test_js_mode_exec_result_query_fn_returns_rows_changed_uncast() {
+        let backend = js_backend();
+        let mut query = make_one_query("SELECT id FROM users WHERE id = ?");
+        query.command = QueryCommand::ExecResult;
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(query_fn.contains("return result.rowsChanged;"), "got:\n{query_fn}");
+        assert!(!query_fn.contains(" as "), "got:\n{query_fn}");
+    }
+
+    #[test]
+    fn test_js_mode_batch_query_fn_binds_and_runs_each_item() {
+        let backend = js_backend();
+        let query = make_batch_query(
+            "InsertUser",
+            "INSERT INTO users (name) VALUES (?)",
+            vec![AnalyzedParam {
+                name: "name".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+                position: 1,
+                source_relation: None,
+            }],
+        );
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("export async function insertUserBatch(conn, items) {"),
+            "missing batch fn; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("stmt.bind(/** @type {import(\"@duckdb/node-api\").DuckDBValue[]} */ ([item]));"),
+            "single-param batch must bind `item` directly; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("await stmt.run();"),
+            "must call stmt.run() per item; got:\n{query_fn}"
+        );
+        assert!(!query_fn.contains(" as "), "got:\n{query_fn}");
+    }
+
+    /// `getRowObjects()`'s real `@duckdb/node-api` return type
+    /// (`Promise<Record<string, DuckDBValue>[]>`) still needs the row shape
+    /// spelled out before the fold body can read arbitrary column names off
+    /// it.
+    #[test]
+    fn test_js_mode_grouped_query_fn_casts_flat_rows() {
+        let backend = js_backend();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(
+                "const flatRows = /** @type {Array<Record<string, unknown>>} */ (await _result.getRowObjects());"
+            ),
+            "got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("@returns {Promise<GetUsersWithOrdersRow[]>}"),
+            "got:\n{query_fn}"
+        );
+        assert!(!query_fn.contains(" as "), "got:\n{query_fn}");
+    }
+
+    #[test]
+    fn test_js_mode_rejects_zod_row_type_and_camel_case_and_outer_join_unions() {
+        for (key, value) in [
+            ("row_type", "zod"),
+            ("field_case", "camelCase"),
+            ("outer_join_unions", "true"),
+        ] {
+            let mut backend = js_backend();
+            let err = backend
+                .apply_options(&std::collections::HashMap::from([(key.to_string(), value.to_string())]))
+                .expect_err(&format!("javascript-duckdb must reject {key} = {value}"));
+            assert!(err.to_string().contains("javascript-duckdb"), "{err}");
+        }
     }
 }
