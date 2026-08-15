@@ -7,7 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Every PHP integration harness created an order and never checked it was the one returned.**
+  The same defect fixed for all 13 Python harnesses in 0.15.0 was left live in all 9 PHP ones:
+  `test_create_order` returns the new row's id and `test_get_orders_by_user` ignored it, asserting
+  only the first result's `notes`, so a query returning someone else's order still passed.
+  `test_get_orders_by_user` now takes the created `order_id` and asserts it is among the returned
+  rows. (#112)
+
 ### Fixed
+
+- **The `python-psycopg3-msgspec` harness never checked its rows were msgspec structs.** The
+  project exists to prove the `row_type = "msgspec"` codegen option works, and its Pydantic twin
+  carries seven assertions — a dedicated row-type test plus five `isinstance` checks — while the
+  msgspec harness had none; `import msgspec` was the only trace of it, unused. It now mirrors the
+  Pydantic assertions. Three unconditional imports (`asyncio`, `Decimal`, `msgspec`) that were
+  unused on some engine branches are now emitted only where used, so the generated Python harnesses
+  are `F401`- and `I001`-clean. (#112)
 
 - **Every codegen assertion in the fixture-generated test suite was skipped when codegen errored.**
   One line in the generator wrapped each backend loop in `if let Ok(generated) = …`, producing 273

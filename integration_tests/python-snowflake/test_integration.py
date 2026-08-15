@@ -1,6 +1,5 @@
 """Integration tests for scythe-generated snowflake queries."""
 
-import asyncio
 import os
 import re
 import sys

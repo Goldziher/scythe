@@ -238,11 +238,13 @@ function test_create_order($pdo, int $user_id): int
     return $order->id;
 }
 
-function test_get_orders_by_user($pdo, int $user_id): void
+function test_get_orders_by_user($pdo, int $user_id, int $order_id): void
 {
     $orders = iterator_to_array(Queries::getOrdersByUser($pdo, $user_id));
     assert_true(count($orders) >= 1, "Expected at least 1 order, got " . count($orders));
     assert_equal("Test order", $orders[0]->notes, "GetOrdersByUser notes");
+    $found_ids = array_map(fn($o) => $o->id, $orders);
+    assert_true(in_array($order_id, $found_ids, true), "Expected order $order_id in results, got " . implode(", ", $found_ids));
     echo "PASS: GetOrdersByUser\n";
 }
 function seed_user_profile_row($pdo, string $sql): int
@@ -323,7 +325,7 @@ try {
     test_get_user_by_id($pdo, $user_id);
     test_list_active_users($pdo);
     $order_id = test_create_order($pdo, $user_id);
-    test_get_orders_by_user($pdo, $user_id);
+    test_get_orders_by_user($pdo, $user_id, $order_id);
     test_get_user_profile($pdo);
     test_delete_user($pdo, $user_id);
 

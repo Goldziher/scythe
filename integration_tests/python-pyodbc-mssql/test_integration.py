@@ -1,6 +1,5 @@
 """Integration tests for scythe-generated pyodbc queries."""
 
-import asyncio
 import os
 import re
 import sys
