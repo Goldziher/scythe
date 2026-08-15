@@ -70,9 +70,16 @@ silently deleted the decimal-precision assertion.
 
 ## Directories outside the generator
 
-Nine directories are not produced by `tools/integration-test-generator` and are intentionally
-absent from `build_backends()`: the three hand-maintained ones below, plus the six orphaned local
-artifacts after them.
+Three tracked directories are not produced by `tools/integration-test-generator` and are
+intentionally absent from `build_backends()`. They are the hand-maintained ones below.
+
+You may also see other directories under `integration_tests/` that this README does not mention.
+Anything without a `scythe.toml` and a git-tracked file is not one of these three — it is local
+build detritus (`bin/`, `obj/`, `_build/`, `deps/`, `Cargo.lock`, and similar gitignored output)
+left behind by a driver/engine combination that was renamed or removed. `git log --all --
+integration_tests/<dir>` returns nothing for such a directory. It is harmless (git ignores it and
+CI never sees it) and safe to delete locally with `rm -rf`; do not add it to this file or to
+`HAND_MAINTAINED`.
 
 ### Hand-maintained by design
 
@@ -94,20 +101,8 @@ must list exactly what it lists.
   hand-written; their query code is gated like everything else. If you add another directory of
   this kind, add it to `HAND_MAINTAINED` as well or its output will silently rot.
 
-### Orphaned local artifacts — not part of version control
-
-- `csharp-sqlclient`, `elixir-tds`, `python-oracledb`, `python-pyodbc`, `rust-sibyl`,
-  `rust-tiberius` — these directories contain nothing but gitignored build output (`bin/`,
-  `obj/`, `_build/`, `deps/`, `Cargo.lock`) and have **no files tracked in git, ever** (verified
-  via `git log --all -- integration_tests/<dir>`). They appear to be pre-engine-suffix leftovers
-  from local runs, superseded by their generator-owned, engine-suffixed counterparts
-  (`csharp-sqlclient-mssql`, `elixir-tds-mssql`, `python-oracledb-oracle`,
-  `python-pyodbc-mssql`, `rust-sibyl-oracle`, `rust-tiberius-mssql`). They are harmless (git
-  ignores them and CI never sees them) but are not meaningful test coverage — safe to delete
-  locally with `rm -rf`.
-
 Losing track of which hand-maintained directories are load-bearing test coverage versus inert
 local cruft is exactly how the Oracle LOB regression coverage was destroyed during 0.12.0. Keep
-this section accurate: if you add a new hand-maintained directory outside the generator, or
-confirm one of the orphaned directories is actually load-bearing, update this file in the same
-change.
+this section accurate: if you add a new hand-maintained directory outside the generator, add it
+to `HAND_MAINTAINED` in `Taskfile.yaml` and list it above in the same change. Never add an
+untracked, gitignored-only directory to this list — see the note above the hand-maintained group.
