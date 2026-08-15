@@ -6,7 +6,7 @@ use sqlparser::ast::{
 use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 
-use super::types::{AnalyzedColumn, Scope, TypeInfo};
+use super::types::{AnalyzedColumn, AnalyzedParam, Scope, TypeInfo};
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -93,7 +93,7 @@ fn find_marker_payload<'a>(neutral_type: &'a str, marker: &str) -> Option<&'a st
 /// than embedding the name in the marker themselves, since (unlike a bare
 /// column reference) the function/construct they describe does not carry one
 /// naturally at the point the marker is produced.
-pub(super) fn unresolved_type_error(neutral_type: &str, column_name: &str) -> Option<ScytheError> {
+pub(super) fn unresolved_type_error(neutral_type: &str, subject: &str, column_name: &str) -> Option<ScytheError> {
     if let Some(name) = find_marker_payload(neutral_type, AMBIGUOUS_COLUMN_MARKER) {
         return Some(ScytheError::ambiguous_column(name));
     }
@@ -104,13 +104,13 @@ pub(super) fn unresolved_type_error(neutral_type: &str, column_name: &str) -> Op
         return Some(ScytheError::unknown_function(name));
     }
     if let Some(function) = find_marker_payload(neutral_type, UNTYPEABLE_RECORD_MARKER) {
-        return Some(ScytheError::untypeable_record(column_name, function));
+        return Some(ScytheError::untypeable_record(subject, column_name, function));
     }
     if neutral_type.contains(UNTYPEABLE_ROW_MARKER) {
-        return Some(ScytheError::untypeable_row_constructor(column_name));
+        return Some(ScytheError::untypeable_row_constructor(subject, column_name));
     }
     if neutral_type.contains(UNRESOLVED_EXPR_MARKER) {
-        return Some(ScytheError::unresolved_expression_type(column_name));
+        return Some(ScytheError::unresolved_expression_type(subject, column_name));
     }
     None
 }
@@ -125,7 +125,33 @@ pub(super) fn unresolved_type_error(neutral_type: &str, column_name: &str) -> Op
 /// as the raw marker string written into generated source).
 pub(super) fn reject_unresolved_columns(columns: &[AnalyzedColumn]) -> Result<(), ScytheError> {
     for col in columns {
-        if let Some(err) = unresolved_type_error(&col.neutral_type, &col.name) {
+        if let Some(err) = unresolved_type_error(&col.neutral_type, "column", &col.name) {
+            return Err(err);
+        }
+    }
+    Ok(())
+}
+
+/// The same rejection for query parameters, which reach codegen through a
+/// different door.
+///
+/// #223 fixed the column path only, and that was not enough: a marker lands on
+/// a *parameter's* neutral type whenever a placeholder sits inside a function
+/// whose result is untypeable, because `register_param` adopts that result as
+/// the parameter's type. `COALESCE`'s arm guards on the literal string
+/// `"unknown"`, which a marker is not, so it registers cleanly and nothing
+/// rejects it afterwards -- `resolve_params` in `scythe-codegen` has no
+/// equivalent of this check at all.
+///
+/// `SELECT id FROM documents WHERE data::text = COALESCE($1, ROW(id, data))::text`
+/// reported `INTERNAL_ERROR: type resolution failed for param 'row': unknown
+/// neutral type: __untypeable_row__:` -- scythe's internal marker spelling,
+/// verbatim, in front of a user, which is the exact failure #173 and #223 each
+/// set out to remove. `GREATEST`/`LEAST`, `NULLIF` and `CASE` reach it the same
+/// way.
+pub(super) fn reject_unresolved_params(params: &[AnalyzedParam]) -> Result<(), ScytheError> {
+    for param in params {
+        if let Some(err) = unresolved_type_error(&param.neutral_type, "parameter", &param.name) {
             return Err(err);
         }
     }
@@ -1484,11 +1510,11 @@ mod tests {
         use crate::errors::ErrorCode;
 
         let ambiguous =
-            unresolved_type_error(&format!("{AMBIGUOUS_COLUMN_MARKER}id"), "id").expect("marker recognised");
+            unresolved_type_error(&format!("{AMBIGUOUS_COLUMN_MARKER}id"), "column", "id").expect("marker recognised");
         assert_eq!(ambiguous.code, ErrorCode::AmbiguousColumn);
         assert!(ambiguous.message.contains("id"), "got: {}", ambiguous.message);
 
-        let unknown_col = unresolved_type_error(&format!("{UNKNOWN_COLUMN_MARKER}nosuchcol"), "nosuchcol")
+        let unknown_col = unresolved_type_error(&format!("{UNKNOWN_COLUMN_MARKER}nosuchcol"), "column", "nosuchcol")
             .expect("marker recognised");
         assert_eq!(unknown_col.code, ErrorCode::UnknownColumn);
         assert!(
@@ -1497,8 +1523,9 @@ mod tests {
             unknown_col.message
         );
 
-        let unknown_func = unresolved_type_error(&format!("{UNKNOWN_FUNCTION_MARKER}my_weird_func"), "result")
-            .expect("marker recognised");
+        let unknown_func =
+            unresolved_type_error(&format!("{UNKNOWN_FUNCTION_MARKER}my_weird_func"), "column", "result")
+                .expect("marker recognised");
         assert_eq!(unknown_func.code, ErrorCode::UnknownFunction);
         assert!(
             unknown_func.message.contains("my_weird_func"),
@@ -1506,17 +1533,17 @@ mod tests {
             unknown_func.message
         );
 
-        let record =
-            unresolved_type_error(&format!("{UNTYPEABLE_RECORD_MARKER}jsonb_each"), "kv").expect("marker recognised");
+        let record = unresolved_type_error(&format!("{UNTYPEABLE_RECORD_MARKER}jsonb_each"), "column", "kv")
+            .expect("marker recognised");
         assert_eq!(record.code, ErrorCode::UnresolvedType);
         assert!(record.message.contains("kv"), "got: {}", record.message);
         assert!(record.message.contains("jsonb_each"), "got: {}", record.message);
 
-        let row = unresolved_type_error(UNTYPEABLE_ROW_MARKER, "row_col").expect("marker recognised");
+        let row = unresolved_type_error(UNTYPEABLE_ROW_MARKER, "column", "row_col").expect("marker recognised");
         assert_eq!(row.code, ErrorCode::UnresolvedType);
         assert!(row.message.contains("row_col"), "got: {}", row.message);
 
-        let generic = unresolved_type_error(UNRESOLVED_EXPR_MARKER, "mystery").expect("marker recognised");
+        let generic = unresolved_type_error(UNRESOLVED_EXPR_MARKER, "column", "mystery").expect("marker recognised");
         assert_eq!(generic.code, ErrorCode::UnresolvedType);
         assert!(generic.message.contains("mystery"), "got: {}", generic.message);
     }
@@ -1537,13 +1564,14 @@ mod tests {
     fn test_unresolved_type_error_finds_marker_wrapped_in_array() {
         use crate::errors::ErrorCode;
 
-        let wrapped_row = unresolved_type_error(&format!("array<{UNTYPEABLE_ROW_MARKER}>"), "rows")
+        let wrapped_row = unresolved_type_error(&format!("array<{UNTYPEABLE_ROW_MARKER}>"), "column", "rows")
             .expect("a payload-free marker must be recognised when wrapped in array<...>");
         assert_eq!(wrapped_row.code, ErrorCode::UnresolvedType);
         assert!(wrapped_row.message.contains("rows"), "got: {}", wrapped_row.message);
 
-        let wrapped_unknown_func = unresolved_type_error(&format!("array<{UNKNOWN_FUNCTION_MARKER}row>"), "rows")
-            .expect("a payload-carrying marker must be recognised when wrapped in array<...>");
+        let wrapped_unknown_func =
+            unresolved_type_error(&format!("array<{UNKNOWN_FUNCTION_MARKER}row>"), "column", "rows")
+                .expect("a payload-carrying marker must be recognised when wrapped in array<...>");
         assert_eq!(wrapped_unknown_func.code, ErrorCode::UnknownFunction);
         assert!(
             wrapped_unknown_func.message.contains("row"),
@@ -1556,7 +1584,7 @@ mod tests {
     fn test_unresolved_type_error_ignores_ordinary_neutral_types() {
         for neutral in ["int32", "array<string>", "json_nested<array<QRowX>>", "unknown"] {
             assert!(
-                unresolved_type_error(neutral, "col").is_none(),
+                unresolved_type_error(neutral, "column", "col").is_none(),
                 "{neutral} must not be treated as an unresolved marker"
             );
         }

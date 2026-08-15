@@ -89,6 +89,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already used. `UNION` is commutative, so both spellings now agree. Reported and fixed by
   @snowyukitty in #227. (#224)
 
+- **An internal type marker still reached the user, through query parameters.** The fix for this
+  defect covered result columns only. A placeholder inside a function whose result has no nameable
+  type adopts that result as its own type, and nothing rejected it afterwards, so
+  `SELECT id FROM documents WHERE data::text = COALESCE($1, ROW(id, data))::text` reported
+  `INTERNAL_ERROR: type resolution failed for param 'row': unknown neutral type:
+  __untypeable_row__:` -- scythe's internal marker spelling, verbatim, in front of a user. It now
+  reports the same actionable `UNRESOLVED_TYPE` diagnostic the column path does, naming the
+  parameter. `GREATEST`/`LEAST`, `NULLIF` and `CASE` reached it the same way. (#223)
+
 - **Three gates reported success for having checked nothing.** `check-generated-backends.py`,
   which compile-checks every backend against the torture schema, exits 0 when project discovery
   returns nothing: its pass/fail flag is only cleared by lists derived from the discovered set. An

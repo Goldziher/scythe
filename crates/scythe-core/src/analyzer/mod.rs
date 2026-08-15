@@ -23,7 +23,9 @@ use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 use crate::parser::{Query, QueryCommand};
 
-use helpers::{detect_select_star_source, disambiguate_duplicate_names, find_nested_placeholder_id};
+use helpers::{
+    detect_select_star_source, disambiguate_duplicate_names, find_nested_placeholder_id, reject_unresolved_params,
+};
 use types::Analyzer;
 
 pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, ScytheError> {
@@ -114,6 +116,8 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
             }
         })
         .collect();
+
+    reject_unresolved_params(&params)?;
 
     for opt_name in &query.annotations.optional_params {
         for p in &mut params {
@@ -2003,6 +2007,40 @@ SELECT x FROM a UNION SELECT NULL AS x FROM b;",
             parse_query("-- @name Widened\n-- @returns :many\nSELECT NULL AS x FROM a UNION SELECT x FROM b;").unwrap();
         let result = analyze(&catalog, &query).expect("the first NULL arm must be widened by the second arm's int32");
         assert_eq!(result.columns[0].neutral_type, "int32");
+    }
+
+    /// #223 rejected markers on the *column* path only, and that left the defect it
+    /// was filed for reachable through parameters. A placeholder inside a function
+    /// whose result is untypeable adopts that result as its own type --
+    /// `register_param` takes it verbatim, and `COALESCE`'s arm only guards against
+    /// the literal string `"unknown"`, which a marker is not. Nothing downstream
+    /// rejected it: `resolve_params` in scythe-codegen has no equivalent check, so
+    /// this query reported
+    /// `INTERNAL_ERROR: type resolution failed for param 'row': unknown neutral
+    /// type: __untypeable_row__:` -- scythe's internal marker spelling shown to a
+    /// user, which is the exact failure #173 and #223 each set out to remove.
+    #[test]
+    fn test_marker_reaching_a_param_is_rejected_rather_than_leaked_to_codegen() {
+        let catalog =
+            Catalog::from_ddl(&["CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL);"]).unwrap();
+        let query = parse_query(
+            "-- @name GetDoc
+-- @returns :many
+SELECT id FROM documents WHERE data::text = COALESCE($1, ROW(id, data))::text;",
+        )
+        .unwrap();
+
+        let error = analyze(&catalog, &query).expect_err("a marker on a param's type must be rejected at analyze time");
+
+        assert_eq!(error.code, crate::errors::ErrorCode::UnresolvedType, "got: {error}");
+        assert!(
+            !error.to_string().contains("__untypeable_row__"),
+            "the internal marker spelling must never reach the user; got: {error}"
+        );
+        assert!(
+            error.to_string().contains("parameter \"row\""),
+            "the message must name the parameter, not call it a column; got: {error}"
+        );
     }
 
     /// When *neither* UNION arm resolves a real type, `widen_type`'s `a == b` fast

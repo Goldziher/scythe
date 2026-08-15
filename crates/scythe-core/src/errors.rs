@@ -167,11 +167,11 @@ impl ScytheError {
     /// wrong for `json_populate_record`, whose columns come from a caller-supplied
     /// row type instead -- one message covering both families has to stay
     /// generic about the field names.
-    pub fn untypeable_record(column: &str, function: &str) -> Self {
+    pub fn untypeable_record(subject: &str, column: &str, function: &str) -> Self {
         Self::new(
             ErrorCode::UnresolvedType,
             format!(
-                "column \"{column}\": {function}(...) in the select list returns PostgreSQL's anonymous \
+                "{subject} \"{column}\": {function}(...) in the select list returns PostgreSQL's anonymous \
                  `record` type, which scythe cannot resolve to a type it can generate code for -- move it \
                  into the FROM clause instead (e.g. `FROM ..., {function}(...) AS {column}`) and select \
                  {column}'s fields directly instead of the whole record"
@@ -182,11 +182,11 @@ impl ScytheError {
     /// A multi-element `ROW(...)`/tuple constructor -- `(a, b)` (parses as
     /// `Expr::Tuple`) or the explicit `ROW(a, b)` call (parses as a function
     /// named `row`) -- neither of which has a single neutral type (#117, #223).
-    pub fn untypeable_row_constructor(column: &str) -> Self {
+    pub fn untypeable_row_constructor(subject: &str, column: &str) -> Self {
         Self::new(
             ErrorCode::UnresolvedType,
             format!(
-                "column \"{column}\": ROW(...) builds a row with no single neutral type scythe can name -- \
+                "{subject} \"{column}\": ROW(...) builds a row with no single neutral type scythe can name -- \
                  CAST it to a named composite type, or select its fields individually instead of one ROW(...) value"
             ),
         )
@@ -197,10 +197,10 @@ impl ScytheError {
     /// a non-array argument, a subquery producing no columns, a table-valued
     /// function scythe has no column-type mapping for, and the handful of AST
     /// shapes with no dedicated inference arm (#223).
-    pub fn unresolved_expression_type(column: &str) -> Self {
+    pub fn unresolved_expression_type(subject: &str, column: &str) -> Self {
         Self::new(
             ErrorCode::UnresolvedType,
-            format!("column \"{column}\": scythe could not determine a type for this expression"),
+            format!("{subject} \"{column}\": scythe could not determine a type for this expression"),
         )
     }
 }
