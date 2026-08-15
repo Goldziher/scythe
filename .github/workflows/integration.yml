@@ -109,6 +109,17 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
+      # csproj.jinja pins <TargetFramework>net10.0</TargetFramework>. Without this
+      # check a dotnet-version drift back toward 8.0 above could still build
+      # silently by falling back to a pre-existing SDK 10 on the runner image,
+      # hiding the drift instead of failing it.
+      - name: Verify the installed .NET SDK matches the declared TargetFramework
+        run: |
+          set -euo pipefail
+          if ! dotnet --list-sdks | grep -qE '^10\.'; then
+            echo "::error::No .NET 10 SDK resolved; csproj.jinja's net10.0 TargetFramework requires one."
+            exit 1
+          fi
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "26"
@@ -138,6 +149,22 @@ jobs:
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
+      # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
+      # etc. removed). Below that floor an unknown `allowBuilds` key is silently
+      # ignored -- exit 0, no warning -- and better-sqlite3/oracledb's postinstall
+      # builds are skipped.
+      - name: Verify pnpm resolved a version that honours allowBuilds
+        run: |
+          set -euo pipefail
+          resolved="$(pnpm --version)"
+          major="${resolved%%.*}"
+          rest="${resolved#*.}"
+          minor="${rest%%.*}"
+          if [ "$major" -lt 10 ] || { [ "$major" -eq 10 ] && [ "$minor" -lt 26 ]; }; then
+            echo "::error::pnpm $resolved predates allowBuilds (needs >=10.26); pnpm-workspace.yaml's allowBuilds key would be silently ignored."
+            exit 1
+          fi
 
       - name: Test rust-sqlx
         working-directory: integration_tests/rust-sqlx
@@ -373,6 +400,17 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
+      # csproj.jinja pins <TargetFramework>net10.0</TargetFramework>. Without this
+      # check a dotnet-version drift back toward 8.0 above could still build
+      # silently by falling back to a pre-existing SDK 10 on the runner image,
+      # hiding the drift instead of failing it.
+      - name: Verify the installed .NET SDK matches the declared TargetFramework
+        run: |
+          set -euo pipefail
+          if ! dotnet --list-sdks | grep -qE '^10\.'; then
+            echo "::error::No .NET 10 SDK resolved; csproj.jinja's net10.0 TargetFramework requires one."
+            exit 1
+          fi
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "26"
@@ -402,6 +440,22 @@ jobs:
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
+      # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
+      # etc. removed). Below that floor an unknown `allowBuilds` key is silently
+      # ignored -- exit 0, no warning -- and better-sqlite3/oracledb's postinstall
+      # builds are skipped.
+      - name: Verify pnpm resolved a version that honours allowBuilds
+        run: |
+          set -euo pipefail
+          resolved="$(pnpm --version)"
+          major="${resolved%%.*}"
+          rest="${resolved#*.}"
+          minor="${rest%%.*}"
+          if [ "$major" -lt 10 ] || { [ "$major" -eq 10 ] && [ "$minor" -lt 26 ]; }; then
+            echo "::error::pnpm $resolved predates allowBuilds (needs >=10.26); pnpm-workspace.yaml's allowBuilds key would be silently ignored."
+            exit 1
+          fi
 
       - name: Test rust-sqlx-mysql
         working-directory: integration_tests/rust-sqlx-mysql
@@ -522,6 +576,17 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
+      # csproj.jinja pins <TargetFramework>net10.0</TargetFramework>. Without this
+      # check a dotnet-version drift back toward 8.0 above could still build
+      # silently by falling back to a pre-existing SDK 10 on the runner image,
+      # hiding the drift instead of failing it.
+      - name: Verify the installed .NET SDK matches the declared TargetFramework
+        run: |
+          set -euo pipefail
+          if ! dotnet --list-sdks | grep -qE '^10\.'; then
+            echo "::error::No .NET 10 SDK resolved; csproj.jinja's net10.0 TargetFramework requires one."
+            exit 1
+          fi
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "26"
@@ -551,6 +616,22 @@ jobs:
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
+      # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
+      # etc. removed). Below that floor an unknown `allowBuilds` key is silently
+      # ignored -- exit 0, no warning -- and better-sqlite3/oracledb's postinstall
+      # builds are skipped.
+      - name: Verify pnpm resolved a version that honours allowBuilds
+        run: |
+          set -euo pipefail
+          resolved="$(pnpm --version)"
+          major="${resolved%%.*}"
+          rest="${resolved#*.}"
+          minor="${rest%%.*}"
+          if [ "$major" -lt 10 ] || { [ "$major" -eq 10 ] && [ "$minor" -lt 26 ]; }; then
+            echo "::error::pnpm $resolved predates allowBuilds (needs >=10.26); pnpm-workspace.yaml's allowBuilds key would be silently ignored."
+            exit 1
+          fi
 
       - name: Test rust-sqlx-mariadb
         working-directory: integration_tests/rust-sqlx-mariadb
@@ -675,6 +756,17 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
+      # csproj.jinja pins <TargetFramework>net10.0</TargetFramework>. Without this
+      # check a dotnet-version drift back toward 8.0 above could still build
+      # silently by falling back to a pre-existing SDK 10 on the runner image,
+      # hiding the drift instead of failing it.
+      - name: Verify the installed .NET SDK matches the declared TargetFramework
+        run: |
+          set -euo pipefail
+          if ! dotnet --list-sdks | grep -qE '^10\.'; then
+            echo "::error::No .NET 10 SDK resolved; csproj.jinja's net10.0 TargetFramework requires one."
+            exit 1
+          fi
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "26"
@@ -700,6 +792,22 @@ jobs:
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
+      # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
+      # etc. removed). Below that floor an unknown `allowBuilds` key is silently
+      # ignored -- exit 0, no warning -- and better-sqlite3/oracledb's postinstall
+      # builds are skipped.
+      - name: Verify pnpm resolved a version that honours allowBuilds
+        run: |
+          set -euo pipefail
+          resolved="$(pnpm --version)"
+          major="${resolved%%.*}"
+          rest="${resolved#*.}"
+          minor="${rest%%.*}"
+          if [ "$major" -lt 10 ] || { [ "$major" -eq 10 ] && [ "$minor" -lt 26 ]; }; then
+            echo "::error::pnpm $resolved predates allowBuilds (needs >=10.26); pnpm-workspace.yaml's allowBuilds key would be silently ignored."
+            exit 1
+          fi
 
       - name: Set Oracle library paths
         run: |
@@ -817,6 +925,17 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
+      # csproj.jinja pins <TargetFramework>net10.0</TargetFramework>. Without this
+      # check a dotnet-version drift back toward 8.0 above could still build
+      # silently by falling back to a pre-existing SDK 10 on the runner image,
+      # hiding the drift instead of failing it.
+      - name: Verify the installed .NET SDK matches the declared TargetFramework
+        run: |
+          set -euo pipefail
+          if ! dotnet --list-sdks | grep -qE '^10\.'; then
+            echo "::error::No .NET 10 SDK resolved; csproj.jinja's net10.0 TargetFramework requires one."
+            exit 1
+          fi
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "26"
@@ -846,6 +965,22 @@ jobs:
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
+      # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
+      # etc. removed). Below that floor an unknown `allowBuilds` key is silently
+      # ignored -- exit 0, no warning -- and better-sqlite3/oracledb's postinstall
+      # builds are skipped.
+      - name: Verify pnpm resolved a version that honours allowBuilds
+        run: |
+          set -euo pipefail
+          resolved="$(pnpm --version)"
+          major="${resolved%%.*}"
+          rest="${resolved#*.}"
+          minor="${rest%%.*}"
+          if [ "$major" -lt 10 ] || { [ "$major" -eq 10 ] && [ "$minor" -lt 26 ]; }; then
+            echo "::error::pnpm $resolved predates allowBuilds (needs >=10.26); pnpm-workspace.yaml's allowBuilds key would be silently ignored."
+            exit 1
+          fi
 
       - name: Install ODBC driver for SQL Server
         run: |
@@ -945,6 +1080,22 @@ jobs:
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
+      # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
+      # etc. removed). Below that floor an unknown `allowBuilds` key is silently
+      # ignored -- exit 0, no warning -- and better-sqlite3/oracledb's postinstall
+      # builds are skipped.
+      - name: Verify pnpm resolved a version that honours allowBuilds
+        run: |
+          set -euo pipefail
+          resolved="$(pnpm --version)"
+          major="${resolved%%.*}"
+          rest="${resolved#*.}"
+          minor="${rest%%.*}"
+          if [ "$major" -lt 10 ] || { [ "$major" -eq 10 ] && [ "$minor" -lt 26 ]; }; then
+            echo "::error::pnpm $resolved predates allowBuilds (needs >=10.26); pnpm-workspace.yaml's allowBuilds key would be silently ignored."
+            exit 1
+          fi
 
       - name: Test python-duckdb
         working-directory: integration_tests/python-duckdb
@@ -1003,6 +1154,17 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
+      # csproj.jinja pins <TargetFramework>net10.0</TargetFramework>. Without this
+      # check a dotnet-version drift back toward 8.0 above could still build
+      # silently by falling back to a pre-existing SDK 10 on the runner image,
+      # hiding the drift instead of failing it.
+      - name: Verify the installed .NET SDK matches the declared TargetFramework
+        run: |
+          set -euo pipefail
+          if ! dotnet --list-sdks | grep -qE '^10\.'; then
+            echo "::error::No .NET 10 SDK resolved; csproj.jinja's net10.0 TargetFramework requires one."
+            exit 1
+          fi
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "26"
@@ -1032,6 +1194,22 @@ jobs:
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
+      # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
+      # etc. removed). Below that floor an unknown `allowBuilds` key is silently
+      # ignored -- exit 0, no warning -- and better-sqlite3/oracledb's postinstall
+      # builds are skipped.
+      - name: Verify pnpm resolved a version that honours allowBuilds
+        run: |
+          set -euo pipefail
+          resolved="$(pnpm --version)"
+          major="${resolved%%.*}"
+          rest="${resolved#*.}"
+          minor="${rest%%.*}"
+          if [ "$major" -lt 10 ] || { [ "$major" -eq 10 ] && [ "$minor" -lt 26 ]; }; then
+            echo "::error::pnpm $resolved predates allowBuilds (needs >=10.26); pnpm-workspace.yaml's allowBuilds key would be silently ignored."
+            exit 1
+          fi
 
       - name: Create SQLite database
         run: touch /tmp/scythe_test.db
@@ -1157,6 +1335,17 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
+      # csproj.jinja pins <TargetFramework>net10.0</TargetFramework>. Without this
+      # check a dotnet-version drift back toward 8.0 above could still build
+      # silently by falling back to a pre-existing SDK 10 on the runner image,
+      # hiding the drift instead of failing it.
+      - name: Verify the installed .NET SDK matches the declared TargetFramework
+        run: |
+          set -euo pipefail
+          if ! dotnet --list-sdks | grep -qE '^10\.'; then
+            echo "::error::No .NET 10 SDK resolved; csproj.jinja's net10.0 TargetFramework requires one."
+            exit 1
+          fi
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "26"
@@ -1186,6 +1375,22 @@ jobs:
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
+      # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
+      # etc. removed). Below that floor an unknown `allowBuilds` key is silently
+      # ignored -- exit 0, no warning -- and better-sqlite3/oracledb's postinstall
+      # builds are skipped.
+      - name: Verify pnpm resolved a version that honours allowBuilds
+        run: |
+          set -euo pipefail
+          resolved="$(pnpm --version)"
+          major="${resolved%%.*}"
+          rest="${resolved#*.}"
+          minor="${rest%%.*}"
+          if [ "$major" -lt 10 ] || { [ "$major" -eq 10 ] && [ "$minor" -lt 26 ]; }; then
+            echo "::error::pnpm $resolved predates allowBuilds (needs >=10.26); pnpm-workspace.yaml's allowBuilds key would be silently ignored."
+            exit 1
+          fi
 
       - name: Test rust-sqlx-redshift
         working-directory: integration_tests/rust-sqlx-redshift
@@ -1280,6 +1485,17 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
+      # csproj.jinja pins <TargetFramework>net10.0</TargetFramework>. Without this
+      # check a dotnet-version drift back toward 8.0 above could still build
+      # silently by falling back to a pre-existing SDK 10 on the runner image,
+      # hiding the drift instead of failing it.
+      - name: Verify the installed .NET SDK matches the declared TargetFramework
+        run: |
+          set -euo pipefail
+          if ! dotnet --list-sdks | grep -qE '^10\.'; then
+            echo "::error::No .NET 10 SDK resolved; csproj.jinja's net10.0 TargetFramework requires one."
+            exit 1
+          fi
 
       - run: pip install uv
       # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
@@ -1293,6 +1509,22 @@ jobs:
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
+      # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
+      # etc. removed). Below that floor an unknown `allowBuilds` key is silently
+      # ignored -- exit 0, no warning -- and better-sqlite3/oracledb's postinstall
+      # builds are skipped.
+      - name: Verify pnpm resolved a version that honours allowBuilds
+        run: |
+          set -euo pipefail
+          resolved="$(pnpm --version)"
+          major="${resolved%%.*}"
+          rest="${resolved#*.}"
+          minor="${rest%%.*}"
+          if [ "$major" -lt 10 ] || { [ "$major" -eq 10 ] && [ "$minor" -lt 26 ]; }; then
+            echo "::error::pnpm $resolved predates allowBuilds (needs >=10.26); pnpm-workspace.yaml's allowBuilds key would be silently ignored."
+            exit 1
+          fi
 
       - name: Test python-snowflake
         working-directory: integration_tests/python-snowflake

@@ -373,6 +373,28 @@ jobs:
             echo "::error::Generated-query-code checkers not installed:$missing."
             exit 1
           fi
+      # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
+      # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
+      # etc. removed). Below that floor an unknown `allowBuilds` key is silently
+      # ignored -- exit 0, no warning -- and better-sqlite3/oracledb's postinstall
+      # builds are skipped. csproj.jinja pins net10.0; without this check a
+      # dotnet-version drift back toward 8.0 could still build silently by falling
+      # back to a pre-existing SDK 10 on the runner image.
+      - name: Verify pnpm and dotnet satisfy the pinned template floors
+        run: |
+          set -euo pipefail
+          resolved_pnpm="$(pnpm --version)"
+          pnpm_major="${resolved_pnpm%%.*}"
+          pnpm_rest="${resolved_pnpm#*.}"
+          pnpm_minor="${pnpm_rest%%.*}"
+          if [ "$pnpm_major" -lt 10 ] || { [ "$pnpm_major" -eq 10 ] && [ "$pnpm_minor" -lt 26 ]; }; then
+            echo "::error::pnpm $resolved_pnpm predates allowBuilds (needs >=10.26); pnpm-workspace.yaml's allowBuilds key would be silently ignored."
+            exit 1
+          fi
+          if ! dotnet --list-sdks | grep -qE '^10\.'; then
+            echo "::error::No .NET 10 SDK resolved; csproj.jinja's net10.0 TargetFramework requires one."
+            exit 1
+          fi
       - name: Compile/type-check every committed generated query file
         run: ./scripts/check-generated-syntax.sh --strict
       # Committed output is checked against sql/pg/schema.sql (29 lines, one
