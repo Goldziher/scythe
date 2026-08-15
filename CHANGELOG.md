@@ -29,6 +29,23 @@ direct caller that builds one by struct literal rather than through the parser. 
   security finding. `NULL` is no longer treated as a tautology by this rule; `SC-CHK01`
   (`check-constraint-always-true`), where `NULL` genuinely does satisfy a CHECK constraint, is
   unaffected. (#139)
+- **Every Python integration harness created an order and never checked it was the one returned.**
+  `test_create_order` returns the new row's id, but `test_get_orders_by_user` ignored it and only
+  asserted the first result's `notes`, so a query that returned someone else's order (or the wrong
+  row) would still pass. `test_get_orders_by_user` now takes the created `order_id` and asserts it
+  is present in the returned rows, in all 13 Python harnesses. (#112)
+
+- **`java.java.jinja` and `kotlin.kt.jinja`'s non-postgresql engine branches were missing tests for
+  queries their own fixtures already defined.** GH #195/#196's parity gate (`10066723`) made the
+  drift visible via `test-parity-exemptions.txt` but left the 44 "never wired up" gaps open;
+  `UpdateUserEmail` and `SearchUsers` are now called from every engine branch in both templates,
+  `GetOrderTotal` from every branch that didn't already have it (duckdb, mssql, redshift,
+  snowflake, sqlite), and `ListActiveUsers` from redshift's. Redshift's `SearchUsers` and
+  `ListActiveUsers` queries filter by `status`, not a name `LIKE` pattern like every other engine —
+  its ported tests call them with a status value rather than `"%Alice%"`, matching what
+  `queries/users.sql` actually defines for that engine. The 44 closed exemption lines are deleted;
+  the 33 remaining entries are all structural (a `UserStatus` enum parameter or the nullable
+  composite-column read from board #197 with no per-engine equivalent) and are unchanged.
 
 ### Added
 

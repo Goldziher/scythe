@@ -43,7 +43,9 @@ fun main() {
 
         testCreateUser(conn)
         testGetUserById(conn)
+        testUpdateUserEmail(conn)
         testListActiveUsers(conn)
+        testSearchUsers(conn)
         testCreateOrder(conn)
         testGetOrdersByUser(conn)
         testGetOrderTotal(conn)
@@ -219,12 +221,45 @@ fun testGetUserById(conn: java.sql.Connection) {
     }
 }
 
+fun testUpdateUserEmail(conn: java.sql.Connection) {
+    val name = "UpdateUserEmail"
+    try {
+        updateUserEmail(conn, "alice-updated@example.com", createdUserId)
+        val user = getUserById(conn, createdUserId)
+        if (user == null) {
+            fail(name, "user not found after update")
+            return
+        }
+        if (user.email != "alice-updated@example.com") {
+            fail(name, "expected updated email, got ${user.email}")
+            return
+        }
+        pass(name)
+    } catch (e: Exception) {
+        fail(name, e)
+    }
+}
+
 fun testListActiveUsers(conn: java.sql.Connection) {
     val name = "ListActiveUsers"
     try {
         val users = listActiveUsers(conn, UsersStatus.ACTIVE)
         if (users.isEmpty()) {
             fail(name, "expected at least 1 active user")
+            return
+        }
+        pass(name)
+    } catch (e: Exception) {
+        fail(name, e)
+    }
+}
+
+fun testSearchUsers(conn: java.sql.Connection) {
+    val name = "SearchUsers"
+    try {
+        val users = searchUsers(conn, "%Alice%")
+        if (users.isEmpty()) {
+            fail(name, "expected at least 1 user matching Alice")
             return
         }
         pass(name)

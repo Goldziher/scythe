@@ -168,11 +168,12 @@ async def test_create_order(conn, user_id: str) -> int:
     return order.id
 
 
-async def test_get_orders_by_user(conn, user_id: str) -> None:
+async def test_get_orders_by_user(conn, user_id: str, order_id: int) -> None:
     """Test GetOrdersByUser query."""
     orders = await get_orders_by_user(conn, user_id=user_id)
     assert len(orders) >= 1, f"Expected at least 1 order, got {len(orders)}"
     assert orders[0].notes == "Test order", f"Expected notes 'Test order', got '{orders[0].notes}'"
+    assert any(o.id == order_id for o in orders), f"Expected order {order_id} in results, got {[o.id for o in orders]}"
     print("PASS: GetOrdersByUser")
 
 
@@ -209,7 +210,7 @@ async def run_tests() -> None:
         await test_get_user_by_id(conn, user_id)
         await test_list_active_users(conn)
         order_id = await test_create_order(conn, user_id)
-        await test_get_orders_by_user(conn, user_id)
+        await test_get_orders_by_user(conn, user_id, order_id)
         await test_delete_user(conn, user_id)
     finally:
         conn.close()

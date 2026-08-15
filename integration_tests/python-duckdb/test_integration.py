@@ -162,11 +162,12 @@ def test_create_order(conn: duckdb.DuckDBPyConnection, user_id: int) -> int:
     return order.id
 
 
-def test_get_orders_by_user(conn: duckdb.DuckDBPyConnection, user_id: int) -> None:
+def test_get_orders_by_user(conn: duckdb.DuckDBPyConnection, user_id: int, order_id: int) -> None:
     """Test GetOrdersByUser query."""
     orders = get_orders_by_user(conn, user_id=user_id)
     assert len(orders) >= 1, f"Expected at least 1 order, got {len(orders)}"
     assert orders[0].notes == "Test order", f"Expected notes 'Test order', got '{orders[0].notes}'"
+    assert any(o.id == order_id for o in orders), f"Expected order {order_id} in results, got {[o.id for o in orders]}"
     print("PASS: GetOrdersByUser")
 
 
@@ -197,7 +198,7 @@ def run_tests() -> None:
         test_get_user_by_id(conn, user_id)
         test_list_active_users(conn)
         order_id = test_create_order(conn, user_id)
-        test_get_orders_by_user(conn, user_id)
+        test_get_orders_by_user(conn, user_id, order_id)
         test_delete_user(conn, user_id)
     finally:
         conn.close()

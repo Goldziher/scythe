@@ -35,9 +35,12 @@ public class IntegrationTest {
 
             testCreateUser(conn);
             testGetUserById(conn);
+            testUpdateUserEmail(conn);
             testListActiveUsers(conn);
+            testSearchUsers(conn);
             testCreateOrder(conn);
             testGetOrdersByUser(conn);
+            testGetOrderTotal(conn);
             testDeleteOrdersByUser(conn);
             testDeleteUser(conn);
         }
@@ -270,6 +273,57 @@ public class IntegrationTest {
             var orders = Queries.getOrdersByUser(conn, createdUserId);
             if (orders.size() != 1) {
                 fail(name, "expected 1 order, got " + orders.size());
+                return;
+            }
+            pass(name);
+        } catch (Exception e) {
+            fail(name, e);
+        }
+    }
+
+    private static void testUpdateUserEmail(Connection conn) {
+        String name = "UpdateUserEmail";
+        try {
+            Queries.updateUserEmail(conn, "alice-updated@example.com", createdUserId);
+            var user = Queries.getUserById(conn, createdUserId);
+            if (user == null) {
+                fail(name, "user not found after update");
+                return;
+            }
+            if (!"alice-updated@example.com".equals(user.email())) {
+                fail(name, "expected updated email, got " + user.email());
+                return;
+            }
+            pass(name);
+        } catch (Exception e) {
+            fail(name, e);
+        }
+    }
+
+    private static void testSearchUsers(Connection conn) {
+        String name = "SearchUsers";
+        try {
+            var users = Queries.searchUsers(conn, "%Alice%");
+            if (users.isEmpty()) {
+                fail(name, "expected at least 1 user matching Alice");
+                return;
+            }
+            pass(name);
+        } catch (Exception e) {
+            fail(name, e);
+        }
+    }
+
+    private static void testGetOrderTotal(Connection conn) {
+        String name = "GetOrderTotal";
+        try {
+            var result = Queries.getOrderTotal(conn, createdUserId);
+            if (result == null) {
+                fail(name, "returned null");
+                return;
+            }
+            if (Math.abs(result.total_sum() - 99.99) > 0.01) {
+                fail(name, "expected total_sum 99.99, got " + result.total_sum());
                 return;
             }
             pass(name);

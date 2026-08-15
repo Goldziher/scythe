@@ -47,7 +47,9 @@ public class IntegrationTest {
 
             testCreateUser(conn);
             testGetUserById(conn);
+            testUpdateUserEmail(conn);
             testListActiveUsers(conn);
+            testSearchUsers(conn);
             testCreateOrder(conn);
             testGetOrdersByUser(conn);
             testGetOrderTotal(conn);
@@ -226,12 +228,45 @@ public class IntegrationTest {
         }
     }
 
+    private static void testUpdateUserEmail(Connection conn) {
+        String name = "UpdateUserEmail";
+        try {
+            Queries.updateUserEmail(conn, "alice-updated@example.com", createdUserId);
+            var user = Queries.getUserById(conn, createdUserId);
+            if (user == null) {
+                fail(name, "user not found after update");
+                return;
+            }
+            if (!"alice-updated@example.com".equals(user.email())) {
+                fail(name, "expected updated email, got " + user.email());
+                return;
+            }
+            pass(name);
+        } catch (Exception e) {
+            fail(name, e);
+        }
+    }
+
     private static void testListActiveUsers(Connection conn) {
         String name = "ListActiveUsers";
         try {
             var users = Queries.listActiveUsers(conn, UsersStatus.ACTIVE);
             if (users.isEmpty()) {
                 fail(name, "expected at least 1 active user");
+                return;
+            }
+            pass(name);
+        } catch (Exception e) {
+            fail(name, e);
+        }
+    }
+
+    private static void testSearchUsers(Connection conn) {
+        String name = "SearchUsers";
+        try {
+            var users = Queries.searchUsers(conn, "%Alice%");
+            if (users.isEmpty()) {
+                fail(name, "expected at least 1 user matching Alice");
                 return;
             }
             pass(name);

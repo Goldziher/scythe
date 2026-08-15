@@ -45,6 +45,10 @@ fun main() {
         testGetUserById(conn)
         testCreateOrder(conn)
         testGetOrdersByUser(conn)
+        testUpdateUserEmail(conn)
+        testGetOrderTotal(conn)
+        testListActiveUsers(conn)
+        testSearchUsers(conn)
         testDeleteOrdersByUser(conn)
         testDeleteUser(conn)
     }
@@ -149,6 +153,75 @@ fun testGetOrdersByUser(conn: java.sql.Connection) {
         val orders = getOrdersByUser(conn, createdUserId)
         if (orders.size != 1) {
             fail(name, "expected 1 order, got ${orders.size}")
+            return
+        }
+        pass(name)
+    } catch (e: Exception) {
+        fail(name, e)
+    }
+}
+
+fun testUpdateUserEmail(conn: java.sql.Connection) {
+    val name = "UpdateUserEmail"
+    try {
+        updateUserEmail(conn, "alice-updated@example.com", createdUserId)
+        val user = getUserById(conn, createdUserId)
+        if (user == null) {
+            fail(name, "user not found after update")
+            return
+        }
+        if (user.email != "alice-updated@example.com") {
+            fail(name, "expected updated email, got ${user.email}")
+            return
+        }
+        pass(name)
+    } catch (e: Exception) {
+        fail(name, e)
+    }
+}
+
+fun testGetOrderTotal(conn: java.sql.Connection) {
+    val name = "GetOrderTotal"
+    try {
+        val result = getOrderTotal(conn, createdUserId)
+        if (result == null || result.total_sum == null) {
+            fail(name, "returned null")
+            return
+        }
+        if (result.total_sum.compareTo(BigDecimal("99.99")) != 0) {
+            fail(name, "expected total_sum 99.99, got ${result.total_sum}")
+            return
+        }
+        pass(name)
+    } catch (e: Exception) {
+        fail(name, e)
+    }
+}
+
+fun testListActiveUsers(conn: java.sql.Connection) {
+    val name = "ListActiveUsers"
+    try {
+        // redshift's `status` column is a plain VARCHAR, not an enum, so
+        // ListActiveUsers takes a status string rather than a UserStatus.
+        val users = listActiveUsers(conn, "active")
+        if (users.isEmpty()) {
+            fail(name, "expected at least 1 active user")
+            return
+        }
+        pass(name)
+    } catch (e: Exception) {
+        fail(name, e)
+    }
+}
+
+fun testSearchUsers(conn: java.sql.Connection) {
+    val name = "SearchUsers"
+    try {
+        // redshift's SearchUsers filters by status (see queries/users.sql),
+        // not a name LIKE pattern like the other engines' SearchUsers.
+        val users = searchUsers(conn, "active")
+        if (users.isEmpty()) {
+            fail(name, "expected at least 1 active user")
             return
         }
         pass(name)

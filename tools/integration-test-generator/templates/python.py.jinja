@@ -30,6 +30,7 @@ import duckdb
 {%- elif driver == "snowflake" %}
 
 import snowflake.connector
+
 try:
     import fakesnow
 except ImportError:
@@ -498,19 +499,19 @@ async def test_create_order(conn, user_id: int) -> int:
 
 
 {% if driver == "psycopg3" -%}
-async def test_get_orders_by_user(conn: psycopg.AsyncConnection, user_id: int) -> None:
+async def test_get_orders_by_user(conn: psycopg.AsyncConnection, user_id: int, order_id: int) -> None:
 {%- elif driver == "asyncpg" -%}
-async def test_get_orders_by_user(conn: asyncpg.Connection, user_id: int) -> None:
+async def test_get_orders_by_user(conn: asyncpg.Connection, user_id: int, order_id: int) -> None:
 {%- elif driver == "pyodbc" -%}
-def test_get_orders_by_user(conn: pyodbc.Connection, user_id: int) -> None:
+def test_get_orders_by_user(conn: pyodbc.Connection, user_id: int, order_id: int) -> None:
 {%- elif driver == "snowflake" -%}
-def test_get_orders_by_user(conn, user_id: int) -> None:
+def test_get_orders_by_user(conn, user_id: int, order_id: int) -> None:
 {%- elif driver == "duckdb" -%}
-def test_get_orders_by_user(conn: duckdb.DuckDBPyConnection, user_id: int) -> None:
+def test_get_orders_by_user(conn: duckdb.DuckDBPyConnection, user_id: int, order_id: int) -> None:
 {%- elif engine == "mariadb" -%}
-async def test_get_orders_by_user(conn, user_id: str) -> None:
+async def test_get_orders_by_user(conn, user_id: str, order_id: int) -> None:
 {%- else -%}
-async def test_get_orders_by_user(conn, user_id: int) -> None:
+async def test_get_orders_by_user(conn, user_id: int, order_id: int) -> None:
 {%- endif %}
     """Test GetOrdersByUser query."""
 {%- if driver != "pyodbc" and driver != "snowflake" and driver != "duckdb" %}
@@ -523,6 +524,7 @@ async def test_get_orders_by_user(conn, user_id: int) -> None:
     assert isinstance(orders[0], BaseModel), f"Expected BaseModel instance, got {type(orders[0])}"
 {%- endif %}
     assert orders[0].notes == "Test order", f"Expected notes 'Test order', got '{orders[0].notes}'"
+    assert any(o.id == order_id for o in orders), f"Expected order {order_id} in results, got {[o.id for o in orders]}"
     print("PASS: GetOrdersByUser")
 
 
@@ -603,7 +605,7 @@ def run_tests() -> None:
         await test_get_user_by_id(conn, user_id)
         await test_list_active_users(conn)
         order_id = await test_create_order(conn, user_id)
-        await test_get_orders_by_user(conn, user_id)
+        await test_get_orders_by_user(conn, user_id, order_id)
         await test_delete_user(conn, user_id)
 {%- elif driver == "asyncpg" %}
     conn = await asyncpg.connect(database_url)
@@ -614,7 +616,7 @@ def run_tests() -> None:
         await test_get_user_by_id(conn, user_id)
         await test_list_active_users(conn)
         order_id = await test_create_order(conn, user_id)
-        await test_get_orders_by_user(conn, user_id)
+        await test_get_orders_by_user(conn, user_id, order_id)
         await test_delete_user(conn, user_id)
     finally:
         await conn.close()
@@ -635,7 +637,7 @@ def run_tests() -> None:
         await test_get_user_by_id(conn, user_id)
         await test_list_active_users(conn)
         order_id = await test_create_order(conn, user_id)
-        await test_get_orders_by_user(conn, user_id)
+        await test_get_orders_by_user(conn, user_id, order_id)
         await test_delete_user(conn, user_id)
     finally:
         conn.close()
@@ -648,7 +650,7 @@ def run_tests() -> None:
         await test_get_user_by_id(conn, user_id)
         await test_list_active_users(conn)
         order_id = await test_create_order(conn, user_id)
-        await test_get_orders_by_user(conn, user_id)
+        await test_get_orders_by_user(conn, user_id, order_id)
         await test_delete_user(conn, user_id)
     finally:
         await conn.close()
@@ -669,7 +671,7 @@ def run_tests() -> None:
         await test_get_user_by_id(conn, user_id)
         await test_list_active_users(conn)
         order_id = await test_create_order(conn, user_id)
-        await test_get_orders_by_user(conn, user_id)
+        await test_get_orders_by_user(conn, user_id, order_id)
         await test_delete_user(conn, user_id)
     finally:
         await conn.close()
@@ -685,7 +687,7 @@ def run_tests() -> None:
         test_get_user_by_id(conn, user_id)
         test_list_active_users(conn)
         order_id = test_create_order(conn, user_id)
-        test_get_orders_by_user(conn, user_id)
+        test_get_orders_by_user(conn, user_id, order_id)
         test_delete_user(conn, user_id)
     finally:
         conn.close()
@@ -705,7 +707,7 @@ def run_tests() -> None:
         test_get_user_by_id(conn, user_id)
         test_list_active_users(conn)
         order_id = test_create_order(conn, user_id)
-        test_get_orders_by_user(conn, user_id)
+        test_get_orders_by_user(conn, user_id, order_id)
         test_delete_user(conn, user_id)
     finally:
         conn.close()
@@ -727,7 +729,7 @@ def run_tests() -> None:
                 test_get_user_by_id(conn, user_id)
                 test_list_active_users(conn)
                 order_id = test_create_order(conn, user_id)
-                test_get_orders_by_user(conn, user_id)
+                test_get_orders_by_user(conn, user_id, order_id)
                 test_delete_user(conn, user_id)
             finally:
                 conn.close()
@@ -761,7 +763,7 @@ def run_tests() -> None:
             test_get_user_by_id(conn, user_id)
             test_list_active_users(conn)
             order_id = test_create_order(conn, user_id)
-            test_get_orders_by_user(conn, user_id)
+            test_get_orders_by_user(conn, user_id, order_id)
             test_delete_user(conn, user_id)
         finally:
             conn.close()
