@@ -741,8 +741,17 @@ fn convert_query_content(input: &str) -> Result<(String, usize, usize), ScytheEr
         output.push_str(&format!("-- @name {name}\n"));
         output.push_str(&format!("-- @returns :{return_type}\n"));
 
-        for pname in &param_names {
-            output.push_str(&format!("-- @param {pname}\n"));
+        // `-- @param {pname}` (no `$N`) is the docs-only form -- `parser::parse_query_with_dialect`
+        // stores it as a `ParamDoc` that only the analyzer's doc-comment output ever reads. Only
+        // the positional form `-- @param $N {pname}` becomes a `PositionalParamDoc`, which is the
+        // one thing that actually renames the generated parameter (see
+        // `analyzer::analyze`, where only `positional_param_docs` is consulted to name
+        // an `AnalyzedParam`). Emitting the docs-only form here silently dropped every
+        // `sqlc.arg`/`sqlc.narg` name: `migrate` reported "N param(s) renamed" while the generated
+        // function fell back to inferred or `pN` names. See #152.
+        for (offset, pname) in param_names.iter().enumerate() {
+            let position = max_positional + 1 + offset;
+            output.push_str(&format!("-- @param ${position} {pname}\n"));
         }
 
         output.push_str(&converted_body);
@@ -872,14 +881,15 @@ mod tests {
         assert!(out.contains("WHERE id = $1"));
     }
 
-    /// Verified against board #127/#152's suspicion that this file pins defective output around
-    /// (then-)lines 848-849: hand-traced `convert_query_content` for `page_limit` and
-    /// `page_offset` and confirmed each `sqlc.arg(...)` call is replaced with its own
-    /// sequentially-numbered placeholder and its own `-- @param` line -- the intended mapping,
-    /// not a bug this test happens to encode. Left un-inverted: inverting a correct assertion
-    /// would itself become a bug-pinning test. The same check was made for
-    /// `test_sqlc_narg_conversion`, `test_repeated_arg_same_name` and
-    /// `test_mixed_arg_and_narg` -- their `-- @param` assertions are correct output too.
+    /// Inverted with #152: the prior claim (board #127/#152) that this file's `-- @param
+    /// page_limit` assertions were "the intended mapping, not a bug" was never checked against
+    /// scythe's own parser. `-- @param {pname}` with no `$N` is the docs-only form --
+    /// `parser::parse_query_with_dialect` files it as a `ParamDoc`, which
+    /// `analyzer::analyze` never consults for naming; only `-- @param $N {pname}`
+    /// (`PositionalParamDoc`) renames the generated parameter. So the migrated file's param names
+    /// were silently discarded on the very next `scythe generate`, while `migrate` reported them
+    /// as renamed. The same was true of `test_sqlc_narg_conversion`, `test_repeated_arg_same_name`
+    /// and `test_mixed_arg_and_narg`, inverted alongside this one.
     #[test]
     fn test_sqlc_arg_conversion() {
         let input = "\
@@ -892,8 +902,8 @@ LIMIT sqlc.arg(page_limit)::int4 OFFSET sqlc.arg(page_offset)::int4;
         assert_eq!(qc, 1);
         assert_eq!(pc, 2);
         assert!(out.contains("LIMIT $1::int4 OFFSET $2::int4"));
-        assert!(out.contains("-- @param page_limit"));
-        assert!(out.contains("-- @param page_offset"));
+        assert!(out.contains("-- @param $1 page_limit"), "got: {out}");
+        assert!(out.contains("-- @param $2 page_offset"), "got: {out}");
     }
 
     #[test]
@@ -908,7 +918,7 @@ LIMIT sqlc.arg(page_limit)::int4;
         assert!(out.contains("LIMIT $2::int4"), "got: {out}");
     }
 
-    /// See `test_sqlc_arg_conversion`'s doc comment: verified correct, not bug-pinning.
+    /// See `test_sqlc_arg_conversion`'s doc comment: inverted alongside it for #152.
     #[test]
     fn test_sqlc_narg_conversion() {
         let input = "\
@@ -918,7 +928,7 @@ SELECT * FROM projects WHERE name = sqlc.narg(search_name);
         let (out, _qc, pc) = convert_query_content(input).unwrap();
         assert_eq!(pc, 1);
         assert!(out.contains("WHERE name = $1"));
-        assert!(out.contains("-- @param search_name"));
+        assert!(out.contains("-- @param $1 search_name"), "got: {out}");
     }
 
     #[test]
@@ -946,7 +956,7 @@ SELECT 2;
         assert_eq!(out, input);
     }
 
-    /// See `test_sqlc_arg_conversion`'s doc comment: verified correct, not bug-pinning.
+    /// See `test_sqlc_arg_conversion`'s doc comment: inverted alongside it for #152.
     #[test]
     fn test_repeated_arg_same_name() {
         let input = "\
@@ -956,9 +966,9 @@ SELECT * FROM t WHERE a = sqlc.arg(x) AND b = sqlc.arg(x);
         let (out, _qc, pc) = convert_query_content(input).unwrap();
         assert_eq!(pc, 2);
         assert!(out.contains("a = $1 AND b = $1"), "got: {out}");
-        // Only one @param line
-        let param_count = out.matches("-- @param x").count();
-        assert_eq!(param_count, 1, "expected one @param x, got: {out}");
+        // Only one @param line, and it must be the positional (binding) form.
+        let param_count = out.matches("-- @param $1 x").count();
+        assert_eq!(param_count, 1, "expected one '-- @param $1 x', got: {out}");
     }
 
     #[test]
@@ -969,7 +979,7 @@ SELECT * FROM t WHERE a = sqlc.arg(x) AND b = sqlc.arg(x);
         assert!(out.contains("-- @returns :exec"));
     }
 
-    /// See `test_sqlc_arg_conversion`'s doc comment: verified correct, not bug-pinning.
+    /// See `test_sqlc_arg_conversion`'s doc comment: inverted alongside it for #152.
     #[test]
     fn test_mixed_arg_and_narg() {
         let input = "\
@@ -982,8 +992,8 @@ WHERE a = sqlc.arg(foo) AND b = sqlc.narg(bar) AND c = $1;
         assert!(out.contains("a = $2"), "got: {out}");
         assert!(out.contains("b = $3"), "got: {out}");
         assert!(out.contains("c = $1"), "got: {out}");
-        assert!(out.contains("-- @param foo"));
-        assert!(out.contains("-- @param bar"));
+        assert!(out.contains("-- @param $2 foo"), "got: {out}");
+        assert!(out.contains("-- @param $3 bar"), "got: {out}");
     }
 
     #[test]
@@ -1040,6 +1050,42 @@ SELECT 1;
         assert!(
             error.contains("unrecognised sqlc parameter reference"),
             "error must identify the problem, got: {error}"
+        );
+    }
+
+    /// Regression for #152: proves the fix end-to-end through scythe's own annotation parser,
+    /// not just by string-matching `migrate`'s own output. Before the fix, `migrate` emitted the
+    /// docs-only `-- @param name` form, which `scythe_core::parser` stores as a `ParamDoc` that
+    /// the analyzer never reads for naming; only the positional `-- @param $N name` form becomes
+    /// a `PositionalParamDoc` and actually renames the generated parameter. A migrated file that
+    /// reported "param(s) renamed" produced no `positional_param_docs` at all.
+    #[test]
+    fn convert_query_content_output_parses_as_a_positional_param_doc() {
+        let input = "\
+-- name: FindByAnything :many
+SELECT id FROM users WHERE name = sqlc.arg(needle) AND email = sqlc.arg(mailbox);
+";
+        let (out, _qc, pc) = convert_query_content(input).unwrap();
+        assert_eq!(pc, 2);
+
+        let query = scythe_core::parser::parse_query(&out)
+            .unwrap_or_else(|e| panic!("migrated output must be valid scythe SQL, got parse error: {e}\n---\n{out}"));
+
+        assert!(
+            query.annotations.param_docs.is_empty(),
+            "migrated params must use the binding form, not the docs-only form: {:?}",
+            query.annotations.param_docs
+        );
+        let names: Vec<&str> = query
+            .annotations
+            .positional_param_docs
+            .iter()
+            .map(|d| d.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            vec!["needle", "mailbox"],
+            "sqlc.arg names must survive as positional param docs, got: {out}"
         );
     }
 }

@@ -15,7 +15,9 @@ also removed (#132) — a breaking change for any direct caller, though it had n
 Two lint-crate suppression and audit APIs also changed shape (see **Fixed**): `SuppressionSet` is now
 keyed by statement index instead of source line, and `LintRule` gained `cwe()` / `is_applicable_to()`
 methods with safe defaults. `scythe-lint` also drops four `sqruff_adapter` free functions in favour of
-building a `SqruffLinter` once (see **Removed**). Details below.
+building a `SqruffLinter` once (see **Removed**). `scythe-core`'s public `CustomAnnotation` struct
+gained a `suggested_keyword: Option<String>` field (see **Fixed**, #152) — a breaking change for any
+direct caller that builds one by struct literal rather than through the parser. Details below.
 
 ### Security
 
@@ -884,6 +886,25 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   with the driver's own "value must not be null". The `Batch` bind sites are untouched and still have
   a separate pre-existing gap — a batch enum parameter binds the raw enum object with no
   `.getValue()`/`.value` call.
+- **A misspelled annotation (`@nullible`, `@optionall`, `@nonull`, ...) was captured and silently
+  discarded.** Any `-- @<name> <value>` line scythe does not natively recognise is deliberately kept
+  as an opaque `CustomAnnotation` — that escape hatch is how consumers layer their own annotation
+  vocabulary (`@http`, `@http_auth`, ...) on top of scythe — but nothing ever inspected it, so a
+  typo'd override behaved identically to one with no override at all while `scythe generate`,
+  `scythe check` and `scythe lint` all reported success. `CustomAnnotation` now carries a
+  `suggested_keyword` when the unrecognised name is within edit distance 2 of a known keyword
+  (`name`, `returns`, `param`, `nullable`, `nonnull`, `json`, `deprecated`, `group_by`, `optional`),
+  for a caller to turn into a warning. Left as a signal rather than a hard parse error: rejecting
+  every unrecognised annotation would break the same consumer-defined vocabulary the escape hatch
+  exists for. (#152)
+- **`scythe migrate` reported every `sqlc.arg`/`sqlc.narg` name as "renamed" while discarding it.**
+  It emitted `-- @param {name}`, which `scythe_core::parser` stores as a docs-only `ParamDoc` that
+  the analyzer never reads for naming — only the positional `-- @param $N {name}` form becomes a
+  `PositionalParamDoc` and actually renames the generated parameter. A migrated
+  `sqlc.arg(needle)`/`sqlc.arg(mailbox)` query silently fell back to inferred or `pN` parameter
+  names on the very next `scythe generate`, even though `migrate` printed "2 param(s) renamed".
+  `migrate` now emits the positional form, with the same sequential numbering it already assigns to
+  the placeholder. (#152)
 - **Two SQL values of the same enum could collide on the generated variant name and `scythe generate`
   wrote both anyway.** `'gpt-3.5-turbo'` and `'gpt_3_5_turbo'` both sanitize and case-convert to
   `Gpt35Turbo` under `enum_variant_case = "PascalCase"` (Rust, C#, Go, TypeScript); nothing compared

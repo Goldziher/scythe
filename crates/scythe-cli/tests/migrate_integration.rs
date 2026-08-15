@@ -123,6 +123,12 @@ fn write_project(
 
 /// Assert `query_file` was rewritten from sqlc syntax to scythe syntax and
 /// that a `.sql.bak` backup with the original content was left behind.
+///
+/// The `-- @param` assertion below was inverted for #152: it used to accept the docs-only
+/// `-- @param widget_id` form, which scythe's own parser stores as a `ParamDoc` that the analyzer
+/// never reads for naming -- so `sqlc.arg(widget_id)`'s name was silently dropped and the
+/// generated parameter fell back to an inferred or `pN` name. Only the positional
+/// `-- @param $N widget_id` form is read back as the binding it is meant to be.
 fn assert_query_converted(query_file: &Path) {
     let content = std::fs::read_to_string(query_file)
         .unwrap_or_else(|e| panic!("expected converted query at {}: {e}", query_file.display()));
@@ -135,8 +141,8 @@ fn assert_query_converted(query_file: &Path) {
         "expected @returns annotation, got:\n{content}"
     );
     assert!(
-        content.contains("-- @param widget_id"),
-        "expected sqlc.arg(widget_id) translated to a @param line, got:\n{content}"
+        content.contains("-- @param $1 widget_id"),
+        "expected sqlc.arg(widget_id) translated to a positional (binding) @param line, got:\n{content}"
     );
     assert!(
         content.contains("id = $1"),

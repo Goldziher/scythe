@@ -89,6 +89,18 @@ pub struct JsonMapping {
 /// Any other `-- @<name> <value>` line is captured here as an opaque triple and
 /// exposed to crate consumers, who can layer their own annotation vocabulary on
 /// top of scythe without coupling scythe to their domain.
+///
+/// That escape hatch means an unrecognised annotation can never be a hard parse
+/// error -- rejecting it outright would break every legitimate consumer-defined
+/// annotation (e.g. `@http`, `@http_auth`) alongside the typos it was meant to
+/// catch. [`suggested_keyword`](Self::suggested_keyword) is the softer signal:
+/// it flags names close enough to a known keyword to plausibly be a typo of it
+/// (`@nullible` for `@nullable`, `@optionall` for `@optional`), for a caller to
+/// surface as a warning without duplicating scythe's keyword list or edit-distance
+/// logic. See #152 -- before this field existed, a misspelled `@nullable` /
+/// `@nonnull` / `@optional` was captured here and never inspected by anything,
+/// so `scythe generate`, `scythe check` and `scythe lint` all reported success
+/// while the override it named was silently discarded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CustomAnnotation {
@@ -98,6 +110,69 @@ pub struct CustomAnnotation {
     pub value: String,
     /// 1-based line number within the query SQL, for diagnostics.
     pub line: usize,
+    /// A known annotation keyword within edit distance 2 of `name`, if any -- e.g.
+    /// `Some("nullable".to_string())` for `nullible`. `None` when `name` is not close to
+    /// any known keyword (the common case: a genuine consumer-defined annotation). An owned
+    /// `String` rather than `&'static str` so the type stays trivially `Deserialize` (a
+    /// borrowed-forever `&'static str` field cannot round-trip through an arbitrary
+    /// deserializer's input lifetime).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub suggested_keyword: Option<String>,
+}
+
+/// The annotation keywords [`parse_query_with_dialect`] recognises natively. Anything else
+/// becomes a [`CustomAnnotation`]; [`suggest_known_keyword`] checks a rejected name against
+/// this list to flag likely typos.
+const KNOWN_ANNOTATION_KEYWORDS: &[&str] = &[
+    "name",
+    "returns",
+    "param",
+    "nullable",
+    "nonnull",
+    "json",
+    "deprecated",
+    "group_by",
+    "optional",
+];
+
+/// Maximum Levenshtein edit distance at which an unrecognised annotation name is flagged as a
+/// likely typo of a known keyword. Matches the threshold `scythe-codegen::backend_options` and
+/// `scythe-backend::manifest` already use for "did you mean" suggestions on unknown option/type
+/// keys -- close enough to catch `nullible` -> `nullable` or `optionall` -> `optional` without
+/// false-positiving on a genuinely unrelated custom annotation name.
+const ANNOTATION_TYPO_DISTANCE_THRESHOLD: usize = 2;
+
+/// Suggest a known annotation keyword for an unrecognised annotation `name`, if one is within
+/// [`ANNOTATION_TYPO_DISTANCE_THRESHOLD`] edits.
+fn suggest_known_keyword(name: &str) -> Option<&'static str> {
+    KNOWN_ANNOTATION_KEYWORDS
+        .iter()
+        .map(|&candidate| (candidate, annotation_levenshtein_distance(name, candidate)))
+        .filter(|&(_, distance)| distance <= ANNOTATION_TYPO_DISTANCE_THRESHOLD)
+        .min_by_key(|&(_, distance)| distance)
+        .map(|(candidate, _)| candidate)
+}
+
+/// Levenshtein edit distance between two strings, used by [`suggest_known_keyword`].
+fn annotation_levenshtein_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+
+    let mut prev_row: Vec<usize> = (0..=b.len()).collect();
+    let mut curr_row = vec![0usize; b.len() + 1];
+
+    for (i, &char_a) in a.iter().enumerate() {
+        curr_row[0] = i + 1;
+        for (j, &char_b) in b.iter().enumerate() {
+            let substitution_cost = usize::from(char_a != char_b);
+            curr_row[j + 1] = (prev_row[j + 1] + 1)
+                .min(curr_row[j] + 1)
+                .min(prev_row[j] + substitution_cost);
+        }
+        std::mem::swap(&mut prev_row, &mut curr_row);
+    }
+
+    prev_row[b.len()]
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -302,6 +377,7 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
                         name: other.to_string(),
                         value: value.to_string(),
                         line: line_no,
+                        suggested_keyword: suggest_known_keyword(other).map(str::to_string),
                     });
                 }
             }
@@ -940,6 +1016,7 @@ SELECT 1";
             name: "http".to_string(),
             value: "GET /users/{id}".to_string(),
             line: 7,
+            suggested_keyword: None,
         };
         let json = serde_json::to_string(&original).unwrap();
         let back: CustomAnnotation = serde_json::from_str(&json).unwrap();
@@ -956,6 +1033,59 @@ SELECT 1";
         assert_eq!(q.annotations.custom.len(), 1);
         assert_eq!(q.annotations.custom[0].name, "http_auth");
         assert_eq!(q.annotations.custom[0].value, "Bearer");
+    }
+
+    /// Regression for #152: a misspelled `@nullable` / `@nonnull` / `@optional` used to be
+    /// captured as an opaque `CustomAnnotation` that nothing ever inspected -- `scythe generate`,
+    /// `scythe check` and `scythe lint` all reported success while the nullability override the
+    /// user wrote never took effect. `suggested_keyword` must name the intended keyword so a
+    /// caller can turn this into a warning instead of silence.
+    #[test]
+    fn test_typo_annotation_suggests_known_keyword() {
+        let input = "-- @name GetUser
+-- @returns :one
+-- @nullible email
+-- @optionall email
+-- @nonull name
+SELECT id, name, email FROM users WHERE id = $1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.annotations.custom.len(), 3);
+        assert_eq!(q.annotations.custom[0].name, "nullible");
+        assert_eq!(q.annotations.custom[0].suggested_keyword.as_deref(), Some("nullable"));
+        assert_eq!(q.annotations.custom[1].name, "optionall");
+        assert_eq!(q.annotations.custom[1].suggested_keyword.as_deref(), Some("optional"));
+        assert_eq!(q.annotations.custom[2].name, "nonull");
+        assert_eq!(q.annotations.custom[2].suggested_keyword.as_deref(), Some("nonnull"));
+
+        // The override itself must NOT have silently applied under its misspelled name --
+        // otherwise the typo would behave identically to the real keyword and there would be
+        // nothing to warn about.
+        assert!(q.annotations.nullable_overrides.is_empty());
+        assert!(q.annotations.optional_params.is_empty());
+        assert!(q.annotations.nonnull_overrides.is_empty());
+    }
+
+    /// A genuinely consumer-defined annotation vocabulary (`@http`, `@http_auth`, ...) must not
+    /// be flagged -- `suggested_keyword` is a typo signal, not a closed-vocabulary rejection; see
+    /// the `CustomAnnotation` doc comment for why an unrecognised annotation is never a hard
+    /// error.
+    #[test]
+    fn test_custom_annotation_far_from_any_keyword_has_no_suggestion() {
+        let input = "-- @name GetUser
+-- @returns :one
+-- @http GET /users/{id}
+-- @http_auth bearer:jwt
+-- @http_status 200,404
+SELECT id FROM users WHERE id = $1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.annotations.custom.len(), 3);
+        for annotation in &q.annotations.custom {
+            assert_eq!(
+                annotation.suggested_keyword, None,
+                "{:?} must not be flagged as a typo of a known keyword",
+                annotation.name
+            );
+        }
     }
 
     // ---- @param positional form ----
