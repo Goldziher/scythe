@@ -212,6 +212,13 @@ jobs:
           pnpm exec tsc --noEmit
           pnpm exec tsx test.ts
 
+      - name: Test typescript-pg-camel
+        working-directory: integration_tests/typescript-pg-camel
+        run: |
+          pnpm install
+          pnpm exec tsc --noEmit
+          pnpm exec tsx test.ts
+
       - name: Test typescript-pg-zod
         working-directory: integration_tests/typescript-pg-zod
         run: |

@@ -30,3 +30,6 @@ outer_join_unions = "{{ options.outer_join_unions }}"
 {%- if options.structs_only and language != "rust" %}
 structs_only = "{{ options.structs_only }}"
 {%- endif %}
+{%- if options.field_case %}
+field_case = "{{ options.field_case }}"
+{%- endif %}

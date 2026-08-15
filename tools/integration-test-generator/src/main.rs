@@ -296,6 +296,24 @@ fn backend_variants() -> Vec<BackendConfig> {
             options: HashMap::new(),
         },
         BackendConfig {
+            // Issue #92: field_case has no runtime assertion anywhere. Every
+            // existing assertion is on a generated string, never on a row a
+            // database actually returned. This project drives a real query
+            // through a real `pg` connection with `field_case = "camelCase"`
+            // and asserts on the *live row object* -- see typescript.ts.jinja's
+            // `options.field_case == "camelCase"` branch -- both that the
+            // remapped key is present with the expected value, and that the
+            // original snake_case key is gone (a backend that *adds* the
+            // camelCase key while leaving the old one in place must fail).
+            name: "typescript-pg-camel".into(),
+            language: "typescript".into(),
+            engine: "postgresql".into(),
+            driver: "pg".into(),
+            connection_env: "DATABASE_URL".into(),
+            backend: "typescript-pg".into(),
+            options: HashMap::from([("field_case".into(), "camelCase".into())]),
+        },
+        BackendConfig {
             name: "typescript-postgres".into(),
             language: "typescript".into(),
             engine: "postgresql".into(),

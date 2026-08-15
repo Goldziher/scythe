@@ -229,6 +229,14 @@ tasks:
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
+  test:typescript-pg-camel:
+    desc: Run typescript-pg-camel integration test
+    dir: typescript-pg-camel
+    cmds:
+      - pnpm install --frozen-lockfile
+      - pnpm exec tsc --noEmit
+      - pnpm exec tsx test.ts
+
   test:typescript-pg-zod:
     desc: Run typescript-pg-zod integration test
     dir: typescript-pg-zod
@@ -985,6 +993,7 @@ tasks:
       - task: test:go-pgx
       - task: test:typescript-postgres
       - task: test:typescript-pg
+      - task: test:typescript-pg-camel
       - task: test:typescript-pg-zod
       - task: test:typescript-pg-outer-join-unions
       - task: test:typescript-pg-zod-outer-join-unions

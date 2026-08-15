@@ -135,6 +135,17 @@ working code, but the error now arrives earlier and from a different layer. Fixt
   reports the same actionable `UNRESOLVED_TYPE` diagnostic the column path does, naming the
   parameter. `GREATEST`/`LEAST`, `NULLIF` and `CASE` reached it the same way. (#223)
 
+- **`field_case` had no runtime assertion anywhere.** Sixteen backends honour the option
+  (`apply_field_case_option`), but every existing assertion was on a generated string, never on a
+  row a database actually returned. The new `typescript-pg-camel` integration project drives a
+  real `pg` query with `field_case = "camelCase"` and asserts on the live row object: the remapped
+  `userId` key is present with the expected value, and the original `user_id` key is gone — the
+  negative check is the point, since a backend that adds the camelCase key while leaving the
+  snake_case one in place would pass a positive-only check. `typescript-kysely` is not covered: it
+  deliberately does not remap, relying on the caller registering `CamelCasePlugin`, so its camelCase
+  keys come from the driver rather than from generated code and the harness has to register the
+  plugin to assert anything — tracked as #228. (#92)
+
 - **Three gates reported success for having checked nothing.** `check-generated-backends.py`,
   which compile-checks every backend against the torture schema, exits 0 when project discovery
   returns nothing: its pass/fail flag is only cleared by lists derived from the discovered set. An

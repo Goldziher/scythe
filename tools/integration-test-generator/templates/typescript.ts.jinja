@@ -508,6 +508,27 @@ async function main(): Promise<void> {
 			"CreateOrder",
 			`expected notes 'first order'`,
 		);
+{%- elif options.field_case == "camelCase" %}
+		assert(
+			(order as unknown as Record<string, unknown>)["userId"] === userId,
+			"CreateOrder",
+			`expected userId ${userId}`,
+		);
+		assert(
+			!("user_id" in (order as unknown as Record<string, unknown>)),
+			"CreateOrder",
+			"row should not carry the pre-remap snake_case key 'user_id'",
+		);
+		assert(
+			String(order!.total) === "99.95",
+			"CreateOrder",
+			`expected total 99.95, got ${order!.total}`,
+		);
+		assert(
+			order!.notes === "first order",
+			"CreateOrder",
+			`expected notes 'first order'`,
+		);
 {%- else %}
 		assert(
 			order!.user_id === userId,
@@ -576,9 +597,9 @@ async function main(): Promise<void> {
 
 		const profile = await getUserProfile(client, presentId);
 		assert(
-			profile.secondary_status === "inactive",
+			profile.{% if options.field_case == "camelCase" %}secondaryStatus{% else %}secondary_status{% endif %} === "inactive",
 			"GetUserProfile",
-			`expected secondary_status inactive, got ${profile.secondary_status}`,
+			`expected secondary_status inactive, got ${profile.{% if options.field_case == "camelCase" %}secondaryStatus{% else %}secondary_status{% endif %}}`,
 		);
 		assert(profile.address !== null, "GetUserProfile", "expected address to be present");
 		assert(
@@ -599,9 +620,9 @@ async function main(): Promise<void> {
 
 		const nullProfile = await getUserProfile(client, absentId);
 		assert(
-			nullProfile.secondary_status === null,
+			nullProfile.{% if options.field_case == "camelCase" %}secondaryStatus{% else %}secondary_status{% endif %} === null,
 			"GetUserProfile",
-			`expected secondary_status null, got ${nullProfile.secondary_status}`,
+			`expected secondary_status null, got ${nullProfile.{% if options.field_case == "camelCase" %}secondaryStatus{% else %}secondary_status{% endif %}}`,
 		);
 		assert(
 			nullProfile.address === null,
