@@ -119,6 +119,32 @@ jobs:
           echo "All $count committed generated test file(s) in $dir match a fresh generator run."
       - name: Run clippy
         run: cargo clippy --workspace -- -D warnings
+      # `deny.toml` has existed for a long time and no workflow ever invoked it.
+      # The `Goldziher/poly@v0` step in the test job below installs poly to put
+      # its bundled checkers on PATH; it does not run `poly lint`, so the
+      # cargo-deny pass that runs locally never ran here.
+      #
+      # Both flags are load-bearing, and neither is optional:
+      #
+      #   --all-features            `tiberius` reaches the graph only through
+      #                             scythe-conformance's optional `mssql`
+      #                             feature. Without this, `cargo deny check`
+      #                             prints "advisories ok" while four RUSTSEC
+      #                             advisories in that chain are invisible to
+      #                             it -- a gate that passes because it cannot
+      #                             see what it is checking.
+      #   -D advisory-not-detected  an ignore entry that no longer matches
+      #                             anything is a warning by default, so
+      #                             deny.toml's ignore list would decay into
+      #                             fiction with no signal. This fails the
+      #                             build on a stale entry, which is what makes
+      #                             the list self-expiring rather than
+      #                             self-perpetuating.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: Audit dependencies
+        run: cargo deny --all-features check -D advisory-not-detected
 
   test:
     name: Test

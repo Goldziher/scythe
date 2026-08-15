@@ -1,3 +1,40 @@
+# Every entry here must name the crate that pulls the advisory in and why it is
+# tolerable, because an unexplained ignore is indistinguishable from one nobody
+# has re-checked since it was added.
+#
+# All four come from `tiberius 0.12.3`, which is the latest release -- no fixed
+# version exists upstream. `cargo tree -i tiberius --all-features` shows exactly
+# one dependent: `scythe-conformance`, which is `publish = false` and is not in
+# `scythe-cli`'s dependency tree under any feature combination. So none of this
+# reaches a published crate or the shipped binary; it is test tooling behind an
+# opt-in `mssql` feature.
+#
+# This list does not rely on anyone remembering to re-check it. CI runs
+# `cargo deny --all-features check -D advisory-not-detected`, and both halves of
+# that command are load-bearing:
+#
+#   --all-features            without it the tiberius chain is not in the graph
+#                             at all, so `cargo deny check` reports "advisories
+#                             ok" while never having looked at the crate every
+#                             entry below is about.
+#   -D advisory-not-detected  an ignore that no longer matches anything is only
+#                             a warning by default, so the list would rot into
+#                             fiction silently. This makes a stale entry fail.
+#
+# So when tiberius moves past 0.12.3 and an advisory stops applying, CI fails
+# until the entry is deleted.
+[advisories]
+ignore = [
+  # rustls-webpki 0.101.7 via rustls 0.21.12 -> tokio-rustls 0.24.1 -> tiberius.
+  # Name-constraint bypasses; both need certificate misissuance to matter.
+  { id = "RUSTSEC-2026-0098", reason = "tiberius-only, test tooling, no upstream fix" },
+  { id = "RUSTSEC-2026-0099", reason = "tiberius-only, test tooling, no upstream fix" },
+  # Reachable panic parsing a CRL -- needs an attacker-supplied CRL.
+  { id = "RUSTSEC-2026-0104", reason = "tiberius-only, test tooling, no upstream fix" },
+  # Unmaintained, not a vulnerability.
+  { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile 1.0.4, unmaintained, tiberius-only" },
+]
+
 [licenses]
 allow = [
   "MIT",
