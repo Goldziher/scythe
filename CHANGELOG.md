@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Two CLI integration tests gated their generated output on its byte count.**
+  `test_generate_pagila_writes_file`'s entire body, after checking the file existed, was
+  `content.len() > 500` — pagila generates 7016 bytes, so the check permitted losing 93% of it, and
+  `test_generate_writes_file`'s `> 100` was no better. Both now assert that every query in the
+  fixture produced a named function, and that the file defines exactly that many and no more; the
+  count is what catches two queries collapsing onto one name, which a presence check cannot see.
+  (#161)
+
 - **A composite-typed query parameter was bound to postgres.js as a whole object, so
   `typescript-postgres` output did not type-check** (`TS2345: 'TortureAddress | null' is not
   assignable to 'ParameterOrFragment<never>'`). The codegen that renders `ROW(a, b)::type_name` for

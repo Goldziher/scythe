@@ -32,6 +32,125 @@ fn toml_path(path: &Path) -> String {
     path.display().to_string().replace('\\', "/")
 }
 
+/// Every `@name` query in `tests/schemas/simple/basemind/queries/*.sql`, converted to the
+/// `snake_case` function name the sqlx backend emits (`fn_name` in
+/// `crates/scythe-backend/src/naming.rs`). `test_generate_writes_file` globs all eight
+/// files in that directory, so every one of these must produce a named function -- a byte
+/// count alone cannot tell "68 real functions" from "68 functions minus one, padded" (#161).
+const BASEMIND_QUERY_FNS: &[&str] = &[
+    "get_project_with_user_count",
+    "get_application_rankings",
+    "get_recent_requests_with_lag",
+    "get_project_stats",
+    "search_applications_by_name",
+    "get_active_model_pricing",
+    "upsert_project_invitation_advanced",
+    "create_api_key",
+    "retrieve_api_keys",
+    "delete_api_key",
+    "retrieve_application_data_for_api_key",
+    "retrieve_application_internal_api_key_id",
+    "create_application",
+    "update_application",
+    "delete_application",
+    "retrieve_application",
+    "retrieve_applications",
+    "retrieve_application_api_request_count",
+    "retrieve_application_tokens_total_cost",
+    "retrieve_project_invitations",
+    "retrieve_project_invitation_by_id",
+    "delete_project_invitation",
+    "upsert_project_invitation",
+    "create_project",
+    "update_project",
+    "delete_project",
+    "retrieve_project",
+    "retrieve_project_for_user",
+    "retrieve_projects",
+    "retrieve_project_api_request_count",
+    "retrieve_project_tokens_total_cost",
+    "update_project_credits",
+    "create_prompt_config",
+    "check_default_prompt_config_exists",
+    "update_default_prompt_config",
+    "update_prompt_config",
+    "delete_prompt_config",
+    "retrieve_prompt_config",
+    "retrieve_prompt_configs",
+    "retrieve_default_prompt_config",
+    "retrieve_prompt_config_api_request_count",
+    "retrieve_prompt_config_tokens_total_cost",
+    "create_prompt_request_record",
+    "create_prompt_test_record",
+    "retrieve_prompt_test_record",
+    "retrieve_prompt_test_records",
+    "delete_prompt_test_record",
+    "create_provider_key",
+    "retrieve_provider_key",
+    "check_provider_key_exists",
+    "delete_provider_key",
+    "retrieve_project_provider_keys",
+    "create_provider_model_pricing",
+    "retrieve_active_provider_model_pricing",
+    "check_user_account_exists",
+    "retrieve_user_account_by_firebase_id",
+    "retrieve_user_account_by_id",
+    "retrieve_user_account_by_email",
+    "create_user_account",
+    "update_user_account",
+    "delete_user_account",
+    "check_user_is_sole_admin_in_any_project",
+    "retrieve_project_user_accounts",
+    "check_user_project_exists",
+    "create_user_project",
+    "update_user_project_permission",
+    "retrieve_user_project",
+    "delete_user_project",
+];
+
+/// The `@name` queries in `queries/customers.sql` and `queries/rentals.sql` only --
+/// `test_generate_pagila_writes_file` globs just those two files (not `films.sql` or
+/// `analytics.sql`), converted to their generated function names the same way as
+/// `BASEMIND_QUERY_FNS`.
+const PAGILA_CUSTOMERS_AND_RENTALS_QUERY_FNS: &[&str] = &[
+    "get_customer",
+    "get_customer_rental_history",
+    "get_top_spending_customers",
+    "get_customers_by_country",
+    "create_rental",
+    "return_rental",
+    "get_overdue_rentals",
+    "get_daily_revenue",
+    "get_store_inventory_count",
+];
+
+/// Asserts `content` (a generated `queries.rs`) defines a `pub async fn` for every name in
+/// `expected`, and that it defines exactly that many query functions overall -- not just
+/// that the expected ones happen to be a subset of whatever survived. A dropped query used
+/// to still pass a `content.len() > N` floor as long as what remained was long enough (#161).
+fn assert_generated_query_fns(content: &str, expected: &[&str], fixture: &str) {
+    let missing: Vec<&str> = expected
+        .iter()
+        .copied()
+        .filter(|name| !content.contains(&format!("fn {name}(")))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "{fixture}: generated file is missing the query function(s) {missing:?}; expected all \
+         {} functions: {expected:?}",
+        expected.len()
+    );
+
+    let actual_count = content.matches("pub async fn ").count();
+    assert_eq!(
+        actual_count,
+        expected.len(),
+        "{fixture}: expected exactly {} query functions, found {actual_count} `pub async fn` \
+         definitions in the generated file",
+        expected.len()
+    );
+}
+
 #[test]
 fn test_help_exits_zero() {
     let output = scythe_bin()
@@ -203,11 +322,7 @@ output = "{output}"
         content.contains("scythe:provenance"),
         "generated file should have a scythe provenance header"
     );
-    assert!(
-        content.len() > 100,
-        "generated file should have substantial content, got {} bytes",
-        content.len()
-    );
+    assert_generated_query_fns(&content, BASEMIND_QUERY_FNS, "simple/basemind");
 }
 
 #[test]
@@ -263,10 +378,10 @@ output = "{output}"
     assert!(generated_file.exists(), "should create queries.rs for pagila");
 
     let content = std::fs::read_to_string(&generated_file).unwrap();
-    assert!(
-        content.len() > 500,
-        "pagila should generate substantial code, got {} bytes",
-        content.len()
+    assert_generated_query_fns(
+        &content,
+        PAGILA_CUSTOMERS_AND_RENTALS_QUERY_FNS,
+        "medium/pagila (customers.sql + rentals.sql)",
     );
 }
 
