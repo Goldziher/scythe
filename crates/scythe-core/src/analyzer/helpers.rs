@@ -610,10 +610,17 @@ pub(super) fn find_nested_placeholder_id(neutral_type: &str) -> Option<u32> {
 /// approximate float always promotes straight to `float64`, mirroring
 /// PostgreSQL's implicit `numeric`/`integer` -> `float8` cast when the two
 /// meet in one expression (`1::numeric + 1.0::float4` is `float8`, not
-/// `float4`). Two genuinely incompatible types (`string` vs `int32`) fall
-/// through to the left argument, unchanged from the original behaviour.
+/// `float4`). A resolved type absorbs `unknown` in either position. Two
+/// genuinely incompatible resolved types (`string` vs `int32`) fall through
+/// to the left argument, unchanged from the original behaviour.
 pub(super) fn widen_type(a: &str, b: &str) -> String {
     if a == b {
+        return a.to_string();
+    }
+    if a == "unknown" {
+        return b.to_string();
+    }
+    if b == "unknown" {
         return a.to_string();
     }
     let int_rank = |t: &str| -> Option<u8> {
@@ -872,6 +879,21 @@ mod tests {
         assert_eq!(widen_type("float64", "decimal"), "float64");
         assert_eq!(widen_type("decimal", "float32"), "float64");
         assert_eq!(widen_type("float32", "decimal"), "float64");
+    }
+
+    #[test]
+    fn test_widen_type_is_symmetric_for_supported_types() {
+        let types = ["unknown", "int16", "int32", "int64", "decimal", "float32", "float64"];
+
+        for a in types {
+            for b in types {
+                assert_eq!(
+                    widen_type(a, b),
+                    widen_type(b, a),
+                    "widening {a} with {b} must not depend on operand order"
+                );
+            }
+        }
     }
 
     #[test]
