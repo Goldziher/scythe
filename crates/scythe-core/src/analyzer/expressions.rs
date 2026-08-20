@@ -1307,7 +1307,7 @@ impl<'a> Analyzer<'a> {
             return None;
         }
         let mut fields = Vec::with_capacity(args.len() / 2);
-        for pair in args.chunks_exact(2) {
+        for pair in args.as_chunks::<2>().0 {
             let name = string_literal_value(&pair[0])?;
             let ti = self.infer_expr_type(&pair[1], scope);
             fields.push(NestedFieldInfo {
