@@ -47,3 +47,19 @@ SELECT id, name, email FROM users WHERE name LIKE $1;
 -- (board #197). Callers must pass an id seeded via raw SQL, since a
 -- composite VALUES literal is not part of this generator's fixture surface.
 SELECT id, secondary_status, address FROM users WHERE id = $1;
+
+-- @name GetUserAsJson
+-- @returns :one
+SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = $1;
+
+-- @name GetUsersAsJson
+-- @returns :one
+SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u;
+
+-- @name GetUserOrdersAsJson
+-- @returns :one
+SELECT json_agg(o.* ORDER BY o.id) AS payload
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+WHERE u.id = $1
+GROUP BY u.id;

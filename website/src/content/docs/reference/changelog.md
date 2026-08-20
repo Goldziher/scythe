@@ -64,7 +64,8 @@ assertion was on a generated string rather than on a row a database returned.
 On the feature side, `json_agg(json_build_object(...))` now infers a struct from the call's own keys
 instead of degrading to flat `json`, and `FILTER (WHERE ... IS NOT NULL)` — the idiom for
 suppressing the `[null]` a LEFT JOIN miss produces — is recognized rather than ignored. Six more
-TypeScript backends gained a `javascript-*` JSDoc emit mode.
+TypeScript backends gained a `javascript-*` JSDoc emit mode. `php-pdo` and `php-amphp` now decode
+PostgreSQL nested JSON rows into readonly generated objects, including enums, dates and composites.
 
 **Upgrading**: two nested-aggregate changes move types in code that already worked. A query using
 `json_agg(json_build_object('id', o.id, ...))` previously generated a flat JSON value and now

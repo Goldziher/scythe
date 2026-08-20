@@ -1004,14 +1004,20 @@ fn test_json_agg_left_join_nullable_elements() {
                         generated.degraded_nested_structs
                     );
                 }
+                if *backend_name == "php-amphp" {
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
+                    assert_eq!(
+                        generated.degraded_nested_structs,
+                        expected_degradations,
+                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
+                        backend_name,
+                        "json_agg_left_join_nullable_elements",
+                        expected_degradations,
+                        generated.degraded_nested_structs
+                    );
+                }
                 if *backend_name == "php-pdo" {
-                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> =
-                        vec![scythe_codegen::NestedStructDegradation {
-                            column: "orders".to_string(),
-                            struct_name: "GetUserOrdersOuterRowOrders".to_string(),
-                            fallback_type: "json_array",
-                            backend: (*backend_name).to_string(),
-                        }];
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
                     assert_eq!(
                         generated.degraded_nested_structs,
                         expected_degradations,
@@ -1850,14 +1856,20 @@ fn test_json_agg_wildcard_nested_struct() {
                         generated.degraded_nested_structs
                     );
                 }
+                if *backend_name == "php-amphp" {
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
+                    assert_eq!(
+                        generated.degraded_nested_structs,
+                        expected_degradations,
+                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
+                        backend_name,
+                        "json_agg_wildcard_nested_struct",
+                        expected_degradations,
+                        generated.degraded_nested_structs
+                    );
+                }
                 if *backend_name == "php-pdo" {
-                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> =
-                        vec![scythe_codegen::NestedStructDegradation {
-                            column: "orders".to_string(),
-                            struct_name: "GetUserOrdersRowOrders".to_string(),
-                            fallback_type: "json_array",
-                            backend: (*backend_name).to_string(),
-                        }];
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
                     assert_eq!(
                         generated.degraded_nested_structs,
                         expected_degradations,
@@ -2164,6 +2176,30 @@ fn test_row_to_json_wildcard_nested_struct() {
                             fallback_type: "json",
                             backend: (*backend_name).to_string(),
                         }];
+                    assert_eq!(
+                        generated.degraded_nested_structs,
+                        expected_degradations,
+                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
+                        backend_name,
+                        "row_to_json_wildcard_nested_struct",
+                        expected_degradations,
+                        generated.degraded_nested_structs
+                    );
+                }
+                if *backend_name == "php-amphp" {
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
+                    assert_eq!(
+                        generated.degraded_nested_structs,
+                        expected_degradations,
+                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
+                        backend_name,
+                        "row_to_json_wildcard_nested_struct",
+                        expected_degradations,
+                        generated.degraded_nested_structs
+                    );
+                }
+                if *backend_name == "php-pdo" {
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
                     assert_eq!(
                         generated.degraded_nested_structs,
                         expected_degradations,

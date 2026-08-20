@@ -16,14 +16,15 @@
 use std::fmt::Write;
 
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::composite_type_name;
-use scythe_backend::types::{resolve_docblock_type, resolve_type};
+use scythe_backend::naming::{composite_type_name, field_name, to_pascal_case};
+use scythe_backend::types::{resolve_docblock_type, resolve_type, resolve_type_pair};
 
-use scythe_core::analyzer::CompositeInfo;
+use scythe_core::analyzer::{CompositeInfo, NestedStructInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 
 use crate::GeneratedCode;
 use crate::backend_trait::{ResolvedColumn, ResolvedParam};
+use crate::nested_struct_shape;
 
 /// Class name of the exception every php-* backend throws for a `:one` query whose database
 /// returns no row.
@@ -107,6 +108,121 @@ pub(crate) fn param_docblock_type(param: &ResolvedParam, manifest: &BackendManif
         manifest,
     )?;
     Ok(narrower.unwrap_or_else(|| param.full_type.clone()))
+}
+
+fn resolved_json_field(
+    name: &str,
+    neutral_type: &str,
+    nullable: bool,
+    manifest: &BackendManifest,
+) -> Result<ResolvedColumn, ScytheError> {
+    let (full_type, lang_type) = resolve_type_pair(neutral_type, manifest, nullable)
+        .map(|(full, lang)| (full.into_owned(), lang.into_owned()))
+        .map_err(|error| {
+            ScytheError::new(
+                ErrorCode::InternalError,
+                format!("nested JSON field type resolution failed for '{name}': {error}"),
+            )
+        })?;
+    Ok(ResolvedColumn {
+        name: name.to_string(),
+        field_name: field_name(name, &manifest.naming).into_owned(),
+        lang_type,
+        full_type,
+        neutral_type: neutral_type.to_string(),
+        nullable,
+        join_group: None,
+        nullable_before_join: nullable,
+        sql_type: String::new(),
+    })
+}
+
+fn php_json_value_expr(neutral_type: &str, lang_type: &str, raw: &str) -> String {
+    if neutral_type.starts_with("composite::") {
+        return format!("{lang_type}::fromJson({raw})");
+    }
+    if neutral_type.starts_with("enum::") {
+        return format!("{lang_type}::from({raw})");
+    }
+    if neutral_type.contains('<') || lang_type == "array" {
+        return raw.to_string();
+    }
+    match lang_type {
+        "int" => format!("(int) {raw}"),
+        "float" => format!("(float) {raw}"),
+        "bool" => format!("(bool) {raw}"),
+        "string" => format!("(string) {raw}"),
+        "\\DateTimeImmutable" => format!("new \\DateTimeImmutable({raw})"),
+        _ => raw.to_string(),
+    }
+}
+
+fn php_json_field_expr(column: &ResolvedColumn, raw: &str) -> String {
+    let value = php_json_value_expr(&column.neutral_type, &column.lang_type, raw);
+    if column.nullable {
+        format!("{raw} !== null ? {value} : null")
+    } else {
+        value
+    }
+}
+
+/// Build a readonly PHP value object for a synthesized nested JSON shape.
+pub(crate) fn generate_nested_struct_def(
+    nested: &NestedStructInfo,
+    manifest: &BackendManifest,
+) -> Result<String, ScytheError> {
+    let name = to_pascal_case(&nested.name);
+    let fields = nested
+        .fields
+        .iter()
+        .map(|field| resolved_json_field(&field.name, &field.neutral_type, field.nullable, manifest))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut out = String::new();
+    let _ = writeln!(out, "readonly class {name} {{");
+    let _ = writeln!(out, "    public function __construct(");
+    for field in &fields {
+        write_promoted_property(&mut out, field, manifest)?;
+    }
+    let _ = writeln!(out, "    ) {{}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "    public static function fromJson(array $value): self {{");
+    let _ = writeln!(out, "        return new self(");
+    for field in &fields {
+        let raw = format!("$value['{}']", field.name);
+        let value = php_json_field_expr(field, &raw);
+        let _ = writeln!(out, "            {}: {},", field.field_name, value);
+    }
+    let _ = writeln!(out, "        );");
+    let _ = writeln!(out, "    }}");
+    let _ = write!(out, "}}");
+    Ok(out)
+}
+
+/// Decode one database JSON column into its synthesized PHP object shape.
+pub(crate) fn nested_json_column_expr(column: &ResolvedColumn, raw: &str) -> Option<String> {
+    let shape = nested_struct_shape(&column.neutral_type)?;
+    let decoded = format!("json_decode({raw}, true, 512, \\JSON_THROW_ON_ERROR)");
+    let converted = if shape.is_array {
+        let item = if shape.element_nullable {
+            format!(
+                "static fn (?array $item): ?{} => $item === null ? null : {}::fromJson($item)",
+                shape.name, shape.name
+            )
+        } else {
+            format!(
+                "static fn (array $item): {} => {}::fromJson($item)",
+                shape.name, shape.name
+            )
+        };
+        format!("array_map({item}, {decoded})")
+    } else {
+        format!("{}::fromJson({decoded})", shape.name)
+    };
+    Some(if column.nullable {
+        format!("{raw} !== null ? {converted} : null")
+    } else {
+        converted
+    })
 }
 
 /// Splits a PostgreSQL composite's text form (`"(a,b,c)"`) into its raw field tokens, honoring
@@ -267,9 +383,10 @@ fn php_composite_field_from_text(
 /// `record_out` text (see `PHP_PARSE_COMPOSITE_FIELDS_METHOD`'s doc comment), so the class this
 /// produces is identical for either driver -- only the call site that invokes `fromText` differs
 /// (`$row['col']` from `PDO::FETCH_ASSOC` vs. from an AMPHP row), and that stays per-backend.
-pub(crate) fn generate_composite_def(
+fn generate_composite_def_inner(
     composite: &CompositeInfo,
     manifest: &BackendManifest,
+    include_json_factory: bool,
 ) -> Result<String, ScytheError> {
     let name = composite_type_name(&composite.sql_name, &manifest.naming);
     let mut out = String::new();
@@ -312,6 +429,32 @@ pub(crate) fn generate_composite_def(
     }
     let _ = writeln!(out, "        );");
     let _ = writeln!(out, "    }}");
+    if include_json_factory {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    public static function fromJson(array $value): self {{");
+        let _ = writeln!(out, "        return new self(");
+        for (field, field_type) in composite.fields.iter().zip(&field_types) {
+            let raw = format!("$value['{}']", field.name);
+            let value = php_json_value_expr(&field.neutral_type, field_type, &raw);
+            let _ = writeln!(out, "            {},", value);
+        }
+        let _ = writeln!(out, "        );");
+        let _ = writeln!(out, "    }}");
+    }
     let _ = write!(out, "}}");
     Ok(out)
+}
+
+pub(crate) fn generate_composite_def(
+    composite: &CompositeInfo,
+    manifest: &BackendManifest,
+) -> Result<String, ScytheError> {
+    generate_composite_def_inner(composite, manifest, false)
+}
+
+pub(crate) fn generate_nested_composite_def(
+    composite: &CompositeInfo,
+    manifest: &BackendManifest,
+) -> Result<String, ScytheError> {
+    generate_composite_def_inner(composite, manifest, true)
 }

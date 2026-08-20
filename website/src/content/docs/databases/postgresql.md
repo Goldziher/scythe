@@ -102,9 +102,9 @@ fields taken from the call's own string-literal keys instead of the relation's s
 nullability rules, which differ from the whole-row form above.
 
 This is PostgreSQL-only, and among PostgreSQL-compatible engines it applies to PostgreSQL and
-CockroachDB. Redshift is excluded: it uses the PostgreSQL dialect but has no `json_agg`. Four backends
-decode the result -- `rust-sqlx`, `rust-tokio-postgres`, `go-pgx` and `python-psycopg3`. On every other
-backend the column keeps the plain `json` mapping.
+CockroachDB. Redshift is excluded: it uses the PostgreSQL dialect but has no `json_agg`. Six backends
+decode the result -- `rust-sqlx`, `rust-tokio-postgres`, `go-pgx`, `python-psycopg3`, `php-pdo` and
+`php-amphp`. On every other backend the column keeps the plain `json` mapping.
 
 See [Type Inference](/scythe/guide/type-inference/#nested-aggregates) for naming, nullability and JSON
 key handling.

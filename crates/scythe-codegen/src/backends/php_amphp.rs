@@ -12,8 +12,8 @@ use crate::GeneratedCode;
 use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::backends::php_common::{
-    RECORD_NOT_FOUND_EXCEPTION_CLASS, param_docblock_type, record_not_found_exception_class_def,
-    write_promoted_property,
+    RECORD_NOT_FOUND_EXCEPTION_CLASS, nested_json_column_expr, param_docblock_type,
+    record_not_found_exception_class_def, write_promoted_property,
 };
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/php-amphp.toml");
@@ -100,6 +100,9 @@ fn php_convert_column(neutral_type: &str, lang_type: &str, value_expr: &str) -> 
 /// that parent field values are decoded with the same casts and enum/datetime
 /// conversions as the regular `fromRow` factory.
 fn php_row_expr(c: &ResolvedColumn) -> String {
+    if let Some(value) = nested_json_column_expr(c, &format!("$row['{}']", c.name)) {
+        return value;
+    }
     let is_enum = c.neutral_type.starts_with("enum::");
     let is_composite = c.neutral_type.starts_with("composite::");
     let is_datetime = matches!(
@@ -149,6 +152,10 @@ fn write_php_from_row_method(out: &mut String, columns: &[ResolvedColumn]) {
     let _ = writeln!(out, "        return new self(");
     for c in columns.iter() {
         let sep = ",";
+        if let Some(value) = nested_json_column_expr(c, &format!("$row['{}']", c.name)) {
+            let _ = writeln!(out, "            {}: {}{}", c.field_name, value, sep);
+            continue;
+        }
         let is_enum = c.neutral_type.starts_with("enum::");
         let is_composite = c.neutral_type.starts_with("composite::");
         let is_datetime = matches!(
@@ -286,67 +293,7 @@ impl CodegenBackend for PhpAmphpBackend {
         let _ = writeln!(out, "    ) {{}}");
         let _ = writeln!(out);
 
-        let _ = writeln!(out, "    public static function fromRow(array $row): self {{");
-        let _ = writeln!(out, "        return new self(");
-        for c in columns.iter() {
-            let sep = ",";
-            let is_enum = c.neutral_type.starts_with("enum::");
-            let is_composite = c.neutral_type.starts_with("composite::");
-            let is_datetime = matches!(
-                c.neutral_type.as_str(),
-                "date" | "time" | "time_tz" | "datetime" | "datetime_tz"
-            );
-            if is_enum {
-                let enum_type = &c.lang_type;
-                if c.nullable {
-                    let _ = writeln!(
-                        out,
-                        "            {}: $row['{}'] !== null ? {}::from($row['{}']) : null{}",
-                        c.field_name, c.name, enum_type, c.name, sep
-                    );
-                } else {
-                    let _ = writeln!(
-                        out,
-                        "            {}: {}::from($row['{}']){}",
-                        c.field_name, enum_type, c.name, sep
-                    );
-                }
-            } else if is_composite {
-                let _ = writeln!(
-                    out,
-                    "            {}: {}::fromText($row['{}']){}",
-                    c.field_name, c.lang_type, c.name, sep
-                );
-            } else if is_datetime {
-                if c.nullable {
-                    let _ = writeln!(
-                        out,
-                        "            {}: $row['{}'] !== null ? new \\DateTimeImmutable($row['{}']) : null{}",
-                        c.field_name, c.name, c.name, sep
-                    );
-                } else {
-                    let _ = writeln!(
-                        out,
-                        "            {}: new \\DateTimeImmutable($row['{}']){}",
-                        c.field_name, c.name, sep
-                    );
-                }
-            } else {
-                let value_expr = format!("$row['{}']", c.name);
-                let converted = php_convert_column(&c.neutral_type, &c.lang_type, &value_expr);
-                if c.nullable {
-                    let _ = writeln!(
-                        out,
-                        "            {}: $row['{}'] !== null ? {} : null{}",
-                        c.field_name, c.name, converted, sep
-                    );
-                } else {
-                    let _ = writeln!(out, "            {}: {}{}", c.field_name, converted, sep);
-                }
-            }
-        }
-        let _ = writeln!(out, "        );");
-        let _ = writeln!(out, "    }}");
+        write_php_from_row_method(&mut out, columns);
         let _ = write!(out, "}}");
         Ok(out)
     }
@@ -687,7 +634,25 @@ impl CodegenBackend for PhpAmphpBackend {
     }
 
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
-        crate::backends::php_common::generate_composite_def(composite, &self.manifest)
+        if self.manifest.backend.engine == "postgresql" {
+            crate::backends::php_common::generate_nested_composite_def(composite, &self.manifest)
+        } else {
+            crate::backends::php_common::generate_composite_def(composite, &self.manifest)
+        }
+    }
+
+    fn generate_nested_struct_def(
+        &self,
+        nested: &scythe_core::analyzer::NestedStructInfo,
+    ) -> Result<Option<String>, ScytheError> {
+        if self.manifest.backend.engine != "postgresql" {
+            return Ok(None);
+        }
+        crate::backends::php_common::generate_nested_struct_def(nested, &self.manifest).map(Some)
+    }
+
+    fn generate_composite_def_for_nested(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
+        crate::backends::php_common::generate_nested_composite_def(composite, &self.manifest)
     }
 }
 
@@ -835,5 +800,41 @@ mod tests {
             query_fn.contains("return $result"),
             "must return result array; got:\n{query_fn}"
         );
+    }
+
+    #[test]
+    fn test_php_amphp_nested_json_agg_emits_typed_objects() {
+        use scythe_core::analyzer::{NestedFieldInfo, NestedStructInfo};
+
+        let query = AnalyzedQuery::build(|analyzed| {
+            analyzed.name = "GetUserOrders".to_string();
+            analyzed.command = QueryCommand::Many;
+            analyzed.sql = "SELECT jsonb_agg(o.*) AS orders FROM orders o".to_string();
+            analyzed.columns = vec![scythe_core::analyzer::AnalyzedColumn {
+                name: "orders".to_string(),
+                neutral_type: "json_nested<array<GetUserOrdersRowOrders>>".to_string(),
+                nullable: true,
+                ..Default::default()
+            }];
+            analyzed.nested_structs = vec![NestedStructInfo {
+                name: "get_user_orders_row_orders".to_string(),
+                fields: vec![NestedFieldInfo {
+                    name: "createdAt".to_string(),
+                    neutral_type: "datetime_tz".to_string(),
+                    nullable: false,
+                }],
+            }];
+        });
+        let backend = PhpAmphpBackend::new("postgresql").unwrap();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(result.degraded_nested_structs.is_empty(), "{result:#?}");
+        assert_eq!(result.nested_struct_defs.len(), 1, "{result:#?}");
+        assert!(
+            row_struct.contains("GetUserOrdersRowOrders::fromJson($item)"),
+            "{row_struct}"
+        );
+        assert!(row_struct.contains("JSON_THROW_ON_ERROR"), "{row_struct}");
     }
 }

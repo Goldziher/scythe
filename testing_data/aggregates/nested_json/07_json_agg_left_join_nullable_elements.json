@@ -23,11 +23,8 @@
           { "column": "orders", "struct_name": "GetUserOrdersOuterRowOrders", "fallback_type": "json_array" }
         ]
       },
-      "php-pdo": {
-        "degraded_nested_structs": [
-          { "column": "orders", "struct_name": "GetUserOrdersOuterRowOrders", "fallback_type": "json_array" }
-        ]
-      },
+      "php-pdo": { "degraded_nested_structs": [] },
+      "php-amphp": { "degraded_nested_structs": [] },
       "java-jdbc": {
         "degraded_nested_structs": [
           { "column": "orders", "struct_name": "GetUserOrdersOuterRowOrders", "fallback_type": "json" }

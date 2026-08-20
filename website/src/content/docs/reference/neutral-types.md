@@ -52,9 +52,10 @@ declared and scythe knows nothing about its shape.
 produce over an `alias.*` argument on PostgreSQL: `T` is a struct scythe synthesizes
 from the aggregated relation, field by field.
 
-Four backends decode it -- `rust-sqlx` (`sqlx::types::Json<T>`),
+Six backends decode it -- `rust-sqlx` (`sqlx::types::Json<T>`),
 `rust-tokio-postgres` (`postgres_types::Json<T>`), `go-pgx` (`T`) and
-`python-psycopg3` (`T`). Every other backend degrades the column to plain `json`,
+`python-psycopg3` (`T`), plus `php-pdo` and `php-amphp` (`T` through a `fromJson`
+factory). Every other backend degrades the column to plain `json`,
 so its output is byte-identical to what it produced before this existed. Redshift
 is excluded even on those four: it maps to the PostgreSQL dialect but has no
 `json_agg`.

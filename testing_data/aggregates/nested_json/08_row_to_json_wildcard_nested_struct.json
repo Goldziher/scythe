@@ -8,6 +8,8 @@
       "rust-tokio-postgres": { "degraded_nested_structs": [] },
       "python-psycopg3": { "degraded_nested_structs": [] },
       "go-pgx": { "degraded_nested_structs": [] },
+      "php-pdo": { "degraded_nested_structs": [] },
+      "php-amphp": { "degraded_nested_structs": [] },
       "python-asyncpg": {
         "degraded_nested_structs": [
           { "column": "payload", "struct_name": "GetOrderPayloadRowPayload", "fallback_type": "json" }

@@ -1,5 +1,5 @@
 <?php
-// scythe:provenance v=0.16.1 backend=php-amphp engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.16.1 backend=php-amphp engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b206899baa777046 options=opt1:cbf29ce484222325
 
 declare(strict_types=1);
 
@@ -74,6 +74,76 @@ enum UserStatus: string {
     case ACTIVE = "active";
     case INACTIVE = "inactive";
     case BANNED = "banned";
+}
+
+readonly class GetUserAsJsonRowPayload {
+    public function __construct(
+        public int $id,
+        public string $name,
+        public ?string $email,
+        public UserStatus $status,
+        public ?UserStatus $secondary_status,
+        public ?UserAddress $address,
+        public \DateTimeImmutable $created_at,
+    ) {}
+
+    public static function fromJson(array $value): self {
+        return new self(
+            id: (int) $value['id'],
+            name: (string) $value['name'],
+            email: $value['email'] !== null ? (string) $value['email'] : null,
+            status: UserStatus::from($value['status']),
+            secondary_status: $value['secondary_status'] !== null ? UserStatus::from($value['secondary_status']) : null,
+            address: $value['address'] !== null ? UserAddress::fromJson($value['address']) : null,
+            created_at: new \DateTimeImmutable($value['created_at']),
+        );
+    }
+}
+
+readonly class GetUsersAsJsonRowPayload {
+    public function __construct(
+        public int $id,
+        public string $name,
+        public ?string $email,
+        public UserStatus $status,
+        public ?UserStatus $secondary_status,
+        public ?UserAddress $address,
+        public \DateTimeImmutable $created_at,
+    ) {}
+
+    public static function fromJson(array $value): self {
+        return new self(
+            id: (int) $value['id'],
+            name: (string) $value['name'],
+            email: $value['email'] !== null ? (string) $value['email'] : null,
+            status: UserStatus::from($value['status']),
+            secondary_status: $value['secondary_status'] !== null ? UserStatus::from($value['secondary_status']) : null,
+            address: $value['address'] !== null ? UserAddress::fromJson($value['address']) : null,
+            created_at: new \DateTimeImmutable($value['created_at']),
+        );
+    }
+}
+
+readonly class GetUserOrdersAsJsonRowPayload {
+    public function __construct(
+        public int $id,
+        public int $user_id,
+        public string $total,
+        public ?float $weight_kg,
+        public ?string $notes,
+        public \DateTimeImmutable $created_at,
+    ) {}
+
+    public static function fromJson(array $value): self {
+        return new self(
+            id: (int) $value['id'],
+            user_id: (int) $value['user_id'],
+            total: (string) $value['total'],
+            weight_kg: $value['weight_kg'] !== null ? (float) $value['weight_kg'] : null,
+            notes: $value['notes'] !== null ? (string) $value['notes'] : null,
+            created_at: new \DateTimeImmutable($value['created_at']),
+        );
+    }
 }
 
 readonly class CreateOrderRow {
@@ -276,6 +346,14 @@ readonly class UserAddress {
             (string) $f[2],
         );
     }
+
+    public static function fromJson(array $value): self {
+        return new self(
+            (string) $value['street'],
+            (string) $value['city'],
+            (string) $value['zip'],
+        );
+    }
 }
 
 readonly class GetUserProfileRow {
@@ -290,6 +368,44 @@ readonly class GetUserProfileRow {
             id: (int) $row['id'],
             secondary_status: $row['secondary_status'] !== null ? UserStatus::from($row['secondary_status']) : null,
             address: UserAddress::fromText($row['address']),
+        );
+    }
+}
+
+readonly class GetUserAsJsonRow {
+    public function __construct(
+        public ?GetUserAsJsonRowPayload $payload,
+    ) {}
+
+    public static function fromRow(array $row): self {
+        return new self(
+            payload: $row['payload'] !== null ? GetUserAsJsonRowPayload::fromJson(json_decode($row['payload'], true, 512, \JSON_THROW_ON_ERROR)) : null,
+        );
+    }
+}
+
+readonly class GetUsersAsJsonRow {
+    public function __construct(
+        /** @var ?array<GetUsersAsJsonRowPayload> */
+        public ?array $payload,
+    ) {}
+
+    public static function fromRow(array $row): self {
+        return new self(
+            payload: $row['payload'] !== null ? array_map(static fn (array $item): GetUsersAsJsonRowPayload => GetUsersAsJsonRowPayload::fromJson($item), json_decode($row['payload'], true, 512, \JSON_THROW_ON_ERROR)) : null,
+        );
+    }
+}
+
+readonly class GetUserOrdersAsJsonRow {
+    public function __construct(
+        /** @var ?array<?GetUserOrdersAsJsonRowPayload> */
+        public ?array $payload,
+    ) {}
+
+    public static function fromRow(array $row): self {
+        return new self(
+            payload: $row['payload'] !== null ? array_map(static fn (?array $item): ?GetUserOrdersAsJsonRowPayload => $item === null ? null : GetUserOrdersAsJsonRowPayload::fromJson($item), json_decode($row['payload'], true, 512, \JSON_THROW_ON_ERROR)) : null,
         );
     }
 }
@@ -485,6 +601,47 @@ final class Queries {
             return GetUserProfileRow::fromRow($row);
         }
         throw new RecordNotFoundException('getUserProfile: no row found');
+    }
+
+    /**
+     * @param \Amp\Sql\SqlExecutor $pool
+     * @param int $id
+     * @return GetUserAsJsonRow
+     * @throws RecordNotFoundException
+     */
+    public static function getUserAsJson(\Amp\Sql\SqlExecutor $pool, int $id): GetUserAsJsonRow {
+        $result = $pool->prepare('SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = ?')->execute([$id]);
+        foreach ($result as $row) {
+            return GetUserAsJsonRow::fromRow($row);
+        }
+        throw new RecordNotFoundException('getUserAsJson: no row found');
+    }
+
+    /**
+     * @param \Amp\Sql\SqlExecutor $pool
+     * @return GetUsersAsJsonRow
+     * @throws RecordNotFoundException
+     */
+    public static function getUsersAsJson(\Amp\Sql\SqlExecutor $pool): GetUsersAsJsonRow {
+        $result = $pool->prepare('SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u')->execute([]);
+        foreach ($result as $row) {
+            return GetUsersAsJsonRow::fromRow($row);
+        }
+        throw new RecordNotFoundException('getUsersAsJson: no row found');
+    }
+
+    /**
+     * @param \Amp\Sql\SqlExecutor $pool
+     * @param int $id
+     * @return GetUserOrdersAsJsonRow
+     * @throws RecordNotFoundException
+     */
+    public static function getUserOrdersAsJson(\Amp\Sql\SqlExecutor $pool, int $id): GetUserOrdersAsJsonRow {
+        $result = $pool->prepare('SELECT json_agg(o.* ORDER BY o.id) AS payload FROM users u LEFT JOIN orders o ON o.user_id = u.id WHERE u.id = ? GROUP BY u.id')->execute([$id]);
+        foreach ($result as $row) {
+            return GetUserOrdersAsJsonRow::fromRow($row);
+        }
+        throw new RecordNotFoundException('getUserOrdersAsJson: no row found');
     }
 
 }

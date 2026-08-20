@@ -255,6 +255,7 @@ generated field names. Each backend spells the mapping out:
 | `rust-tokio-postgres` | `postgres_types::Json<T>` | same |
 | `go-pgx` | `T` | `json:"..."` struct tag |
 | `python-psycopg3` | `T` | a `_from_json` classmethod |
+| `php-pdo`, `php-amphp` | `T` | a `fromJson` static factory |
 
 A quoted mixed-case column keeps its key and renames the field:
 
@@ -281,7 +282,7 @@ pub enum UserStatus {
 
 ### Where it does not apply
 
-Only the four backends in the table above emit nested structs. Every other backend rewrites the column
+Only the six backends in the table above emit nested structs. Every other backend rewrites the column
 to plain `json`, byte-identical to what it produced before nested inference existed -- including the
 enums and composites reachable only through the discarded struct, which are not emitted.
 

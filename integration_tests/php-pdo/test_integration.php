@@ -300,6 +300,33 @@ function test_get_user_profile(PDO $pdo): void
     echo "PASS: GetUserProfile\n";
 }
 
+function test_nested_json(PDO $pdo): void
+{
+    $user_id = seed_user_profile_row($pdo,
+        "INSERT INTO users (name, email, status, secondary_status, address) " .
+        "VALUES ('Nested', 'nested@example.com', 'active', 'inactive', " .
+        "ROW('5 JSON Way', 'Berlin', '10115')) RETURNING id");
+
+    $single = Queries::getUserAsJson($pdo, $user_id)->payload;
+    assert_equal("Nested", $single->name, "GetUserAsJson name");
+    assert_true($single->status === UserStatus::ACTIVE, "GetUserAsJson enum");
+    assert_true($single->secondary_status === UserStatus::INACTIVE, "GetUserAsJson nullable enum");
+    assert_not_null($single->address, "GetUserAsJson composite");
+    assert_equal("Berlin", $single->address->city, "GetUserAsJson composite field");
+    assert_true($single->created_at instanceof DateTimeImmutable, "GetUserAsJson datetime");
+
+    $many = Queries::getUsersAsJson($pdo)->payload;
+    assert_true(count($many) >= 1, "GetUsersAsJson rows");
+    assert_true($many[0]->created_at instanceof DateTimeImmutable, "GetUsersAsJson datetime");
+
+    $orders = Queries::getUserOrdersAsJson($pdo, $user_id)->payload;
+    assert_equal(1, count($orders), "GetUserOrdersAsJson null element count");
+    assert_null($orders[0], "GetUserOrdersAsJson nullable element");
+
+    Queries::deleteUser($pdo, $user_id);
+    echo "PASS: NestedJson\n";
+}
+
 function test_delete_user(PDO $pdo, int $user_id): void
 {
     // Delete orders first due to FK constraint
@@ -328,6 +355,7 @@ try {
     $order_id = test_create_order($pdo, $user_id);
     test_get_orders_by_user($pdo, $user_id, $order_id);
     test_get_user_profile($pdo);
+    test_nested_json($pdo);
     test_delete_user($pdo, $user_id);
 
     echo "\nALL TESTS PASSED\n";

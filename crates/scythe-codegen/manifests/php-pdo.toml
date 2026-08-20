@@ -31,6 +31,7 @@ array = "array"
 nullable = "?{T}"
 range = "string"
 json_typed = "{T}"
+json_nested = "{T}"
 
 [types.docblock_containers]
 # PHP has no generics in a native type position, so `[types.containers]` must
