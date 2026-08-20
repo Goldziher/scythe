@@ -5,7 +5,7 @@ version = "1"
 name = "main"
 engine = "postgresql"
 schema = ["../sql/pg/schema.sql"]
-queries = ["../sql/pg/queries/*.sql"]
+queries = ["../sql/pg/queries/*.sql", "../sql/pg_camel/*.sql"]
 
 [[sql.gen]]
 backend = "typescript-kysely"

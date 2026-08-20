@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=typescript-kysely engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:304531517b9a94ef
+// scythe:provenance v=0.16.1 backend=typescript-kysely engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:69a697520b95203b options=opt1:304531517b9a94ef
 // scythe: this file was generated with field_case = "camelCase".
 // Kysely does not remap rows -- register CamelCasePlugin on your Kysely
 // instance or every field below reads back undefined at runtime:
@@ -348,4 +348,79 @@ export async function getUserProfile(
 		...row,
 		address: parseUserAddress(row.address) as UserAddress | null,
 	};
+}
+
+/** Row type for GetUserAsJson queries. */
+export interface GetUserAsJsonRow {
+	payload: Record<string, unknown> | null;
+}
+
+/** Fetch a single GetUserAsJsonRow. */
+export async function getUserAsJson(
+	db: QueryExecutorProvider,
+	id: number,
+): Promise<GetUserAsJsonRow> {
+	const result = await sql<GetUserAsJsonRow>`SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = ${id}`.execute(db);
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUserAsJson");
+	}
+	return row;
+}
+
+/** Row type for GetUsersAsJson queries. */
+export interface GetUsersAsJsonRow {
+	payload: Record<string, unknown>[] | null;
+}
+
+/** Fetch a single GetUsersAsJsonRow. */
+export async function getUsersAsJson(
+	db: QueryExecutorProvider,
+): Promise<GetUsersAsJsonRow> {
+	const result = await sql<GetUsersAsJsonRow>`SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u`.execute(db);
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUsersAsJson");
+	}
+	return row;
+}
+
+/** Row type for GetUserOrdersAsJson queries. */
+export interface GetUserOrdersAsJsonRow {
+	payload: Record<string, unknown>[] | null;
+}
+
+/** Fetch a single GetUserOrdersAsJsonRow. */
+export async function getUserOrdersAsJson(
+	db: QueryExecutorProvider,
+	id: number,
+): Promise<GetUserOrdersAsJsonRow> {
+	const result = await sql<GetUserOrdersAsJsonRow>`SELECT json_agg(o.* ORDER BY o.id) AS payload
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+WHERE u.id = ${id}
+GROUP BY u.id`.execute(db);
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUserOrdersAsJson");
+	}
+	return row;
+}
+
+/** Row type for GetMultipleUnderscoreAlias queries. */
+export interface GetMultipleUnderscoreAliasRow {
+	multipleUnderscoreAlias: number;
+}
+
+/** Fetch a single GetMultipleUnderscoreAliasRow. */
+export async function getMultipleUnderscoreAlias(
+	db: QueryExecutorProvider,
+	id: number,
+): Promise<GetMultipleUnderscoreAliasRow> {
+	const result = await sql<GetMultipleUnderscoreAliasRow>`SELECT id AS multiple_underscore_alias FROM users WHERE id = ${id}`.execute(db);
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetMultipleUnderscoreAlias");
+	}
+	return row;
 }

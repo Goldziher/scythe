@@ -5,7 +5,7 @@ version = "1"
 name = "main"
 engine = "{{ engine }}"
 schema = ["{{ schema_dir }}/{{ schema_file }}"]
-queries = ["{{ queries_dir }}/*.sql"]
+queries = ["{{ queries_dir }}/*.sql"{% if backend == "typescript-kysely" and options.field_case == "camelCase" %}, "../sql/pg_camel/*.sql"{% endif %}]
 
 [[sql.gen]]
 backend = "{{ backend }}"

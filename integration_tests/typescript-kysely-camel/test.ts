@@ -12,6 +12,7 @@ import {
 	getUserOrders,
 	countUsersByStatus,
 	getUserWithTags,
+	getMultipleUnderscoreAlias,
 	deleteOrdersByUser,
 	deleteUser,
 	getUserProfile,
@@ -187,10 +188,9 @@ async function main(): Promise<void> {
 		);
 		assert(order!.id > 0, "CreateOrder", "single-word id key should remain unchanged");
 		assert(!("user_id" in order!), "CreateOrder", "row should omit the snake_case user_id key");
-		const pluginResult = await sql<{ multipleUnderscoreAlias: number }>`SELECT 1 AS multiple_underscore_alias`.execute(db);
-		const pluginRow = pluginResult.rows[0];
+		const pluginRow = await getMultipleUnderscoreAlias(db, userId);
 		assert(
-			pluginRow?.multipleUnderscoreAlias === 1,
+			pluginRow.multipleUnderscoreAlias === userId,
 			"CreateOrder",
 			"CamelCasePlugin should remap a multiple-underscore alias",
 		);
