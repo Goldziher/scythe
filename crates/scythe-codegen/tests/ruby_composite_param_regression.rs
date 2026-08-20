@@ -62,8 +62,33 @@ fn ruby_pg_encodes_composite_params_and_casts_from_text() {
         "encoder must quote empty and structurally significant values:\n{composite}"
     );
     assert!(
-        composite.contains(r#"raw.gsub('\\', '\\\\').gsub('"', '""')"#),
+        composite.contains(r#"raw.gsub('\\') { '\\\\' }.gsub('"', '""')"#),
         "encoder must escape backslashes and quotes:\n{composite}"
+    );
+}
+
+#[test]
+fn ruby_pg_encoder_preserves_backslashes_at_runtime() {
+    let backend = get_backend("ruby-pg", "postgresql").expect("ruby-pg supports PostgreSQL");
+    let composite = backend
+        .generate_composite_def(&address_composite())
+        .expect("composite generation must succeed");
+    let script = format!(
+        "module Queries\n{composite}\nend\nvalue = Queries::Address.new(street: '12 \"Main\", Apt \\\\3', city: '')\nprint value.to_pg_text"
+    );
+    let output = std::process::Command::new("ruby")
+        .args(["-e", &script])
+        .output()
+        .expect("ruby must be available for the runtime encoder regression");
+
+    assert!(
+        output.status.success(),
+        "generated encoder must run: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("encoder output must be UTF-8"),
+        r#"("12 ""Main"", Apt \\3","")"#
     );
 }
 

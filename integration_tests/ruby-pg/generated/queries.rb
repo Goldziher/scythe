@@ -174,7 +174,7 @@ WHERE u.id = $1", [id])
         value.to_s
       end
       return raw unless raw.empty? || raw.match?(/[(),\"\\]/) || raw != raw.strip
-      '"' + raw.gsub('\\', '\\\\').gsub('"', '""') + '"'
+      '"' + raw.gsub('\\') { '\\\\' }.gsub('"', '""') + '"'
     end
 
     def self._parse_composite_fields(text)

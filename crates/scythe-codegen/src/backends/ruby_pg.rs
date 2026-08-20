@@ -640,7 +640,7 @@ impl CodegenBackend for RubyPgBackend {
         );
         let _ = writeln!(
             out,
-            "      '\"' + raw.gsub('\\\\', '\\\\\\\\').gsub('\"', '\"\"') + '\"'"
+            "      '\"' + raw.gsub('\\\\') {{ '\\\\\\\\' }}.gsub('\"', '\"\"') + '\"'"
         );
         let _ = writeln!(out, "    end");
         let _ = writeln!(out);
