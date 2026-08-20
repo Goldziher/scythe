@@ -1246,9 +1246,20 @@ fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult]) -> Strin
         output_parts.push(def.clone());
     }
 
-    // Before the row structs: Python evaluates a class body's annotations
-    // eagerly, so a row dataclass annotated `list[GetUserPostsRowPosts]`
-    // needs that name already bound.
+    let python_models_first = backend.manifest().backend.language == "python";
+    let mut seen_model_structs: AHashSet<&str> = AHashSet::new();
+    if python_models_first {
+        for result in results {
+            if let Some(ref definition) = result.code.model_struct
+                && seen_model_structs.insert(definition.as_str())
+            {
+                output_parts.push(definition.clone());
+            }
+        }
+    }
+
+    // ~keep Python evaluates class annotations eagerly. Composite/model definitions must precede
+    // nested structs, and nested structs must precede row structs that reference them.
     for def in &unique_nested_defs {
         output_parts.push(def.clone());
     }
@@ -1268,11 +1279,11 @@ fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult]) -> Strin
     // `record ... is already defined`, Kotlin's `redeclaration:`, plus Rust,
     // Go, C#, and PHP, which reject a duplicate struct/type/record/class the
     // same way -- from ever seeing this file (board #166).
-    let mut seen_model_structs: AHashSet<&str> = AHashSet::new();
     let class_header = backend.query_class_header();
     if class_header.is_empty() {
         for result in results {
-            if let Some(ref s) = result.code.model_struct
+            if !python_models_first
+                && let Some(ref s) = result.code.model_struct
                 && seen_model_structs.insert(s.as_str())
             {
                 output_parts.push(s.clone());
@@ -1286,7 +1297,8 @@ fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult]) -> Strin
         }
     } else {
         for result in results {
-            if let Some(ref s) = result.code.model_struct
+            if !python_models_first
+                && let Some(ref s) = result.code.model_struct
                 && seen_model_structs.insert(s.as_str())
             {
                 output_parts.push(s.clone());
@@ -3717,6 +3729,25 @@ backend = \"rust-sqlx\"
             enums: Vec::new(),
             nested_enum_names: Vec::new(),
         }
+    }
+
+    #[test]
+    fn assemble_body_places_python_composites_before_nested_structs() {
+        let backend = get_backend("python-psycopg3", "postgresql").expect("python-psycopg3 should load");
+        let mut result = query_result(Some("class UserAddress: pass"), Some("class ResultRow: pass"), None);
+        result.code.nested_struct_defs.push(scythe_codegen::NestedStructDef {
+            name: "payload".to_string(),
+            code: "class Payload:\n    address: UserAddress".to_string(),
+        });
+
+        let output = assemble_body(backend.as_ref(), &[result]);
+        let composite = output.find("class UserAddress").expect("composite definition");
+        let nested = output.find("class Payload").expect("nested definition");
+        let row = output.find("class ResultRow").expect("row definition");
+        assert!(
+            composite < nested && nested < row,
+            "unexpected declaration order:\n{output}"
+        );
     }
 
     /// When `query_class_header()` is empty (e.g. `rust-sqlx`, which has no

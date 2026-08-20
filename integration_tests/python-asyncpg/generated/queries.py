@@ -23,6 +23,30 @@ class UserStatus(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class UserAddress:
+    """Composite type user_address."""
+
+    street: str
+    city: str
+    zip: str
+
+    @classmethod
+    def _from_record(cls, record: Any) -> "UserAddress | None":
+        """~keep board #204: asyncpg decodes a composite column to its own
+        `Record` (tuple-like, not our declared type) -- wrap it into this class."""
+        if record is None:
+            return None
+        return cls(
+            street=record["street"],
+            city=record["city"],
+            zip=record["zip"],
+        )
+
+    def _to_record(self) -> tuple[Any, ...]:
+        return (self.street, self.city, self.zip)
+
+
+@dataclass(frozen=True, slots=True)
 class CreateOrderRow:
     """Row type for CreateOrder query."""
 
@@ -316,30 +340,6 @@ async def search_users(conn: Connection, *, name: str) -> list[SearchUsersRow]:
         name,
     )
     return [SearchUsersRow(id=r["id"], name=r["name"], email=r["email"]) for r in rows]
-
-
-@dataclass(frozen=True, slots=True)
-class UserAddress:
-    """Composite type user_address."""
-
-    street: str
-    city: str
-    zip: str
-
-    @classmethod
-    def _from_record(cls, record: Any) -> "UserAddress | None":
-        """~keep board #204: asyncpg decodes a composite column to its own
-        `Record` (tuple-like, not our declared type) -- wrap it into this class."""
-        if record is None:
-            return None
-        return cls(
-            street=record["street"],
-            city=record["city"],
-            zip=record["zip"],
-        )
-
-    def _to_record(self) -> tuple[Any, ...]:
-        return (self.street, self.city, self.zip)
 
 
 @dataclass(frozen=True, slots=True)

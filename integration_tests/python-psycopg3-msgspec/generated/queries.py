@@ -22,6 +22,108 @@ class UserStatus(str, Enum):
     BANNED = "banned"
 
 
+class UserAddress(msgspec.Struct):
+    """Composite type user_address."""
+
+    street: str
+    city: str
+    zip: str
+
+    @classmethod
+    def _from_text(cls, text: str | None) -> "UserAddress | None":
+        """~keep board #204: psycopg3 registers no adapter for a
+        user-defined composite -- it hands back the driver's raw text form
+        as a plain str. Parse it here instead."""
+        if text is None:
+            return None
+        f = cls._parse_composite_fields(text)
+        return cls(
+            street=cls._require_composite_field(f[0], "street"),
+            city=cls._require_composite_field(f[1], "city"),
+            zip=cls._require_composite_field(f[2], "zip"),
+        )
+
+    def _to_pg_text(self) -> str:
+        return "(" + ",".join([self._encode_composite_field(self.street), self._encode_composite_field(self.city), self._encode_composite_field(self.zip)]) + ")"
+
+    @staticmethod
+    def _encode_composite_field(value: Any) -> str:
+        if value is None:
+            return ""
+        if hasattr(value, "_to_pg_text"):
+            raw = value._to_pg_text()
+        elif isinstance(value, Enum):
+            raw = str(value.value)
+        else:
+            raw = str(value)
+        if raw and not any(char in raw for char in ',()\"\\') and raw == raw.strip():
+            return raw
+        escaped = raw.replace("\\", "\\\\").replace('\"', '\"\"')
+        return f'\"{escaped}\"'
+
+    @staticmethod
+    def _parse_composite_fields(text: str) -> list[str | None]:
+        """~keep Splits a PostgreSQL composite's text form ("(a,b,c)") into its raw field
+        tokens, honoring its escaping rules: an empty unquoted field is SQL NULL (returned
+        as None); a field needing quoting (comma, paren, quote, backslash, leading/trailing
+        space, or the empty string) is wrapped in double quotes; every other field is
+        unquoted and taken literally. A nested composite's own "(x,y)" text form always
+        contains parens, so it always comes back quoted here, ready for that type's own
+        `_from_text` to parse recursively.
+
+        Inside a quoted field `record_out` doubles a literal double-quote and backslash-
+        escapes a literal backslash. Both spellings must be accepted: reading a doubled
+        quote as "closing quote, then a new field" both truncates the value and
+        desynchronizes every field after it. Verified against PostgreSQL 16.
+        """
+        fields: list[str | None] = []
+        inner = text[1:-1]
+        i = 0
+        n = len(inner)
+        while True:
+            chars: list[str] = []
+            is_null = False
+            if i < n and inner[i] == '"':
+                i += 1
+                while i < n:
+                    c = inner[i]
+                    if c == "\\" and i + 1 < n:
+                        chars.append(inner[i + 1])
+                        i += 2
+                    elif c == '"' and i + 1 < n and inner[i + 1] == '"':
+                        chars.append('"')
+                        i += 2
+                    elif c == '"':
+                        i += 1
+                        break
+                    else:
+                        chars.append(c)
+                        i += 1
+            else:
+                start = i
+                while i < n and inner[i] != ",":
+                    i += 1
+                chars = list(inner[start:i])
+                is_null = len(chars) == 0
+            fields.append(None if is_null else "".join(chars))
+            if i < n and inner[i] == ",":
+                i += 1
+                continue
+            break
+        return fields
+
+    @staticmethod
+    def _require_composite_field(raw: str | None, field: str) -> str:
+        """~keep A composite's fields are all declared non-nullable -- CompositeFieldInfo
+        carries no per-field nullability -- but PostgreSQL happily stores a NULL sub-field,
+        which arrives here as None. Raising names the field that was NULL; returning None
+        through an annotation that says `str` would hand the caller a value its own type
+        says is impossible."""
+        if raw is None:
+            raise ValueError(f"composite field {field!r} is NULL, which its generated type cannot represent")
+        return raw
+
+
 class GetUserAsJsonRowPayload(msgspec.Struct):
     """Nested struct for get_user_as_json_row_payload."""
 
@@ -364,108 +466,6 @@ async def search_users(conn: AsyncConnection, *, name: str) -> list[SearchUsersR
     )
     rows = await cur.fetchall()
     return [SearchUsersRow(id=r[0], name=r[1], email=r[2]) for r in rows]
-
-
-class UserAddress(msgspec.Struct):
-    """Composite type user_address."""
-
-    street: str
-    city: str
-    zip: str
-
-    @classmethod
-    def _from_text(cls, text: str | None) -> "UserAddress | None":
-        """~keep board #204: psycopg3 registers no adapter for a
-        user-defined composite -- it hands back the driver's raw text form
-        as a plain str. Parse it here instead."""
-        if text is None:
-            return None
-        f = cls._parse_composite_fields(text)
-        return cls(
-            street=cls._require_composite_field(f[0], "street"),
-            city=cls._require_composite_field(f[1], "city"),
-            zip=cls._require_composite_field(f[2], "zip"),
-        )
-
-    def _to_pg_text(self) -> str:
-        return "(" + ",".join([self._encode_composite_field(self.street), self._encode_composite_field(self.city), self._encode_composite_field(self.zip)]) + ")"
-
-    @staticmethod
-    def _encode_composite_field(value: Any) -> str:
-        if value is None:
-            return ""
-        if hasattr(value, "_to_pg_text"):
-            raw = value._to_pg_text()
-        elif isinstance(value, Enum):
-            raw = str(value.value)
-        else:
-            raw = str(value)
-        if raw and not any(char in raw for char in ',()\"\\') and raw == raw.strip():
-            return raw
-        escaped = raw.replace("\\", "\\\\").replace('\"', '\"\"')
-        return f'\"{escaped}\"'
-
-    @staticmethod
-    def _parse_composite_fields(text: str) -> list[str | None]:
-        """~keep Splits a PostgreSQL composite's text form ("(a,b,c)") into its raw field
-        tokens, honoring its escaping rules: an empty unquoted field is SQL NULL (returned
-        as None); a field needing quoting (comma, paren, quote, backslash, leading/trailing
-        space, or the empty string) is wrapped in double quotes; every other field is
-        unquoted and taken literally. A nested composite's own "(x,y)" text form always
-        contains parens, so it always comes back quoted here, ready for that type's own
-        `_from_text` to parse recursively.
-
-        Inside a quoted field `record_out` doubles a literal double-quote and backslash-
-        escapes a literal backslash. Both spellings must be accepted: reading a doubled
-        quote as "closing quote, then a new field" both truncates the value and
-        desynchronizes every field after it. Verified against PostgreSQL 16.
-        """
-        fields: list[str | None] = []
-        inner = text[1:-1]
-        i = 0
-        n = len(inner)
-        while True:
-            chars: list[str] = []
-            is_null = False
-            if i < n and inner[i] == '"':
-                i += 1
-                while i < n:
-                    c = inner[i]
-                    if c == "\\" and i + 1 < n:
-                        chars.append(inner[i + 1])
-                        i += 2
-                    elif c == '"' and i + 1 < n and inner[i + 1] == '"':
-                        chars.append('"')
-                        i += 2
-                    elif c == '"':
-                        i += 1
-                        break
-                    else:
-                        chars.append(c)
-                        i += 1
-            else:
-                start = i
-                while i < n and inner[i] != ",":
-                    i += 1
-                chars = list(inner[start:i])
-                is_null = len(chars) == 0
-            fields.append(None if is_null else "".join(chars))
-            if i < n and inner[i] == ",":
-                i += 1
-                continue
-            break
-        return fields
-
-    @staticmethod
-    def _require_composite_field(raw: str | None, field: str) -> str:
-        """~keep A composite's fields are all declared non-nullable -- CompositeFieldInfo
-        carries no per-field nullability -- but PostgreSQL happily stores a NULL sub-field,
-        which arrives here as None. Raising names the field that was NULL; returning None
-        through an annotation that says `str` would hand the caller a value its own type
-        says is impossible."""
-        if raw is None:
-            raise ValueError(f"composite field {field!r} is NULL, which its generated type cannot represent")
-        return raw
 
 
 class GetUserProfileRow(msgspec.Struct):
