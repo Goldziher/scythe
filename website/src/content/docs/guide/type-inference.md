@@ -257,6 +257,11 @@ generated field names. Each backend spells the mapping out:
 | `python-psycopg3` | `T` | a `_from_json` classmethod |
 | `php-pdo`, `php-amphp` | `T` | a `fromJson` static factory |
 
+PHP nested JSON maps PostgreSQL `numeric` fields to `float`. PHP's native JSON decoder produces a
+floating-point value for a JSON number, so the generated property states that runtime type instead
+of presenting the already-rounded value as an exact decimal string. Select the value as JSON text
+when decimal precision must be preserved exactly.
+
 A quoted mixed-case column keeps its key and renames the field:
 
 ```rust

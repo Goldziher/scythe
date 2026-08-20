@@ -128,7 +128,7 @@ readonly class GetUserOrdersAsJsonRowPayload {
     public function __construct(
         public int $id,
         public int $user_id,
-        public string $total,
+        public float $total,
         public ?float $weight_kg,
         public ?string $notes,
         public \DateTimeImmutable $created_at,
@@ -138,7 +138,7 @@ readonly class GetUserOrdersAsJsonRowPayload {
         return new self(
             id: (int) $value['id'],
             user_id: (int) $value['user_id'],
-            total: (string) $value['total'],
+            total: (float) $value['total'],
             weight_kg: $value['weight_kg'] !== null ? (float) $value['weight_kg'] : null,
             notes: $value['notes'] !== null ? (string) $value['notes'] : null,
             created_at: new \DateTimeImmutable($value['created_at']),

@@ -1894,7 +1894,13 @@ mod tests {
             );
             let mut nested_query = baseline.clone();
             nested_query.columns[0].neutral_type = "json_nested<array<GetUserPostsRowPosts>>".to_string();
-            nested_query.nested_structs = vec![a_nested_struct()];
+            let mut nested = a_nested_struct();
+            nested.fields.push(NestedFieldInfo {
+                name: "high_precision_total".to_string(),
+                neutral_type: "decimal".to_string(),
+                nullable: false,
+            });
+            nested_query.nested_structs = vec![nested];
 
             let baseline_result = generate_with_backend(&baseline, &*backend).unwrap();
             let nested_result = generate_with_backend(&nested_query, &*backend).unwrap();
@@ -1904,6 +1910,13 @@ mod tests {
                 "{backend_name} must retain its typed nested JSON row instead of degrading"
             );
             assert_eq!(nested_result.nested_struct_defs.len(), 1);
+            let nested_def = &nested_result.nested_struct_defs[0].code;
+            assert!(
+                nested_def.contains("public float $high_precision_total,")
+                    && nested_def.contains("high_precision_total: (float) $value['high_precision_total']")
+                    && !nested_def.contains("@var string"),
+                "{backend_name} must expose JSON numeric values as floats instead of pretending the decoded value is an exact string:\n{nested_def}"
+            );
             assert!(
                 nested_result.degraded_nested_structs.is_empty(),
                 "{backend_name} must not report native nested JSON support as degraded"

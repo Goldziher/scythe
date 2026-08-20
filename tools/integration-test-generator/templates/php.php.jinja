@@ -761,6 +761,14 @@ function test_nested_json({% if driver == "pdo" %}PDO {% endif %}$pdo): void
     assert_equal(1, count($orders), "GetUserOrdersAsJson null element count");
     assert_null($orders[0], "GetUserOrdersAsJson nullable element");
 
+    $pdo->query("ALTER TABLE orders ALTER COLUMN total TYPE NUMERIC(30, 15)");
+    Queries::createOrder($pdo, $user_id, "123456789012345.123456789012345", "Nested numeric precision");
+    $orders = Queries::getUserOrdersAsJson($pdo, $user_id)->payload;
+    assert_equal(1, count($orders), "GetUserOrdersAsJson numeric row count");
+    assert_true(is_float($orders[0]->total), "GetUserOrdersAsJson decimal is an honest PHP float");
+    assert_equal(123456789012345.12, $orders[0]->total, "GetUserOrdersAsJson follows PHP float precision");
+
+    Queries::deleteOrdersByUser($pdo, $user_id);
     Queries::deleteUser($pdo, $user_id);
     echo "PASS: NestedJson\n";
 }

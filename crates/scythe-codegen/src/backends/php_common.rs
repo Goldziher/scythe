@@ -116,14 +116,19 @@ fn resolved_json_field(
     nullable: bool,
     manifest: &BackendManifest,
 ) -> Result<ResolvedColumn, ScytheError> {
-    let (full_type, lang_type) = resolve_type_pair(neutral_type, manifest, nullable)
-        .map(|(full, lang)| (full.into_owned(), lang.into_owned()))
-        .map_err(|error| {
-            ScytheError::new(
-                ErrorCode::InternalError,
-                format!("nested JSON field type resolution failed for '{name}': {error}"),
-            )
-        })?;
+    let (full_type, lang_type) = if neutral_type == "decimal" {
+        let scalar = "float".to_string();
+        let full = if nullable { format!("?{scalar}") } else { scalar.clone() };
+        Ok((full, scalar))
+    } else {
+        resolve_type_pair(neutral_type, manifest, nullable).map(|(full, lang)| (full.into_owned(), lang.into_owned()))
+    }
+    .map_err(|error| {
+        ScytheError::new(
+            ErrorCode::InternalError,
+            format!("nested JSON field type resolution failed for '{name}': {error}"),
+        )
+    })?;
     Ok(ResolvedColumn {
         name: name.to_string(),
         field_name: field_name(name, &manifest.naming).into_owned(),
@@ -146,6 +151,9 @@ fn php_json_value_expr(neutral_type: &str, lang_type: &str, raw: &str) -> String
     }
     if neutral_type.contains('<') || lang_type == "array" {
         return raw.to_string();
+    }
+    if neutral_type == "decimal" {
+        return format!("(float) {raw}");
     }
     match lang_type {
         "int" => format!("(int) {raw}"),
@@ -181,7 +189,11 @@ pub(crate) fn generate_nested_struct_def(
     let _ = writeln!(out, "readonly class {name} {{");
     let _ = writeln!(out, "    public function __construct(");
     for field in &fields {
-        write_promoted_property(&mut out, field, manifest)?;
+        if field.neutral_type == "decimal" {
+            let _ = writeln!(out, "        public {} ${},", field.full_type, field.field_name);
+        } else {
+            write_promoted_property(&mut out, field, manifest)?;
+        }
     }
     let _ = writeln!(out, "    ) {{}}");
     let _ = writeln!(out);
@@ -401,6 +413,9 @@ fn generate_composite_def_inner(
         .fields
         .iter()
         .map(|f| {
+            if include_json_factory && f.neutral_type == "decimal" {
+                return "string|float".to_string();
+            }
             resolve_type(&f.neutral_type, manifest, false)
                 .map(|t| t.into_owned())
                 .unwrap_or_else(|_| "mixed".to_string())
