@@ -1,3 +1,4 @@
+mod builder;
 mod fingerprint;
 pub(crate) mod type_normalizer;
 mod view_resolver;
@@ -13,6 +14,11 @@ use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 
 use type_normalizer::{bare_name, ident_to_lower, normalize_data_type, object_name_to_key, object_name_to_raw_name};
+
+pub use builder::{
+    CatalogBuilder, CatalogObjectName, ColumnDefinition, CompositeDefinition, CompositeFieldDefinition,
+    DomainDefinition, EnumDefinition, RelationDefinition, RelationKind,
+};
 
 #[derive(Debug)]
 pub struct Catalog {
@@ -43,6 +49,13 @@ pub struct Catalog {
     /// unit tests, and any embedder that never had an engine string)
     /// behaving exactly as it did before this field existed.
     engine: Option<String>,
+    relation_names: AHashMap<String, CatalogObjectName>,
+    relation_kinds: AHashMap<String, RelationKind>,
+    raw_column_types: AHashMap<String, AHashMap<String, String>>,
+    enum_names: AHashMap<String, CatalogObjectName>,
+    composite_names: AHashMap<String, CatalogObjectName>,
+    domain_names: AHashMap<String, CatalogObjectName>,
+    raw_domain_types: AHashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -121,6 +134,13 @@ impl Catalog {
             domains: AHashMap::new(),
             dialect: *dialect,
             engine: None,
+            relation_names: AHashMap::new(),
+            relation_kinds: AHashMap::new(),
+            raw_column_types: AHashMap::new(),
+            enum_names: AHashMap::new(),
+            composite_names: AHashMap::new(),
+            domain_names: AHashMap::new(),
+            raw_domain_types: AHashMap::new(),
         };
 
         let parser_dialect = dialect.to_sqlparser_dialect();
@@ -208,6 +228,43 @@ impl Catalog {
 
     pub fn get_composite(&self, name: &str) -> Option<&CompositeType> {
         lookup_qualified(&self.composites, name)
+    }
+
+    /// Return the preserved qualified spelling of an inspected relation name.
+    pub fn relation_name(&self, name: &str) -> Option<&CatalogObjectName> {
+        lookup_qualified(&self.relation_names, name)
+    }
+
+    /// Return whether an inspected relation is a table or view.
+    pub fn relation_kind(&self, name: &str) -> Option<RelationKind> {
+        lookup_qualified(&self.relation_kinds, name).copied()
+    }
+
+    /// Return the database-reported SQL type before catalog normalization.
+    pub fn column_raw_sql_type(&self, relation: &str, column: &str) -> Option<&str> {
+        lookup_qualified(&self.raw_column_types, relation)?
+            .get(&column.to_lowercase())
+            .map(String::as_str)
+    }
+
+    /// Return the preserved qualified spelling of an inspected enum name.
+    pub fn enum_name(&self, name: &str) -> Option<&CatalogObjectName> {
+        lookup_qualified(&self.enum_names, name)
+    }
+
+    /// Return the preserved qualified spelling of an inspected composite name.
+    pub fn composite_name(&self, name: &str) -> Option<&CatalogObjectName> {
+        lookup_qualified(&self.composite_names, name)
+    }
+
+    /// Return the preserved qualified spelling of an inspected domain name.
+    pub fn domain_name(&self, name: &str) -> Option<&CatalogObjectName> {
+        lookup_qualified(&self.domain_names, name)
+    }
+
+    /// Return an inspected domain's database-reported base type.
+    pub fn domain_raw_base_type(&self, name: &str) -> Option<&str> {
+        lookup_qualified(&self.raw_domain_types, name).map(String::as_str)
     }
 }
 
