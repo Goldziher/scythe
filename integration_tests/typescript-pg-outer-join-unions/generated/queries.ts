@@ -372,7 +372,7 @@ function encodeUserAddress(value: UserAddress | null): string | null {
 		}
 		return text;
 	};
-	return `(encode(value.street), encode(value.city), encode(value.zip))`;
+	return `(${encode(value.street)}, ${encode(value.city)}, ${encode(value.zip)})`;
 }
 
 /** Row type for GetUserProfile queries. */

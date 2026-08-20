@@ -99,7 +99,7 @@ fn ts_encode_composite_helper(composite: &CompositeInfo, naming: &scythe_backend
     let fields = composite
         .fields
         .iter()
-        .map(|field| format!("encode(value.{})", to_camel_case(&field.name)))
+        .map(|field| format!("${{encode(value.{})}}", to_camel_case(&field.name)))
         .collect::<Vec<_>>()
         .join(", ");
     format!(

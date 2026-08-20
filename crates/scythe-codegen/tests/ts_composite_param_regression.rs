@@ -129,6 +129,10 @@ fn typescript_pg_encodes_a_composite_param_as_postgres_text() {
         composite_def.contains("replaceAll(\"\\\\\", \"\\\\\\\\\").replaceAll('\\\"', '\\\"\\\"')"),
         "encoder must escape backslashes and quotes; got:\n{composite_def}"
     );
+    assert!(
+        composite_def.contains("return `(${encode(value.street)}, ${encode(value.zipCode)})`;"),
+        "encoder must interpolate encoded field values; got:\n{composite_def}"
+    );
 }
 
 #[test]
@@ -148,6 +152,10 @@ fn typescript_kysely_encodes_a_composite_param_as_postgres_text() {
     assert!(
         composite_def.contains("function encodeAddress(value: Address | null): string | null"),
         "must generate a nullable whole-composite encoder; got:\n{composite_def}"
+    );
+    assert!(
+        composite_def.contains("return `(${encode(value.street)}, ${encode(value.zipCode)})`;"),
+        "encoder must interpolate encoded field values; got:\n{composite_def}"
     );
 }
 
