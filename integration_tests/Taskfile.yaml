@@ -300,6 +300,14 @@ tasks:
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
+  test:typescript-kysely-camel:
+    desc: Run typescript-kysely-camel integration test
+    dir: typescript-kysely-camel
+    cmds:
+      - pnpm install --frozen-lockfile
+      - pnpm exec tsc --noEmit
+      - pnpm exec tsx test.ts
+
   test:java-jdbc:
     desc: Run java-jdbc integration test
     dir: java-jdbc
@@ -999,6 +1007,7 @@ tasks:
       - task: test:typescript-pg-zod-outer-join-unions
       - task: test:typescript-pg-structs-only
       - task: test:typescript-kysely
+      - task: test:typescript-kysely-camel
       - task: test:java-jdbc
       - task: test:kotlin-jdbc
       - task: test:java-r2dbc

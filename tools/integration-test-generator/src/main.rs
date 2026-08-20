@@ -371,6 +371,15 @@ fn backend_variants() -> Vec<BackendConfig> {
             options: HashMap::new(),
         },
         BackendConfig {
+            name: "typescript-kysely-camel".into(),
+            language: "typescript".into(),
+            engine: "postgresql".into(),
+            driver: "kysely-pg".into(),
+            connection_env: "DATABASE_URL".into(),
+            backend: "typescript-kysely".into(),
+            options: HashMap::from([("field_case".into(), "camelCase".into())]),
+        },
+        BackendConfig {
             name: "typescript-kysely-mysql2".into(),
             language: "typescript".into(),
             engine: "mysql".into(),

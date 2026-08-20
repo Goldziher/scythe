@@ -77,7 +77,7 @@ main();
 {%- if driver == "pg" -%}
 import pg from "pg";
 {%- elif driver == "kysely-pg" -%}
-import { Kysely, PostgresDialect, sql } from "kysely";
+import { {% if options.field_case == "camelCase" %}CamelCasePlugin, {% endif %}Kysely, PostgresDialect, sql } from "kysely";
 import pg from "pg";
 {%- elif driver == "postgres" -%}
 import postgres from "postgres";
@@ -168,6 +168,9 @@ const pool = new pg.Pool({ connectionString: DATABASE_URL });
 {%- elif driver == "kysely-pg" %}
 const db = new Kysely<any>({
 	dialect: new PostgresDialect({ pool: new pg.Pool({ connectionString: DATABASE_URL }) }),
+{%- if options.field_case == "camelCase" %}
+	plugins: [new CamelCasePlugin()],
+{%- endif %}
 });
 {%- elif driver == "postgres" %}
 const sql = postgres(DATABASE_URL);
@@ -501,10 +504,17 @@ async function main(): Promise<void> {
 		);
 {%- else %}
 		assert(
-			order!.user_id === userId,
+			{% if options.field_case == "camelCase" %}order!.userId{% else %}order!.user_id{% endif %} === userId,
 			"CreateOrder",
-			`expected user_id ${userId}`,
+			`expected {% if options.field_case == "camelCase" %}userId{% else %}user_id{% endif %} ${userId}`,
 		);
+{%- if options.field_case == "camelCase" %}
+		assert(
+			!("user_id" in (order as unknown as Record<string, unknown>)),
+			"CreateOrder",
+			"row should not carry the pre-remap snake_case key 'user_id'",
+		);
+{%- endif %}
 		assert(
 			String(order!.total) === "99.95",
 			"CreateOrder",
@@ -769,10 +779,26 @@ async function main(): Promise<void> {
 		const order = await createOrder(db, userId, "99.95", "first order");
 		assert(order !== null, "CreateOrder", "order should not be null");
 		assert(
-			order!.user_id === userId,
+			order!.{% if options.field_case == "camelCase" %}userId{% else %}user_id{% endif %} === userId,
 			"CreateOrder",
-			`expected user_id ${userId}`,
+			`expected {% if options.field_case == "camelCase" %}userId{% else %}user_id{% endif %} ${userId}`,
 		);
+{%- if options.field_case == "camelCase" %}
+		assert(order!.id > 0, "CreateOrder", "single-word id key should remain unchanged");
+		assert(!("user_id" in order!), "CreateOrder", "row should omit the snake_case user_id key");
+		const pluginResult = await sql<{ multipleUnderscoreAlias: number }>`SELECT 1 AS multiple_underscore_alias`.execute(db);
+		const pluginRow = pluginResult.rows[0];
+		assert(
+			pluginRow?.multipleUnderscoreAlias === 1,
+			"CreateOrder",
+			"CamelCasePlugin should remap a multiple-underscore alias",
+		);
+		assert(
+			pluginRow !== undefined && !("multiple_underscore_alias" in pluginRow),
+			"CreateOrder",
+			"row should omit the multiple-underscore SQL alias",
+		);
+{%- endif %}
 		assert(
 			String(order!.total) === "99.95",
 			"CreateOrder",
@@ -803,9 +829,9 @@ async function main(): Promise<void> {
 		const orderTotal = await getOrderTotal(db, userId);
 		assert(orderTotal !== null, "GetOrderTotal", "total should not be null");
 		assert(
-			String(orderTotal!.total_sum) === "99.95",
+			String(orderTotal!.{% if options.field_case == "camelCase" %}totalSum{% else %}total_sum{% endif %}) === "99.95",
 			"GetOrderTotal",
-			`expected total_sum 99.95, got ${orderTotal!.total_sum}`,
+			`expected total_sum 99.95, got ${orderTotal!.{% if options.field_case == "camelCase" %}totalSum{% else %}total_sum{% endif %}}`,
 		);
 		pass("GetOrderTotal");
 
@@ -844,9 +870,9 @@ async function main(): Promise<void> {
 		const statusCount = await countUsersByStatus(db, UserStatusValues.Active);
 		assert(statusCount !== null, "CountUsersByStatus", "result should not be null");
 		assert(
-			statusCount!.user_count >= 2,
+			statusCount!.{% if options.field_case == "camelCase" %}userCount{% else %}user_count{% endif %} >= 2,
 			"CountUsersByStatus",
-			`expected at least 2 active users, got ${statusCount!.user_count}`,
+			`expected at least 2 active users, got ${statusCount!.{% if options.field_case == "camelCase" %}userCount{% else %}user_count{% endif %}}`,
 		);
 		pass("CountUsersByStatus");
 
@@ -861,9 +887,9 @@ async function main(): Promise<void> {
 			`expected 1 tag row, got ${userTags.length}`,
 		);
 		assert(
-			userTags[0]!.tag_name === "vip",
+			userTags[0]!.{% if options.field_case == "camelCase" %}tagName{% else %}tag_name{% endif %} === "vip",
 			"GetUserWithTags",
-			`expected tag_name vip, got ${userTags[0]!.tag_name}`,
+			`expected tag_name vip, got ${userTags[0]!.{% if options.field_case == "camelCase" %}tagName{% else %}tag_name{% endif %}}`,
 		);
 		pass("GetUserWithTags");
 {%- endif %}
@@ -907,9 +933,9 @@ async function main(): Promise<void> {
 
 		const profile = await getUserProfile(db, presentId);
 		assert(
-			profile.secondary_status === "inactive",
+			profile.{% if options.field_case == "camelCase" %}secondaryStatus{% else %}secondary_status{% endif %} === "inactive",
 			"GetUserProfile",
-			`expected secondary_status inactive, got ${profile.secondary_status}`,
+			`expected secondary_status inactive, got ${profile.{% if options.field_case == "camelCase" %}secondaryStatus{% else %}secondary_status{% endif %}}`,
 		);
 		assert(profile.address !== null, "GetUserProfile", "expected address to be present");
 		assert(
@@ -930,9 +956,9 @@ async function main(): Promise<void> {
 
 		const nullProfile = await getUserProfile(db, absentId);
 		assert(
-			nullProfile.secondary_status === null,
+			nullProfile.{% if options.field_case == "camelCase" %}secondaryStatus{% else %}secondary_status{% endif %} === null,
 			"GetUserProfile",
-			`expected secondary_status null, got ${nullProfile.secondary_status}`,
+			`expected secondary_status null, got ${nullProfile.{% if options.field_case == "camelCase" %}secondaryStatus{% else %}secondary_status{% endif %}}`,
 		);
 		assert(
 			nullProfile.address === null,
