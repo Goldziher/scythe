@@ -2,7 +2,6 @@ version: 2
 
 before:
   hooks:
-    - cargo install --locked cargo-zigbuild
     - cargo fetch --locked
 
 builds:

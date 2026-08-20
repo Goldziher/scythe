@@ -202,6 +202,10 @@ jobs:
       - name: Build and size-check all release targets
         run: task release:canary
 
+      - name: Normalize legacy GoReleaser config for dispatch
+        if: github.event_name == 'workflow_dispatch'
+        run: perl -ni -e 'print unless /cargo install --locked cargo-zigbuild/' .goreleaser.yaml
+
       - name: Build and publish GitHub release assets
         uses: goreleaser/goreleaser-action@v7
         with:
