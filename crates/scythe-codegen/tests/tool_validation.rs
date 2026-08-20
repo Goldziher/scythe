@@ -1313,6 +1313,28 @@ fn test_javascript_mssql_grouped_and_nullable_pass_real_tools() {
 }
 
 #[test]
+fn test_javascript_mssql_wrong_row_shape_fails_real_type_check() {
+    let code = generate_js_mode_nullable_and_grouped_file(
+        "javascript-mssql",
+        "mssql",
+        &SqlDialect::MsSql,
+        &JS_MODE_MSSQL_SCHEMA,
+        JS_MODE_MSSQL_ONE,
+    );
+    let mutated = code.replacen("\t\tid: row['id'],", "\t\twrongField: \"wrong\",", 1);
+    assert_ne!(mutated, code, "expected an explicit MSSQL row reconstruction to mutate");
+
+    let validation = validate_with_tools(&mutated, "javascript-mssql");
+    if !validation.missing_tools().is_empty() && !strict_mode_enabled() {
+        return;
+    }
+    assert!(
+        !validation.errors().is_empty(),
+        "expected the real JavaScript type checker to reject a wrong returned row shape; got:\n{mutated}"
+    );
+}
+
+#[test]
 fn test_kotlin_r2dbc_extension_functions_default_off() {
     let code = generate_full_file("kotlin-r2dbc");
     assert!(

@@ -64,10 +64,9 @@ pub struct TypescriptMssqlBackend {
     /// `javascript-oracledb`, this backend keeps its driver import even in JS
     /// mode -- see `file_header` -- because `request.input(name, sql.Int,
     /// value)` reads a runtime constant off it, not just a type. Unlike
-    /// every other `javascript-*` backend's row read, this one's `:one`/
-    /// `:many`/`:grouped` carry **no** JSDoc cast at all -- see
-    /// `generate_query_fn_js`'s doc comment for why that is not an
-    /// oversight.
+    /// query functions reconstruct explicit row object literals so the
+    /// JSDoc return contract is checked independently of the driver's
+    /// `IResult<any>` row type.
     js_mode: bool,
 }
 
@@ -190,7 +189,7 @@ impl CodegenBackend for TypescriptMssqlBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         if self.js_mode {
-            return self.generate_query_fn_js(analyzed, struct_name, params);
+            return self.generate_query_fn_js(analyzed, struct_name, columns, params);
         }
         if self.structs_only {
             return Ok(String::new());
@@ -637,31 +636,15 @@ impl TypescriptMssqlBackend {
     /// JSDoc-mode counterpart of `generate_query_fn` (see
     /// `CodegenBackend::generate_query_fn`).
     ///
-    /// ~keep No cast appears anywhere in `:one`/`:many` here, and that is not
-    /// an omission. The TS path's row safety for the default (Snake) field
-    /// case comes entirely from `request.query<StructName>(...)`'s *explicit*
-    /// generic type argument (verified against the real
-    /// `@types/mssql@12.3.0`: `Request.query<Entity>(command): Promise<IResult<Entity>>`),
-    /// which plain JSDoc has no syntax to spell at a call site at all --
-    /// there is no JSDoc equivalent of `foo.bar<T>(...)`. Falling back to the
-    /// same package's non-generic overload (`query(command):
-    /// Promise<IResult<any>>`) makes every read `any`, and `any` is
-    /// assignable to (and from) anything with no diagnostic in either
-    /// `--strict` TS or `--checkJs`. So unlike every other backend in this
-    /// crate, `javascript-mssql`'s generated row shape carries *zero*
-    /// compile-time verification from real `tsc` -- confirmed empirically: a
-    /// deliberately wrong field list in this shape (`return
-    /// result.recordset.map(() => ({ wrongField: 1 }))`) does still get
-    /// caught, because that expression's type comes from the object literal,
-    /// not from `any` -- but the direct pass-through this backend actually
-    /// emits (`return row;` / `return result.recordset;`) is never checked.
-    /// The `js_mode`-tagged unit tests below, which pin the exact generated
-    /// body and assert no `/** @type */` cast appears, are what stand in for
-    /// that missing compiler guarantee.
+    /// ~keep The mssql package's non-generic JSDoc call returns `IResult<any>`.
+    /// Reconstructing rows as object literals makes `tsc --checkJs --strict`
+    /// check their keys against the generated function's JSDoc return type;
+    /// annotating `IResult<any>` itself would only add an unchecked assertion.
     fn generate_query_fn_js(
         &self,
         analyzed: &AnalyzedQuery,
         struct_name: &str,
+        columns: &[ResolvedColumn],
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         if self.structs_only {
@@ -706,10 +689,13 @@ impl TypescriptMssqlBackend {
                 write_inputs(&mut out);
                 let _ = writeln!(out, "\tconst result = await request.query(`{sql}`);");
                 let _ = writeln!(out, "\tconst row = result.recordset[0];");
-                let _ = writeln!(out, "\tif (row === undefined) {{");
-                let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
-                let _ = writeln!(out, "\t}}");
-                let _ = writeln!(out, "\treturn row;");
+                out.push_str(&generate_ts_one_row_remap(
+                    columns,
+                    TsRowShape::Flat,
+                    &analyzed.command,
+                    &analyzed.name,
+                    |name, _| ts_index_access("row", name),
+                ));
                 let _ = write!(out, "}}");
             }
             QueryCommand::Opt => {
@@ -721,7 +707,14 @@ impl TypescriptMssqlBackend {
                 let _ = writeln!(out, "\tconst request = pool.request();");
                 write_inputs(&mut out);
                 let _ = writeln!(out, "\tconst result = await request.query(`{sql}`);");
-                let _ = writeln!(out, "\treturn result.recordset[0] ?? null;");
+                let _ = writeln!(out, "\tconst row = result.recordset[0];");
+                out.push_str(&generate_ts_one_row_remap(
+                    columns,
+                    TsRowShape::Flat,
+                    &analyzed.command,
+                    &analyzed.name,
+                    |name, _| ts_index_access("row", name),
+                ));
                 let _ = write!(out, "}}");
             }
             QueryCommand::Many => {
@@ -733,7 +726,10 @@ impl TypescriptMssqlBackend {
                 let _ = writeln!(out, "\tconst request = pool.request();");
                 write_inputs(&mut out);
                 let _ = writeln!(out, "\tconst result = await request.query(`{sql}`);");
-                let _ = writeln!(out, "\treturn result.recordset;");
+                let _ = writeln!(out, "\tconst rows = result.recordset;");
+                out.push_str(&generate_ts_many_row_remap(columns, TsRowShape::Flat, |name, _| {
+                    ts_index_access("row", name)
+                }));
                 let _ = write!(out, "}}");
             }
             QueryCommand::Batch => {
@@ -1542,16 +1538,8 @@ mod tests {
         assert!(!row_struct.contains("total?"), "{row_struct}");
     }
 
-    /// This is the one `javascript-*` backend in this crate whose row read
-    /// carries **no** JSDoc cast at all -- see `generate_query_fn_js`'s doc
-    /// comment for the empirically-verified reason (`request.query(...)`
-    /// with no explicit generic returns `IResult<any>` under the real
-    /// `@types/mssql` declaration, and `any` needs no assertion to flow into
-    /// a concrete type). If a cast is ever added here it should be treated
-    /// as a regression to investigate, not a hardening: it would mean this
-    /// pinned assumption about the driver's overload resolution changed.
     #[test]
-    fn test_js_mode_one_and_many_query_fns_have_no_jsdoc_cast() {
+    fn test_js_mode_one_and_many_query_fns_reconstruct_typed_row_shape() {
         let backend = js_backend();
         let one_query = make_one_query_with_snake_case_column();
         let one_result = crate::generate_with_backend(&one_query, &backend).unwrap();
@@ -1566,11 +1554,8 @@ mod tests {
             one_fn.contains("export async function getSession(pool) {"),
             "got:\n{one_fn}"
         );
-        assert!(
-            one_fn.contains("const row = result.recordset[0];"),
-            "the row must be returned straight from the driver with no per-field \
-             reconstruction; got:\n{one_fn}"
-        );
+        assert!(one_fn.contains("const row = result.recordset[0];"), "got:\n{one_fn}");
+        assert!(one_fn.contains("return {\n\t\tid: row['id'],"), "got:\n{one_fn}");
         assert!(!one_fn.contains("@type"), "got:\n{one_fn}");
         assert!(
             !one_fn.contains(" as "),
@@ -1586,7 +1571,9 @@ mod tests {
             many_fn.contains("@returns {Promise<GetSessionRow[]>}"),
             "got:\n{many_fn}"
         );
-        assert!(many_fn.contains("return result.recordset;"), "got:\n{many_fn}");
+        assert!(many_fn.contains("const rows = result.recordset;"), "got:\n{many_fn}");
+        assert!(many_fn.contains("return rows.map((row) => ({"), "got:\n{many_fn}");
+        assert!(many_fn.contains("\t\tid: row['id'],"), "got:\n{many_fn}");
         assert!(!many_fn.contains("@type"), "got:\n{many_fn}");
         assert!(!many_fn.contains(" as "), "got:\n{many_fn}");
     }
