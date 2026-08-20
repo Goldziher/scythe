@@ -429,6 +429,47 @@ fn generate_composite_def_inner(
     }
     let _ = writeln!(out, "        );");
     let _ = writeln!(out, "    }}");
+    let encoded_fields = composite
+        .fields
+        .iter()
+        .map(|field| format!("self::encodeCompositeField($this->{})", field.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "    public function toPgText(): string {{");
+    let _ = writeln!(out, "        return '(' . implode(',', [{}]) . ')';", encoded_fields);
+    let _ = writeln!(out, "    }}");
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "    private static function encodeCompositeField(mixed $value): string {{"
+    );
+    let _ = writeln!(out, "        if ($value === null) {{");
+    let _ = writeln!(out, "            return '';");
+    let _ = writeln!(out, "        }}");
+    let _ = writeln!(
+        out,
+        "        if (is_object($value) && method_exists($value, 'toPgText')) {{"
+    );
+    let _ = writeln!(out, "            $raw = $value->toPgText();");
+    let _ = writeln!(out, "        }} elseif ($value instanceof \\BackedEnum) {{");
+    let _ = writeln!(out, "            $raw = (string) $value->value;");
+    let _ = writeln!(out, "        }} elseif ($value instanceof \\DateTimeInterface) {{");
+    let _ = writeln!(out, "            $raw = $value->format('Y-m-d H:i:sP');");
+    let _ = writeln!(out, "        }} else {{");
+    let _ = writeln!(out, "            $raw = (string) $value;");
+    let _ = writeln!(out, "        }}");
+    let _ = writeln!(
+        out,
+        "        if ($raw !== '' && strpbrk($raw, ',()\"\\\\') === false && $raw === trim($raw)) {{"
+    );
+    let _ = writeln!(out, "            return $raw;");
+    let _ = writeln!(out, "        }}");
+    let _ = writeln!(
+        out,
+        "        return '\"' . str_replace(['\\\\', '\"'], ['\\\\\\\\', '\"\"'], $raw) . '\"';"
+    );
+    let _ = writeln!(out, "    }}");
     if include_json_factory {
         let _ = writeln!(out);
         let _ = writeln!(out, "    public static function fromJson(array $value): self {{");

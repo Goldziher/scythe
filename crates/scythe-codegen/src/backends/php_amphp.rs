@@ -19,6 +19,16 @@ use crate::backends::php_common::{
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/php-amphp.toml");
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/php-amphp.mysql.toml");
 
+fn php_param_value(param: &ResolvedParam, raw: &str) -> String {
+    if param.neutral_type.starts_with("composite::") {
+        format!("{raw}?->toPgText()")
+    } else if param.neutral_type.starts_with("enum::") {
+        format!("{raw}->value")
+    } else {
+        raw.to_string()
+    }
+}
+
 /// ~keep The handle every generated function takes. This was `\Amp\Sql\SqlConnectionPool`,
 /// which a single connection does not satisfy -- and on MySQL a pool is the wrong thing to
 /// pass: `GetLastInsertUser` resolves `LAST_INSERT_ID()`, which is scoped to the connection
@@ -313,8 +323,18 @@ impl CodegenBackend for PhpAmphpBackend {
             &analyzed.optional_params,
             &analyzed.params,
         );
-        let (rewritten_sql, occurrences) =
-            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
+        let (rewritten_sql, occurrences) = super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |position| {
+            let placeholder = "?".to_string();
+            let param = super::resolved_param_for_position(&analyzed.params, params, position);
+            if self.engine == "postgresql" {
+                param
+                    .neutral_type
+                    .strip_prefix("composite::")
+                    .map_or(placeholder.clone(), |sql_type| format!("?::text::{sql_type}"))
+            } else {
+                placeholder
+            }
+        });
         let sql = crate::sql_literal::escape_php_single_quoted(&rewritten_sql);
         let mut out = String::new();
 
@@ -344,7 +364,13 @@ impl CodegenBackend for PhpAmphpBackend {
             if params.is_empty() {
                 let _ = writeln!(out, "                $stmt->execute([]);");
             } else {
-                let _ = writeln!(out, "                $stmt->execute($item);");
+                let bindings = params
+                    .iter()
+                    .enumerate()
+                    .map(|(index, param)| php_param_value(param, &format!("$item[{index}]")))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let _ = writeln!(out, "                $stmt->execute([{}]);", bindings);
             }
             let _ = writeln!(out, "            }}");
             let _ = writeln!(out, "            $transaction->commit();");
@@ -419,11 +445,7 @@ impl CodegenBackend for PhpAmphpBackend {
                 .iter()
                 .map(|&position| {
                     let p = super::resolved_param_for_position(&analyzed.params, params, position);
-                    if p.neutral_type.starts_with("enum::") {
-                        format!("${}->value", p.field_name)
-                    } else {
-                        format!("${}", p.field_name)
-                    }
+                    php_param_value(p, &format!("${}", p.field_name))
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
@@ -522,8 +544,17 @@ impl CodegenBackend for PhpAmphpBackend {
             &analyzed.optional_params,
             &analyzed.params,
         );
-        let (rewritten_sql, occurrences) =
-            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
+        let (rewritten_sql, occurrences) = super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |position| {
+            let param = super::resolved_param_for_position(&analyzed.params, params, position);
+            if self.engine == "postgresql" {
+                param
+                    .neutral_type
+                    .strip_prefix("composite::")
+                    .map_or_else(|| "?".to_string(), |sql_type| format!("?::text::{sql_type}"))
+            } else {
+                "?".to_string()
+            }
+        });
         let sql = crate::sql_literal::escape_php_single_quoted(&rewritten_sql);
         let mut out = String::new();
 
@@ -560,11 +591,7 @@ impl CodegenBackend for PhpAmphpBackend {
                 .iter()
                 .map(|&position| {
                     let p = super::resolved_param_for_position(&analyzed.params, params, position);
-                    if p.neutral_type.starts_with("enum::") {
-                        format!("${}->value", p.field_name)
-                    } else {
-                        format!("${}", p.field_name)
-                    }
+                    php_param_value(p, &format!("${}", p.field_name))
                 })
                 .collect::<Vec<_>>()
                 .join(", ");

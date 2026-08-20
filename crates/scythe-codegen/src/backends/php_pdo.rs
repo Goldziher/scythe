@@ -22,6 +22,16 @@ const DEFAULT_MANIFEST_MSSQL: &str = include_str!("../../manifests/php-pdo.mssql
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/php-pdo.redshift.toml");
 const DEFAULT_MANIFEST_SNOWFLAKE: &str = include_str!("../../manifests/php-pdo.snowflake.toml");
 
+fn php_param_value(param: &ResolvedParam, raw: &str) -> String {
+    if param.neutral_type.starts_with("composite::") {
+        format!("{raw}?->toPgText()")
+    } else if param.neutral_type.starts_with("enum::") {
+        format!("{raw}->value")
+    } else {
+        raw.to_string()
+    }
+}
+
 pub struct PhpPdoBackend {
     manifest: BackendManifest,
     namespace: String,
@@ -307,10 +317,23 @@ impl CodegenBackend for PhpPdoBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = crate::sql_literal::escape_php_single_quoted(&super::rewrite_pg_placeholders(
-            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
-            |n| format!(":p{n}"),
-        ));
+        let cleaned_sql =
+            super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql =
+            crate::sql_literal::escape_php_single_quoted(&super::rewrite_pg_placeholders(&cleaned_sql, |position| {
+                let placeholder = format!(":p{position}");
+                let param = super::resolved_param_for_position(&analyzed.params, params, position);
+                if self.manifest.backend.engine == "postgresql" {
+                    param
+                        .neutral_type
+                        .strip_prefix("composite::")
+                        .map_or(placeholder.clone(), |sql_type| {
+                            format!("{placeholder}::text::{sql_type}")
+                        })
+                } else {
+                    placeholder
+                }
+            }));
         let mut out = String::new();
 
         if matches!(analyzed.command, QueryCommand::Batch) {
@@ -339,7 +362,7 @@ impl CodegenBackend for PhpPdoBackend {
                     let bindings = params
                         .iter()
                         .enumerate()
-                        .map(|(i, _p)| format!("\"p{}\" => $item[{}]", i + 1, i))
+                        .map(|(i, p)| format!("\"p{}\" => {}", i + 1, php_param_value(p, &format!("$item[{i}]"))))
                         .collect::<Vec<_>>()
                         .join(", ");
                     let _ = writeln!(out, "                $stmt->execute([{}]);", bindings);
@@ -428,11 +451,7 @@ impl CodegenBackend for PhpPdoBackend {
                 .iter()
                 .enumerate()
                 .map(|(i, p)| {
-                    let value = if p.neutral_type.starts_with("enum::") {
-                        format!("${}->value", p.field_name)
-                    } else {
-                        format!("${}", p.field_name)
-                    };
+                    let value = php_param_value(p, &format!("${}", p.field_name));
                     if use_positional {
                         value
                     } else {
@@ -524,10 +543,19 @@ impl CodegenBackend for PhpPdoBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = crate::sql_literal::escape_php_single_quoted(&super::rewrite_pg_placeholders(
-            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
-            |n| format!(":p{n}"),
-        ));
+        let cleaned_sql =
+            super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql =
+            crate::sql_literal::escape_php_single_quoted(&super::rewrite_pg_placeholders(&cleaned_sql, |position| {
+                let placeholder = format!(":p{position}");
+                let param = super::resolved_param_for_position(&analyzed.params, params, position);
+                param
+                    .neutral_type
+                    .strip_prefix("composite::")
+                    .map_or(placeholder.clone(), |sql_type| {
+                        format!("{placeholder}::text::{sql_type}")
+                    })
+            }));
         let mut out = String::new();
 
         let param_list = params
@@ -566,11 +594,7 @@ impl CodegenBackend for PhpPdoBackend {
                 .iter()
                 .enumerate()
                 .map(|(i, p)| {
-                    let value = if p.neutral_type.starts_with("enum::") {
-                        format!("${}->value", p.field_name)
-                    } else {
-                        format!("${}", p.field_name)
-                    };
+                    let value = php_param_value(p, &format!("${}", p.field_name));
                     if use_positional {
                         value
                     } else {
