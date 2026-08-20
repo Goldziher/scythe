@@ -18,6 +18,39 @@ tasks:
     cmds:
       - cargo build --workspace --release
 
+  release:canary:config:
+    desc: Validate release targets and bundled-DuckDB binary-size limits
+    cmds:
+      - python3 -m unittest scripts/test_release_canary.py
+      - python3 scripts/release-canary.py validate
+
+  release:canary:matrix:
+    desc: Print the release target matrix as JSON
+    silent: true
+    cmds:
+      - python3 scripts/release-canary.py matrix
+
+  release:canary:target:
+    desc: Build and size-check one bundled-DuckDB release target
+    requires:
+      vars: [TARGET]
+    env:
+      RELEASE_CANARY_TARGET: "{{.TARGET}}"
+      CARGO_TARGET_DIR: target/release-canary
+    cmds:
+      - python3 scripts/release-canary.py validate --target "$RELEASE_CANARY_TARGET"
+      - ./scripts/cargo-release zigbuild --release --package=scythe-cli --target "$RELEASE_CANARY_TARGET"
+      - python3 scripts/release-canary.py check --target "$RELEASE_CANARY_TARGET" --target-dir "$CARGO_TARGET_DIR"
+
+  release:canary:
+    desc: Build and size-check all five bundled-DuckDB release targets
+    deps: [release:canary:config]
+    cmds:
+      - |
+        python3 scripts/release-canary.py targets | while IFS= read -r target; do
+          task release:canary:target TARGET="$target"
+        done
+
   test:
     desc: Run all tests
     cmds:

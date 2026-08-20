@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REQUIRED_OPEN_FILES=4096
+current_open_files="$(ulimit -n)"
+
+if [[ "$current_open_files" != "unlimited" && "$current_open_files" -lt "$REQUIRED_OPEN_FILES" ]]; then
+  ulimit -n "$REQUIRED_OPEN_FILES"
+fi
+
+current_open_files="$(ulimit -n)"
+if [[ "$current_open_files" != "unlimited" && "$current_open_files" -lt "$REQUIRED_OPEN_FILES" ]]; then
+  echo "release build requires at least $REQUIRED_OPEN_FILES open files; available: $current_open_files" >&2
+  exit 1
+fi
+
+exec cargo "$@"

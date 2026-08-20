@@ -23,6 +23,56 @@ jobs:
     with:
       setup-rust: true
 
+  release-canary-config:
+    name: "Validate: Release Canary"
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.targets.outputs.targets }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: go-task/setup-task@v2
+        with:
+          version: 3.x
+      - name: Validate release targets and size ratchets
+        run: task release:canary:config
+      - name: Export release target matrix
+        id: targets
+        run: echo "targets=$(task --silent release:canary:matrix)" >> "$GITHUB_OUTPUT"
+
+  release-canary:
+    name: "Build: Release Canary (${{ matrix.target }})"
+    needs: release-canary-config
+    runs-on: macos-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.release-canary-config.outputs.targets) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-canary-${{ matrix.target }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: go-task/setup-task@v2
+        with:
+          version: 3.x
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+      - name: Install cross-compilation toolchains
+        run: brew install zig mingw-w64
+      - name: Build and size-check bundled-DuckDB binary
+        run: task release:canary:target TARGET="${{ matrix.target }}"
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

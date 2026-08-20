@@ -186,6 +186,22 @@ jobs:
       - name: Install Zig
         run: brew install zig mingw-w64
 
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - uses: go-task/setup-task@v2
+        with:
+          version: 3.x
+
+      - name: Install cargo-zigbuild for the release canary
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+
+      - name: Build and size-check all release targets
+        run: task release:canary
+
       - name: Build and publish GitHub release assets
         uses: goreleaser/goreleaser-action@v7
         with:
