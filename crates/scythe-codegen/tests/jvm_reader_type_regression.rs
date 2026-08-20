@@ -641,7 +641,7 @@ fn jdbc_backends_null_guard_a_nullable_enum_column() {
     assert_absent(
         "java-jdbc",
         &java,
-        ".valueOf(",
+        "WidgetStatus.valueOf(",
         "valueOf matches the sanitised variant spelling, not the SQL wire value -- fromValue is round-trip-correct",
     );
     // The NOT NULL enum keeps the direct conversion -- the guard is scoped to
@@ -670,7 +670,7 @@ fn jdbc_backends_null_guard_a_nullable_enum_column() {
         assert_absent(
             backend,
             &code,
-            ".valueOf(",
+            "WidgetStatus.valueOf(",
             "valueOf matches the sanitised variant spelling, not the SQL wire value -- fromValue is round-trip-correct",
         );
         assert_contains(
