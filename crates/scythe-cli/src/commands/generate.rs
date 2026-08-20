@@ -1048,6 +1048,10 @@ fn check_file_level_type_name_collisions(
     let naming = &backend.manifest().naming;
     let mut declared: AHashMap<String, (String, String)> = AHashMap::new();
     let mut declared_fns: AHashMap<String, (String, String)> = AHashMap::new();
+    let nested_enum_names: AHashSet<&str> = results
+        .iter()
+        .flat_map(|result| result.nested_enum_names.iter().map(String::as_str))
+        .collect();
 
     for (analyzed, result) in analyzed_queries.iter().zip(results) {
         if let Some(ref table_name) = analyzed.source_table {
@@ -1084,9 +1088,12 @@ fn check_file_level_type_name_collisions(
         }
 
         for info in &result.enums {
-            let nested = result.nested_enum_names.iter().any(|n| n == &info.sql_name);
-            let body = generate_single_enum_def_with_backend(info, backend, nested)
-                .map_err(|e| format!("rendering enum '{}' for collision check: {e}", info.sql_name))?;
+            let body = generate_single_enum_def_with_backend(
+                info,
+                backend,
+                nested_enum_names.contains(info.sql_name.as_str()),
+            )
+            .map_err(|e| format!("rendering enum '{}' for collision check: {e}", info.sql_name))?;
             let name = enum_type_name(&info.sql_name, naming);
             record_type_declaration(
                 &mut declared,
@@ -4013,6 +4020,31 @@ backend = \"rust-sqlx\"
         let err = check_file_level_type_name_collisions(&analyzed, &results, backend.as_ref())
             .expect_err("order_status and order-status both derive OrderStatus with different variants");
         assert!(err.to_string().contains("OrderStatus"), "{err}");
+    }
+
+    #[test]
+    fn check_file_level_type_name_collisions_promotes_shared_nested_enum() {
+        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let analyzed = vec![AnalyzedQuery::default(), AnalyzedQuery::default()];
+        let enum_info = EnumInfo {
+            sql_name: "user_status".to_string(),
+            values: vec!["active".to_string(), "inactive".to_string()],
+        };
+        let results = vec![
+            QueryResult {
+                code: scythe_codegen::GeneratedCode::default(),
+                enums: vec![enum_info.clone()],
+                nested_enum_names: Vec::new(),
+            },
+            QueryResult {
+                code: scythe_codegen::GeneratedCode::default(),
+                enums: vec![enum_info],
+                nested_enum_names: vec!["user_status".to_string()],
+            },
+        ];
+
+        check_file_level_type_name_collisions(&analyzed, &results, backend.as_ref())
+            .expect("the file-wide nested enum form must be used for every occurrence");
     }
 
     /// GH #136 residual: two queries in one `[[sql]]` block whose `@name`
