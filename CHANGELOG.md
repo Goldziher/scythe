@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `php-pdo` and `php-amphp` decode PostgreSQL nested JSON rows into readonly generated objects.
+  JSON `numeric` fields use PHP `float` values and therefore follow binary floating-point precision.
+- Schema blocks can select execution-backed catalog construction for SQLite and DuckDB. SQLite DDL
+  runs through `rusqlite`; DuckDB DDL runs with external access and extension loading disabled.
+
+### Fixed
+
+- PostgreSQL composite parameters are encoded and bound correctly across the generated backends.
+
+### Tests
+
+- A live Kysely project verifies `CamelCasePlugin` result-key conversion.
+- The PostgreSQL integration matrix covers composite parameter round trips.
+
 ## [0.16.1] - 2026-08-20
 
 This stabilization release fixes three generated TypeScript/JavaScript failures, accepts PostgreSQL

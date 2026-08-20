@@ -7,6 +7,24 @@ Scythe follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Ver
 
 For the latest changes, see the [CHANGELOG.md](https://github.com/Goldziher/scythe/blob/main/CHANGELOG.md) in the repository root.
 
+## [Unreleased]
+
+### Added
+
+- `php-pdo` and `php-amphp` decode PostgreSQL nested JSON rows into readonly generated objects.
+  JSON `numeric` fields use PHP `float` values and therefore follow binary floating-point precision.
+- Schema blocks can select execution-backed catalog construction for SQLite and DuckDB. SQLite DDL
+  runs through `rusqlite`; DuckDB DDL runs with external access and extension loading disabled.
+
+### Fixed
+
+- PostgreSQL composite parameters are encoded and bound correctly across the generated backends.
+
+### Tests
+
+- A live Kysely project verifies `CamelCasePlugin` result-key conversion.
+- The PostgreSQL integration matrix covers composite parameter round trips.
+
 ## [0.16.1] - 2026-08-20
 
 This stabilization release fixes three generated TypeScript/JavaScript failures, accepts PostgreSQL
@@ -64,8 +82,7 @@ assertion was on a generated string rather than on a row a database returned.
 On the feature side, `json_agg(json_build_object(...))` now infers a struct from the call's own keys
 instead of degrading to flat `json`, and `FILTER (WHERE ... IS NOT NULL)` — the idiom for
 suppressing the `[null]` a LEFT JOIN miss produces — is recognized rather than ignored. Six more
-TypeScript backends gained a `javascript-*` JSDoc emit mode. `php-pdo` and `php-amphp` now decode
-PostgreSQL nested JSON rows into readonly generated objects, including enums, dates and composites.
+TypeScript backends gained a `javascript-*` JSDoc emit mode.
 
 **Upgrading**: two nested-aggregate changes move types in code that already worked. A query using
 `json_agg(json_build_object('id', o.id, ...))` previously generated a flat JSON value and now
