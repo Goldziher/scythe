@@ -88,6 +88,24 @@ fn all_configured_commands_use_execute_without_parse_fallback() {
 }
 
 #[test]
+fn all_configured_commands_accept_the_same_execute_only_catalog() {
+    let project = TempDir::new().unwrap();
+    let schema = "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL) STRICT;\n";
+    write_project(project.path(), schema, "schema_source = \"execute\"\n");
+
+    for command in ["generate", "check", "lint", "audit"] {
+        let output = scythe_bin()
+            .args([command, "--config", "scythe.toml"])
+            .current_dir(project.path())
+            .env_remove("DATABASE_URL")
+            .env_remove("SCYTHE_DATABASE_URL")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{command} failed: {}", stderr(&output));
+    }
+}
+
+#[test]
 fn unsupported_execute_engine_fails_before_schema_glob_resolution() {
     let project = TempDir::new().unwrap();
     std::fs::write(
