@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=typescript-pg engine=postgresql schema=sch2:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:57af1d7acc85e6c7
+// scythe:provenance v=0.17.0 backend=typescript-pg engine=postgresql schema=sch2:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:57af1d7acc85e6c7
 export const UserStatusValues = {
 	Active: "active",
 	Inactive: "inactive",

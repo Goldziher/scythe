@@ -56,7 +56,7 @@ Backend: `php-pdo` | Library: PDO
 
 ```php
 <?php
-// scythe:provenance v=0.16.1 backend=php-pdo engine=postgresql schema=sch1:... queries=q1:...
+// scythe:provenance v=0.17.0 backend=php-pdo engine=postgresql schema=sch1:... queries=q1:...
 
 declare(strict_types=1);
 
@@ -134,7 +134,7 @@ instead of `:p1`. `:many` also returns **`\Generator`**, `yield`ing rows rather 
 
 ```php
 <?php
-// scythe:provenance v=0.16.1 backend=php-amphp engine=postgresql schema=sch1:... queries=q1:...
+// scythe:provenance v=0.17.0 backend=php-amphp engine=postgresql schema=sch1:... queries=q1:...
 
 declare(strict_types=1);
 

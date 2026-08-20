@@ -1,5 +1,5 @@
 # frozen_string_literal: true
-# scythe:provenance v=0.16.1 backend=ruby-pg engine=redshift schema=sch2:a4457eae974a6707 queries=q1:1d594d539783fc08 options=opt1:cbf29ce484222325
+# scythe:provenance v=0.17.0 backend=ruby-pg engine=redshift schema=sch2:a4457eae974a6707 queries=q1:1d594d539783fc08 options=opt1:cbf29ce484222325
 
 require "bigdecimal/util"
 

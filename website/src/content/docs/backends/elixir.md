@@ -55,7 +55,7 @@ functions live together in a separate `Scythe.Queries` module. Postgrex uses the
 (`integration_tests/elixir-postgrex/generated/queries.ex:1-3,17-28,141-152`):
 
 ```elixir
-# scythe:provenance v=0.16.1 backend=elixir-postgrex engine=postgresql schema=sch1:... queries=q1:...
+# scythe:provenance v=0.17.0 backend=elixir-postgrex engine=postgresql schema=sch1:... queries=q1:...
 defmodule GetUserRow do
   @moduledoc "Row type for GetUser queries."
 
@@ -139,7 +139,7 @@ separate top-level modules
 `integration_tests/elixir-ecto/generated/queries.ex:1-3,17-41`):
 
 ```elixir
-# scythe:provenance v=0.16.1 backend=elixir-ecto engine=postgresql schema=sch1:... queries=q1:...
+# scythe:provenance v=0.17.0 backend=elixir-ecto engine=postgresql schema=sch1:... queries=q1:...
 defmodule Scythe.Queries do
 
 defmodule GetUserRow do

@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=typescript-snowflake engine=snowflake schema=sch2:c91500313602fb46 queries=q1:4bc3d50da85e2742 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.17.0 backend=typescript-snowflake engine=snowflake schema=sch2:c91500313602fb46 queries=q1:4bc3d50da85e2742 options=opt1:cbf29ce484222325
 import type { Binds, Connection } from "snowflake-sdk";
 
 function normalizeRow(row: Record<string, unknown>): Record<string, unknown> {

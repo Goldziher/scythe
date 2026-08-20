@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=typescript-mysql2 engine=mysql schema=sch2:4332a9c33cb39297 queries=q1:f928696deb211f90 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.17.0 backend=typescript-mysql2 engine=mysql schema=sch2:4332a9c33cb39297 queries=q1:f928696deb211f90 options=opt1:cbf29ce484222325
 import type { Pool, RowDataPacket } from "mysql2/promise";
 
 

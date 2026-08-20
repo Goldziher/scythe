@@ -1,4 +1,4 @@
-# scythe:provenance v=0.16.1 backend=python-psycopg3 engine=postgresql schema=sch2:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325  # noqa: E501
+# scythe:provenance v=0.17.0 backend=python-psycopg3 engine=postgresql schema=sch2:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325  # noqa: E501
 import datetime  # noqa: F401
 import decimal  # noqa: F401
 import uuid  # noqa: F401

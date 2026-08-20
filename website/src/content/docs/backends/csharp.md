@@ -39,7 +39,7 @@ then a single `public static class Queries { ... }` wrapping every row record an
 (`integration_tests/csharp-npgsql/generated/queries.cs:1-6`):
 
 ```csharp
-// scythe:provenance v=0.16.1 backend=csharp-npgsql engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:9c4e1f77a0b3d582
+// scythe:provenance v=0.17.0 backend=csharp-npgsql engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:9c4e1f77a0b3d582
 #nullable enable
 
 using Npgsql;

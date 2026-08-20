@@ -489,7 +489,7 @@ drift = "off"           # skip schema drift checking
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.16.1
+    rev: v0.17.0
     hooks:
       - id: scythe-fmt       # Format SQL files
       - id: scythe-lint      # Lint SQL with auto-fix

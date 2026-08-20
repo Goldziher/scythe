@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.17.0] - 2026-08-20
+
+This release adds execution-backed catalogs for embedded databases, expands typed PostgreSQL
+code generation, and closes the composite-parameter runtime gap across every PostgreSQL backend.
 
 ### Added
 
@@ -13,15 +16,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   JSON `numeric` fields use PHP `float` values and therefore follow binary floating-point precision.
 - Schema blocks can select execution-backed catalog construction for SQLite and DuckDB. SQLite DDL
   runs through `rusqlite`; DuckDB DDL runs with external access and extension loading disabled.
+- A validated public catalog builder preserves inspected names, raw types, relation and generated
+  column kinds, and produces deterministic metadata-aware fingerprints.
 
 ### Fixed
 
 - PostgreSQL composite parameters are encoded and bound correctly across the generated backends.
+- DuckDB schema execution preserves valid same-label enums conservatively and redacts SQL text from
+  execution errors.
+- Java, Kotlin, and C# composite casts use token-aware placeholder rewriting.
+- The documentation site uses `nanoid` 3.3.18, resolving its high-severity advisory.
 
 ### Tests
 
 - A live Kysely project verifies `CamelCasePlugin` result-key conversion.
 - The PostgreSQL integration matrix covers composite parameter round trips.
+- Release CI builds and size-checks bundled-DuckDB binaries on five supported targets.
 
 ## [0.16.1] - 2026-08-20
 

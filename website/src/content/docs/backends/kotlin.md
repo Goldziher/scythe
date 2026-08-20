@@ -10,7 +10,7 @@ Snowflake, Oracle). `kotlin-r2dbc` supports PostgreSQL, MySQL, MariaDB, and SQLi
 supports PostgreSQL only. The examples on this page use PostgreSQL.
 
 Generated files carry a provenance header as their first line, e.g.
-`// scythe:provenance v=0.16.1 backend=kotlin-jdbc engine=postgresql schema=sch1:... queries=q1:...`
+`// scythe:provenance v=0.17.0 backend=kotlin-jdbc engine=postgresql schema=sch1:... queries=q1:...`
 (`integration_tests/kotlin-jdbc/src/main/kotlin/generated/queries.kt:1`).
 
 ## Field naming: `field_case`

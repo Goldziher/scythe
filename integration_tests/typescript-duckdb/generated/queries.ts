@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=typescript-duckdb engine=duckdb schema=sch2:a58e9693abcdb5e7 queries=q1:3fcd9a387f9d569e options=opt1:cbf29ce484222325
+// scythe:provenance v=0.17.0 backend=typescript-duckdb engine=duckdb schema=sch2:a58e9693abcdb5e7 queries=q1:3fcd9a387f9d569e options=opt1:cbf29ce484222325
 import type { DuckDBConnection, DuckDBValue } from "@duckdb/node-api";
 
 function firstRow<T>(rows: readonly unknown[]): T | null {

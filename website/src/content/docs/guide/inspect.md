@@ -210,7 +210,7 @@ set fail loudly with the same error as the CLI.
 
 ```yaml
 - repo: https://github.com/Goldziher/scythe
-  rev: v0.16.1
+  rev: v0.17.0
   hooks:
     - id: scythe-inspect
       # args: [--exit-zero]    # uncomment for advisory CI integration
