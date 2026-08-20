@@ -68,7 +68,7 @@ fn query_error(operation: &str, source: duckdb::Error) -> InspectError {
 fn build_catalog(connection: &Connection) -> Result<Catalog, InspectError> {
     let mut builder = CatalogBuilder::new(SqlDialect::PostgreSQL).engine(DUCKDB_ENGINE);
     let enums = fetch_enums(connection)?;
-    let enum_types = enum_type_resolutions(&enums);
+    let enum_types = enum_type_resolutions(&enums)?;
     for definition in fetch_relations(connection, &enum_types)? {
         builder = builder.relation(definition);
     }
@@ -84,7 +84,7 @@ fn build_catalog(connection: &Connection) -> Result<Catalog, InspectError> {
 
 fn fetch_relations(
     connection: &Connection,
-    enum_types: &HashMap<String, String>,
+    enum_types: &HashMap<EnumResolutionKey, String>,
 ) -> Result<Vec<RelationDefinition>, InspectError> {
     let placeholders = INTERNAL_SCHEMAS.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
     let sql = format!(
@@ -125,12 +125,13 @@ fn fetch_columns(
     connection: &Connection,
     schema: &str,
     table: &str,
-    enum_types: &HashMap<String, String>,
+    enum_types: &HashMap<EnumResolutionKey, String>,
 ) -> Result<Vec<ColumnDefinition>, InspectError> {
     let primary_keys = fetch_primary_keys(connection, schema, table)?;
     let mut statement = connection
         .prepare(
-            "SELECT columns.column_name, columns.data_type, columns.is_nullable, columns.column_default
+            "SELECT columns.database_oid, columns.schema_oid, columns.column_name, columns.data_type,
+                    columns.is_nullable, columns.column_default
              FROM duckdb_columns() AS columns
              WHERE columns.schema_name = ? AND columns.table_name = ? AND NOT columns.internal
              ORDER BY columns.column_index",
@@ -139,21 +140,22 @@ fn fetch_columns(
     let rows = statement
         .query_map(params![schema, table], |row| {
             Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, bool>(2)?,
-                row.get::<_, Option<String>>(3)?,
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, bool>(4)?,
+                row.get::<_, Option<String>>(5)?,
             ))
         })
         .map_err(|source| query_error("columns", source))?;
 
     let mut definitions = Vec::new();
     for row in rows {
-        let (name, raw_sql_type, nullable, default) = row.map_err(|source| query_error("columns", source))?;
+        let (database_oid, schema_oid, name, raw_sql_type, nullable, default) =
+            row.map_err(|source| query_error("columns", source))?;
         let primary_key = primary_keys.contains(&name);
-        let resolved_sql_type = enum_types
-            .get(&raw_sql_type)
-            .cloned()
+        let resolved_sql_type = resolve_enum_sql_type(database_oid, schema_oid, &raw_sql_type, enum_types)
             .unwrap_or_else(|| raw_sql_type.clone());
         let mut definition = ColumnDefinition::new(name, raw_sql_type, nullable).resolved_sql_type(resolved_sql_type);
         if let Some(default) = default {
@@ -192,14 +194,31 @@ fn fetch_primary_keys(connection: &Connection, schema: &str, table: &str) -> Res
 
 #[derive(Debug)]
 struct InspectedEnum {
+    database_oid: i64,
+    schema_oid: i64,
+    type_oid: i64,
     name: CatalogObjectName,
     values: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EnumIdentity {
+    database_oid: i64,
+    schema_oid: i64,
+    type_oid: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct EnumResolutionKey {
+    database_oid: i64,
+    schema_oid: i64,
+    signature: String,
 }
 
 fn fetch_enums(connection: &Connection) -> Result<Vec<InspectedEnum>, InspectError> {
     let mut statement = connection
         .prepare(
-            "SELECT schema_name, type_name, enum_value
+            "SELECT database_oid, schema_oid, type_oid, schema_name, type_name, enum_value
              FROM duckdb_types(), UNNEST(labels) WITH ORDINALITY AS enum_values(enum_value, ordinal)
              WHERE logical_type = 'ENUM' AND NOT internal
              ORDER BY schema_name, type_name, ordinal",
@@ -208,33 +227,52 @@ fn fetch_enums(connection: &Connection) -> Result<Vec<InspectedEnum>, InspectErr
     let rows = statement
         .query_map([], |row| {
             Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
             ))
         })
         .map_err(|source| query_error("enums", source))?;
 
     let mut definitions = Vec::new();
+    let mut current_identity: Option<EnumIdentity> = None;
     let mut current_name: Option<CatalogObjectName> = None;
     let mut current_values = Vec::new();
     for row in rows {
-        let (schema, name, value) = row.map_err(|source| query_error("enums", source))?;
+        let (database_oid, schema_oid, type_oid, schema, name, value) =
+            row.map_err(|source| query_error("enums", source))?;
+        let identity = EnumIdentity {
+            database_oid,
+            schema_oid,
+            type_oid,
+        };
         let object_name = CatalogObjectName::qualified(schema, name);
-        if current_name.as_ref().is_some_and(|current| current != &object_name) {
-            if let Some(previous_name) = current_name.replace(object_name) {
+        if current_identity.as_ref().is_some_and(|current| current != &identity) {
+            if let (Some(previous_identity), Some(previous_name)) =
+                (current_identity.replace(identity), current_name.replace(object_name))
+            {
                 definitions.push(InspectedEnum {
+                    database_oid: previous_identity.database_oid,
+                    schema_oid: previous_identity.schema_oid,
+                    type_oid: previous_identity.type_oid,
                     name: previous_name,
                     values: std::mem::take(&mut current_values),
                 });
             }
-        } else if current_name.is_none() {
+        } else if current_identity.is_none() {
+            current_identity = Some(identity);
             current_name = Some(object_name);
         }
         current_values.push(value);
     }
-    if let Some(name) = current_name {
+    if let (Some(identity), Some(name)) = (current_identity, current_name) {
         definitions.push(InspectedEnum {
+            database_oid: identity.database_oid,
+            schema_oid: identity.schema_oid,
+            type_oid: identity.type_oid,
             name,
             values: current_values,
         });
@@ -242,21 +280,54 @@ fn fetch_enums(connection: &Connection) -> Result<Vec<InspectedEnum>, InspectErr
     Ok(definitions)
 }
 
-fn enum_type_resolutions(enums: &[InspectedEnum]) -> HashMap<String, String> {
+fn enum_type_resolutions(enums: &[InspectedEnum]) -> Result<HashMap<EnumResolutionKey, String>, InspectError> {
     let mut resolutions = HashMap::new();
-    let mut ambiguous = HashSet::new();
     for definition in enums {
-        let signature = enum_signature(&definition.values);
+        let key = EnumResolutionKey {
+            database_oid: definition.database_oid,
+            schema_oid: definition.schema_oid,
+            signature: enum_signature(&definition.values),
+        };
         let qualified_name = match definition.name.schema() {
             Some(schema) => format!("{schema}.{}", definition.name.name()),
             None => definition.name.name().to_string(),
         };
-        if resolutions.insert(signature.clone(), qualified_name).is_some() {
-            ambiguous.insert(signature);
+        if let Some((previous_type_oid, previous_name)) =
+            resolutions.insert(key, (definition.type_oid, qualified_name.clone()))
+            && previous_type_oid != definition.type_oid
+        {
+            let mut types = vec![previous_name, qualified_name];
+            types.sort();
+            types.dedup();
+            return Err(InspectError::AmbiguousEnumIdentity {
+                schema: definition.name.schema().unwrap_or("main").to_string(),
+                types,
+            });
         }
     }
-    resolutions.retain(|signature, _| !ambiguous.contains(signature));
-    resolutions
+    Ok(resolutions
+        .into_iter()
+        .map(|(key, (_, qualified_name))| (key, qualified_name))
+        .collect())
+}
+
+fn resolve_enum_sql_type(
+    database_oid: i64,
+    schema_oid: i64,
+    raw_sql_type: &str,
+    enum_types: &HashMap<EnumResolutionKey, String>,
+) -> Option<String> {
+    let (signature, suffix) = raw_sql_type
+        .strip_suffix("[]")
+        .map_or((raw_sql_type, ""), |signature| (signature, "[]"));
+    let key = EnumResolutionKey {
+        database_oid,
+        schema_oid,
+        signature: signature.to_string(),
+    };
+    enum_types
+        .get(&key)
+        .map(|qualified_name| format!("{qualified_name}{suffix}"))
 }
 
 fn enum_signature(values: &[String]) -> String {

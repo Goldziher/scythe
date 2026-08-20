@@ -95,6 +95,12 @@ then introspects the resulting catalog. It supports the `sqlite` and `sqlite3` a
 SQLite, and `duckdb` through bundled DuckDB. DuckDB external access, extension autoloading, extension
 auto-installation, and community extensions are disabled.
 
+DuckDB exposes a column's enum labels but not its registered type identifier. Scythe resolves equal-label
+enums across different schemas with DuckDB's database and schema catalog identifiers, including enum arrays.
+If two enum types in the same schema have identical labels and either can describe a column, execute mode
+stops with an enum-identity error instead of assigning a type name by guesswork. Use distinct label sets or
+move one type to another schema until DuckDB exposes a column-to-user-type identifier.
+
 ```toml
 [[sql]]
 name = "analytics"

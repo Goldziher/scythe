@@ -85,6 +85,57 @@ fn should_report_engine_file_and_operation_for_invalid_sql() {
 }
 
 #[test]
+fn should_resolve_identical_label_enums_by_catalog_schema_and_support_arrays() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let schema = write_schema(
+        directory.path(),
+        "enums.sql",
+        "CREATE SCHEMA one;
+         CREATE SCHEMA two;
+         CREATE TYPE one.status AS ENUM ('open', 'closed');
+         CREATE TYPE two.status AS ENUM ('open', 'closed');
+         CREATE TABLE one.items (direct one.status, many one.status[]);
+         CREATE TABLE two.items (direct two.status, many two.status[]);",
+    );
+
+    let catalog = execute_duckdb_schema_files(&[schema]).expect("resolve enum identities");
+    let one = catalog.get_table("one.items").expect("one.items");
+    assert_eq!(one.columns[0].sql_type, "one.status");
+    assert_eq!(one.columns[1].sql_type, "one.status[]");
+    assert_eq!(
+        catalog.column_raw_sql_type("one.items", "direct"),
+        Some("ENUM('open', 'closed')")
+    );
+    assert_eq!(
+        catalog.column_raw_sql_type("one.items", "many"),
+        Some("ENUM('open', 'closed')[]")
+    );
+
+    let two = catalog.get_table("two.items").expect("two.items");
+    assert_eq!(two.columns[0].sql_type, "two.status");
+    assert_eq!(two.columns[1].sql_type, "two.status[]");
+}
+
+#[test]
+fn should_reject_same_schema_enum_identity_ambiguity_without_guessing() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let schema = write_schema(
+        directory.path(),
+        "ambiguous.sql",
+        "CREATE TYPE status_a AS ENUM ('open', 'closed');
+         CREATE TYPE status_b AS ENUM ('open', 'closed');
+         CREATE TABLE items (first status_a, second status_b);",
+    );
+
+    let error = execute_duckdb_schema_files(&[schema]).expect_err("ambiguous enum identity must fail");
+    let rendered = error.to_string();
+    assert!(rendered.contains("AMBIGUOUS_ENUM_IDENTITY"), "{rendered}");
+    assert!(rendered.contains("main.status_a"), "{rendered}");
+    assert!(rendered.contains("main.status_b"), "{rendered}");
+    assert!(!rendered.contains("CREATE TYPE"), "{rendered}");
+}
+
+#[test]
 fn should_disable_external_access_and_extension_loading_before_schema_execution() {
     let directory = tempfile::tempdir().expect("temp directory");
     let output = directory.path().join("escaped.csv");
