@@ -618,7 +618,7 @@ impl CodegenBackend for RubyPgBackend {
         let encoded_fields = composite
             .fields
             .iter()
-            .map(|field| format!("_encode_composite_field({})", field.name))
+            .map(|field| format!("self.class._encode_composite_field({})", field.name))
             .collect::<Vec<_>>()
             .join(", ");
         let _ = writeln!(out, "    def to_pg_text");

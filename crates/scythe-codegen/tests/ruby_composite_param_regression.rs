@@ -54,6 +54,10 @@ fn ruby_pg_encodes_composite_params_and_casts_from_text() {
     );
     assert!(composite.contains("def to_pg_text"), "missing encoder:\n{composite}");
     assert!(
+        composite.contains("self.class._encode_composite_field(street)"),
+        "instance encoder must call the generated class helper:\n{composite}"
+    );
+    assert!(
         composite.contains("raw.empty? || raw.match?(/[(),\\\"\\\\]/) || raw != raw.strip"),
         "encoder must quote empty and structurally significant values:\n{composite}"
     );
