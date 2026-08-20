@@ -8,6 +8,17 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
+fn postgrex_param_expr(param: &ResolvedParam, raw: &str) -> String {
+    if param.neutral_type.starts_with("composite::") {
+        format!(
+            "if(is_nil({raw}), do: nil, else: {param_type}.to_tuple({raw}))",
+            param_type = param.lang_type
+        )
+    } else {
+        raw.to_string()
+    }
+}
+
 /// Board #219: Postgrex's binary protocol decodes an unregistered composite column's every
 /// field into its natural Elixir type (an `int4` field becomes an `integer()`, a `date` field
 /// becomes a `Date.t()`, an enum field its plain `String.t()` -- confirmed live against
@@ -168,7 +179,7 @@ impl CodegenBackend for ElixirPostgrexBackend {
                 "[{}]",
                 params
                     .iter()
-                    .map(|p| p.field_name.clone())
+                    .map(|p| postgrex_param_expr(p, &p.field_name))
                     .collect::<Vec<_>>()
                     .join(", ")
             )
@@ -219,13 +230,20 @@ impl CodegenBackend for ElixirPostgrexBackend {
                 let _ = writeln!(out, "  Postgrex.transaction(conn, fn tx_conn ->");
                 let _ = writeln!(out, "    Enum.each(items, fn item ->");
                 if params.len() > 1 {
+                    let item_args = params
+                        .iter()
+                        .enumerate()
+                        .map(|(index, param)| postgrex_param_expr(param, &format!("elem(item, {index})")))
+                        .collect::<Vec<_>>()
+                        .join(", ");
                     let _ = writeln!(
                         out,
-                        "      case Postgrex.query(tx_conn, \"{}\", Tuple.to_list(item)) do",
-                        sql
+                        "      case Postgrex.query(tx_conn, \"{}\", [{}]) do",
+                        sql, item_args
                     );
                 } else if params.len() == 1 {
-                    let _ = writeln!(out, "      case Postgrex.query(tx_conn, \"{}\", [item]) do", sql);
+                    let item = postgrex_param_expr(&params[0], "item");
+                    let _ = writeln!(out, "      case Postgrex.query(tx_conn, \"{}\", [{}]) do", sql, item);
                 } else {
                     let _ = writeln!(out, "      case Postgrex.query(tx_conn, \"{}\", []) do", sql);
                 }
@@ -400,6 +418,28 @@ impl CodegenBackend for ElixirPostgrexBackend {
             }
             let _ = writeln!(out, "    }}");
             let _ = writeln!(out, "  end");
+            let tuple_values = composite
+                .fields
+                .iter()
+                .map(|field| {
+                    let field_name = to_snake_case(&field.name);
+                    if field.neutral_type.starts_with("composite::") {
+                        let nested_type = field.neutral_type.trim_start_matches("composite::");
+                        let nested_name = composite_type_name(nested_type, &self.manifest.naming);
+                        format!(
+                            "if(is_nil(value.{field_name}), do: nil, else: {nested_name}.to_tuple(value.{field_name}))"
+                        )
+                    } else {
+                        format!("value.{field_name}")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            let tuple_suffix = if composite.fields.len() == 1 { "," } else { "" };
+            let _ = writeln!(out);
+            let _ = writeln!(out, "  def to_tuple(%__MODULE__{{}} = value) do");
+            let _ = writeln!(out, "    {{{tuple_values}{tuple_suffix}}}");
+            let _ = writeln!(out, "  end");
         }
         let _ = write!(out, "end");
         Ok(out)
@@ -506,7 +546,7 @@ impl CodegenBackend for ElixirPostgrexBackend {
                 "[{}]",
                 params
                     .iter()
-                    .map(|p| p.field_name.clone())
+                    .map(|p| postgrex_param_expr(p, &p.field_name))
                     .collect::<Vec<_>>()
                     .join(", ")
             )
@@ -586,10 +626,13 @@ impl CodegenBackend for ElixirPostgrexBackend {
 
 #[cfg(test)]
 mod tests {
-    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
+    use scythe_core::analyzer::{
+        AnalyzedColumn, AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, GroupByConfig,
+    };
     use scythe_core::parser::QueryCommand;
 
     use super::ElixirPostgrexBackend;
+    use crate::backend_trait::CodegenBackend;
     use crate::generate_with_backend;
 
     fn make_grouped_query() -> AnalyzedQuery {
@@ -727,6 +770,53 @@ mod tests {
         assert!(
             query_fn.contains("{:ok, result}"),
             "fn must return {{:ok, result}}; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_composite_params_bind_as_postgrex_tuples() {
+        let composite = CompositeInfo {
+            sql_name: "address".to_string(),
+            fields: vec![
+                CompositeFieldInfo {
+                    name: "street".to_string(),
+                    neutral_type: "string".to_string(),
+                },
+                CompositeFieldInfo {
+                    name: "city".to_string(),
+                    neutral_type: "string".to_string(),
+                },
+            ],
+        };
+        let query = AnalyzedQuery::build(|query| {
+            query.name = "CreateWidget".to_string();
+            query.command = QueryCommand::Exec;
+            query.sql = "INSERT INTO widgets (home_address) VALUES ($1)".to_string();
+            query.params = vec![AnalyzedParam {
+                name: "home_address".to_string(),
+                neutral_type: "composite::address".to_string(),
+                nullable: true,
+                position: 1,
+                source_relation: None,
+            }];
+            query.composites = vec![composite.clone()];
+        });
+        let backend = ElixirPostgrexBackend::new("postgresql").unwrap();
+        let result = generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+        let composite_def = backend.generate_composite_def(&composite).unwrap();
+
+        assert!(
+            query_fn.contains("if(is_nil(home_address), do: nil, else: Address.to_tuple(home_address))"),
+            "whole-composite null must remain nil and values must become tuples; got:\n{query_fn}"
+        );
+        assert!(
+            composite_def.contains("def to_tuple(%__MODULE__{} = value)"),
+            "missing tuple encoder; got:\n{composite_def}"
+        );
+        assert!(
+            composite_def.contains("{value.street, value.city}"),
+            "tuple encoder must preserve declared field order; got:\n{composite_def}"
         );
     }
 }
