@@ -371,7 +371,7 @@ jobs:
   validate-generated-queries:
     name: "Validate: Generated Query Code"
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       # 115 committed files under integration_tests/**/generated/,
