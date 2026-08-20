@@ -496,7 +496,7 @@ public static Mono<RoundTripUserAddressRow> roundTripUserAddress(ConnectionFacto
     return Mono.usingWhen(
         Mono.from(cf.create()),
         conn -> {
-            var stmt = conn.createStatement("INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', $1::text::user_address) RETURNING address");
+            var stmt = conn.createStatement("INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', ($1::text::user_address)) RETURNING address");
             if (address == null) {
                 stmt.bindNull(0, String.class);
             } else {

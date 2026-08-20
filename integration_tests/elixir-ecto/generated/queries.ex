@@ -389,7 +389,7 @@ end
 @spec round_trip_user_address(Ecto.Repo.t(), UserAddress | nil) :: {:ok, %RoundTripUserAddressRow{}} | {:error, :not_found} | {:error, term()}
 def round_trip_user_address(repo, address) do
   case Ecto.Adapters.SQL.query(repo, "INSERT INTO users (name, status, address)
-VALUES ('Composite Parameter Round Trip', 'active', $1)
+VALUES ('Composite Parameter Round Trip', 'active', ($1))
 RETURNING address", [if(is_nil(address), do: nil, else: UserAddress.to_tuple(address))], []) do
     {:ok, %{rows: [row | _]}} ->
       [address] = row

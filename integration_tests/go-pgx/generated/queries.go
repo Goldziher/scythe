@@ -406,7 +406,7 @@ type RoundTripUserAddressRow struct {
 }
 
 func RoundTripUserAddress(ctx context.Context, db *pgxpool.Pool, Address *UserAddress) (RoundTripUserAddressRow, error) {
-	row := db.QueryRow(ctx, "INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', $1::text::user_address) RETURNING address", func() *string { if Address == nil { return nil }; text := Address.ToPgText(); return &text }())
+	row := db.QueryRow(ctx, "INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', ($1::text::user_address)) RETURNING address", func() *string { if Address == nil { return nil }; text := Address.ToPgText(); return &text }())
 	var r RoundTripUserAddressRow
 	var addressRaw *string
 	err := row.Scan(&addressRaw)

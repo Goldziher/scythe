@@ -502,7 +502,7 @@ async def round_trip_user_address(conn: AsyncConnection, *, address: UserAddress
     """Execute RoundTripUserAddress query."""
     cur = await conn.execute(
         """INSERT INTO users (name, status, address)
-VALUES ('Composite Parameter Round Trip', 'active', %(address)s::text::user_address)
+VALUES ('Composite Parameter Round Trip', 'active', (%(address)s::text::user_address))
 RETURNING address""",
         {"address": None if address is None else address._to_pg_text()},
     )

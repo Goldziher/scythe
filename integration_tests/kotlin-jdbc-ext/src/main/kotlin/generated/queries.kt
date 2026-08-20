@@ -510,7 +510,7 @@ data class RoundTripUserAddressRow(
 fun Connection.roundTripUserAddress(
     address: UserAddress?,
 ): RoundTripUserAddressRow =
-    this.prepareStatement("INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', ?::text::user_address) RETURNING address").use { ps ->
+    this.prepareStatement("INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', (?::text::user_address)) RETURNING address").use { ps ->
         ps.setString(1, address?.toPgText())
         ps.executeQuery().use { rs ->
             if (rs.next()) {

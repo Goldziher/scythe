@@ -539,7 +539,7 @@ fun roundTripUserAddress(
     conn: Connection,
     address: UserAddress?,
 ): RoundTripUserAddressRow {
-    conn.prepareStatement("INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', ?::text::user_address) RETURNING address").use { ps ->
+    conn.prepareStatement("INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', (?::text::user_address)) RETURNING address").use { ps ->
         ps.setString(1, address?.toPgText())
         ps.executeQuery().use { rs ->
             return if (rs.next()) {

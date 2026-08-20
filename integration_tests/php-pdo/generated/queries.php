@@ -667,7 +667,7 @@ final class Queries {
      * @throws RecordNotFoundException
      */
     public static function roundTripUserAddress(\PDO $pdo, ?UserAddress $address): RoundTripUserAddressRow {
-        $stmt = $pdo->prepare('INSERT INTO users (name, status, address) VALUES (\'Composite Parameter Round Trip\', \'active\', :p1::text::user_address) RETURNING address');
+        $stmt = $pdo->prepare('INSERT INTO users (name, status, address) VALUES (\'Composite Parameter Round Trip\', \'active\', (:p1::text::user_address)) RETURNING address');
         $stmt->execute(["p1" => $address?->toPgText()]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         if ($row === false) {

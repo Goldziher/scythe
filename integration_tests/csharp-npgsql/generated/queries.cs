@@ -392,7 +392,7 @@ public record RoundTripUserAddressRow(
 );
 
 public static async Task<RoundTripUserAddressRow> RoundTripUserAddress(NpgsqlConnection conn, UserAddress? address) {
-    await using var cmd = new NpgsqlCommand(@"INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', @p1::text::user_address) RETURNING address", conn);
+    await using var cmd = new NpgsqlCommand(@"INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', (@p1::text::user_address)) RETURNING address", conn);
     cmd.Parameters.AddWithValue("p1", (object?)address?.ToPgText() ?? DBNull.Value);
     cmd.UnknownResultTypeList = new[] { true };
     await using var reader = await cmd.ExecuteReaderAsync();

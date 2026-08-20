@@ -51,7 +51,7 @@ SELECT id, secondary_status, address FROM users WHERE id = $1;
 -- @name RoundTripUserAddress
 -- @returns :one
 INSERT INTO users (name, status, address)
-VALUES ('Composite Parameter Round Trip', 'active', $1)
+VALUES ('Composite Parameter Round Trip', 'active', ($1))
 RETURNING address;
 
 -- @name GetUserAsJson

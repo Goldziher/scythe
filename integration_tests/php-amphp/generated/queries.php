@@ -645,7 +645,7 @@ final class Queries {
      * @throws RecordNotFoundException
      */
     public static function roundTripUserAddress(\Amp\Sql\SqlExecutor $pool, ?UserAddress $address): RoundTripUserAddressRow {
-        $result = $pool->prepare('INSERT INTO users (name, status, address) VALUES (\'Composite Parameter Round Trip\', \'active\', ?::text::user_address) RETURNING address')->execute([$address?->toPgText()]);
+        $result = $pool->prepare('INSERT INTO users (name, status, address) VALUES (\'Composite Parameter Round Trip\', \'active\', (?::text::user_address)) RETURNING address')->execute([$address?->toPgText()]);
         foreach ($result as $row) {
             return RoundTripUserAddressRow::fromRow($row);
         }

@@ -467,7 +467,7 @@ data class RoundTripUserAddressRow(
 
 fun roundTripUserAddress(address: UserAddress?): RoundTripUserAddressRow =
     transaction {
-        exec("INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', ?::text::user_address) RETURNING address", listOf<Pair<IColumnType<*>, Any?>>(TextColumnType() to address?.toPgText()), explicitStatementType = StatementType.SELECT) { rs ->
+        exec("INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', (?::text::user_address)) RETURNING address", listOf<Pair<IColumnType<*>, Any?>>(TextColumnType() to address?.toPgText()), explicitStatementType = StatementType.SELECT) { rs ->
             if (rs.next()) {
                 RoundTripUserAddressRow(
                     address = UserAddress.fromText(rs.getString("address")),

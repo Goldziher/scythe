@@ -236,7 +236,7 @@ WHERE u.id = $1", [id])
 
   def self.round_trip_user_address(conn, address)
     result = conn.exec_params("INSERT INTO users (name, status, address)
-VALUES ('Composite Parameter Round Trip', 'active', $1::text::user_address)
+VALUES ('Composite Parameter Round Trip', 'active', ($1::text::user_address))
 RETURNING address", [address&.to_pg_text])
     raise RecordNotFound, "round_trip_user_address: no row found" if result.ntuples.zero?
     row = result[0]

@@ -413,7 +413,7 @@ export async function roundTripUserAddress(
 ): Promise<RoundTripUserAddressRow> {
 	const { rows } = await client.query<RoundTripUserAddressRow>(
 		`INSERT INTO users (name, status, address)
-VALUES ('Composite Parameter Round Trip', 'active', $1)
+VALUES ('Composite Parameter Round Trip', 'active', ($1))
 RETURNING address`,
 		[encodeUserAddress(address)],
 	);

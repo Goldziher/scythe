@@ -484,7 +484,7 @@ public record RoundTripUserAddressRow(
 }
 
 public static RoundTripUserAddressRow roundTripUserAddress(Connection conn, @Nullable UserAddress address) throws SQLException {
-    try (var ps = conn.prepareStatement("INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', ?::text::user_address) RETURNING address")) {
+    try (var ps = conn.prepareStatement("INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', (?::text::user_address)) RETURNING address")) {
         ps.setString(1, address == null ? null : address.toPgText());
         try (ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {

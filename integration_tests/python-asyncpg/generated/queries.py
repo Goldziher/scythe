@@ -377,7 +377,7 @@ async def round_trip_user_address(conn: Connection, *, address: UserAddress | No
     """Execute RoundTripUserAddress query."""
     row = await conn.fetchrow(
         """INSERT INTO users (name, status, address)
-VALUES ('Composite Parameter Round Trip', 'active', $1)
+VALUES ('Composite Parameter Round Trip', 'active', ($1))
 RETURNING address""",
         None if address is None else address._to_record(),
     )

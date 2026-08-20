@@ -513,7 +513,7 @@ pub async fn round_trip_user_address(
     let row = client
         .query_one(
             r#"INSERT INTO users (name, status, address)
-VALUES ('Composite Parameter Round Trip', 'active', $1)
+VALUES ('Composite Parameter Round Trip', 'active', ($1))
 RETURNING address"#,
             &[&address],
         )

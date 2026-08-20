@@ -66,6 +66,7 @@ const EXPECTED_PROJECT_COUNT: usize = 30;
 const EXPECTED_BACKEND_COUNT: usize = 19;
 const EXPECTED_QUERY_CAPABLE_COUNT: usize = 29;
 const EXPECTED_LIVE_HARNESS_COUNT: usize = 28;
+const COMPOSITE_PARAMETER_FIXTURE: &str = "VALUES ('Composite Parameter Round Trip', 'active', ($1))";
 
 #[derive(Deserialize)]
 struct ScytheConfig {
@@ -216,5 +217,15 @@ fn every_postgres_project_covers_the_composite_parameter_query() {
     assert_eq!(
         live_harnesses, EXPECTED_LIVE_HARNESS_COUNT,
         "live composite harness count drifted"
+    );
+}
+
+#[test]
+fn composite_parameter_fixture_preserves_parenthesized_placeholder() {
+    let fixture = fs::read_to_string(repo_root().join("integration_tests/sql/pg/queries/users.sql"))
+        .expect("read shared PostgreSQL query fixture");
+    assert!(
+        fixture.contains(COMPOSITE_PARAMETER_FIXTURE),
+        "shared fixture must exercise composite rewriting through a parenthesized placeholder"
     );
 }
