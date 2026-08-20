@@ -1,0 +1,31 @@
+{
+  "name": "postgresql_trigger_arguments",
+  "description": "PostgreSQL trigger function and procedure arguments do not block catalog construction",
+  "category": "catalog/create_trigger",
+  "tags": ["postgresql", "trigger", "regression"],
+  "schema_sql": [
+    "CREATE TABLE audit_events (id uuid PRIMARY KEY, payload jsonb NOT NULL); CREATE OR REPLACE FUNCTION audit_row() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE '%', TG_ARGV[0]; RETURN NULL; END; $$; CREATE TRIGGER audit_events_insert AFTER INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION audit_row('api_key'); CREATE TRIGGER audit_events_update AFTER UPDATE ON audit_events FOR EACH ROW EXECUTE PROCEDURE audit_row('legacy_key'); CREATE TABLE audit_targets (id uuid PRIMARY KEY)"
+  ],
+  "config": {
+    "engine": "postgresql"
+  },
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "audit_events": {
+          "columns": [
+            { "name": "id", "sql_type": "uuid", "nullable": false },
+            { "name": "payload", "sql_type": "jsonb", "nullable": false }
+          ]
+        },
+        "audit_targets": {
+          "columns": [{ "name": "id", "sql_type": "uuid", "nullable": false }]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

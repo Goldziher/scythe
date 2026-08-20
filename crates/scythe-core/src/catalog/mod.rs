@@ -213,7 +213,7 @@ impl Catalog {
 
 impl Catalog {
     /// Pre-process a SQL string to extract statements that sqlparser cannot handle
-    /// (CREATE DOMAIN, CREATE SCHEMA, Oracle CREATE SEQUENCE / CREATE TRIGGER).
+    /// (CREATE DOMAIN, CREATE SCHEMA, Oracle CREATE SEQUENCE, and triggers).
     /// Processes them internally and returns the remaining SQL with those
     /// statements removed.
     fn extract_unsupported_statements(&mut self, sql: &str, dialect: &SqlDialect) -> String {
@@ -235,15 +235,15 @@ impl Catalog {
             if upper.starts_with("CREATE DOMAIN") {
                 self.try_parse_create_domain(no_comments, dialect);
             } else if upper.starts_with("CREATE SCHEMA") {
-            } else if *dialect == SqlDialect::Oracle
-                && (upper.starts_with("CREATE SEQUENCE") || Self::is_oracle_create_trigger(&upper))
+            } else if (*dialect == SqlDialect::Oracle && upper.starts_with("CREATE SEQUENCE"))
+                || (matches!(dialect, SqlDialect::PostgreSQL | SqlDialect::Oracle) && Self::is_create_trigger(&upper))
             {
-                // Sequences contribute no columns or types to the catalog, and
+                // ~keep Sequences contribute no columns or types to the catalog, and
                 // Oracle allows their START WITH / INCREMENT BY options in any
                 // order, which sqlparser's positional option parser rejects.
-                // Trigger bodies use PL/SQL (`:NEW.col`, BEGIN/END blocks) that
-                // sqlparser does not parse at all. Both are dropped precisely
-                // here rather than handed to the parser.
+                // Trigger definitions do not add catalog state and may contain
+                // dialect-specific bodies or argument literals that sqlparser
+                // cannot parse. They are dropped before parser handoff.
             } else {
                 let stmt_to_add = if matches!(dialect, SqlDialect::PostgreSQL | SqlDialect::MsSql) {
                     Self::strip_identity_patterns(raw_stmt)
@@ -554,7 +554,7 @@ impl Catalog {
 
     /// True if `upper` (an already-uppercased, comment-stripped statement) is
     /// a `CREATE TRIGGER` or `CREATE OR REPLACE TRIGGER` statement.
-    fn is_oracle_create_trigger(upper: &str) -> bool {
+    fn is_create_trigger(upper: &str) -> bool {
         upper.starts_with("CREATE TRIGGER") || upper.starts_with("CREATE OR REPLACE TRIGGER")
     }
 
@@ -1853,6 +1853,64 @@ END;\n\
         let email = &table.columns[2];
         assert_eq!(email.name, "email");
         assert!(email.nullable);
+    }
+
+    #[test]
+    fn should_skip_postgresql_trigger_with_function_argument() {
+        let schema = "\
+CREATE TABLE audit_events (id uuid PRIMARY KEY);\n\
+CREATE OR REPLACE FUNCTION audit_row() RETURNS TRIGGER LANGUAGE plpgsql AS $$\n\
+BEGIN\n\
+    RAISE NOTICE '%', TG_ARGV[0];\n\
+    RETURN NULL;\n\
+END;\n\
+$$;\n\
+CREATE TRIGGER audit_events_insert\n\
+AFTER INSERT ON audit_events\n\
+FOR EACH ROW\n\
+EXECUTE FUNCTION audit_row('api_key');\n";
+
+        let schema = format!("{schema}CREATE TABLE audit_targets (id uuid PRIMARY KEY);\n");
+
+        let catalog = Catalog::from_ddl_with_dialect(&[&schema], &crate::dialect::SqlDialect::PostgreSQL)
+            .expect("PostgreSQL trigger arguments must not prevent catalog construction");
+
+        assert_eq!(catalog.tables_iter().count(), 2);
+        assert_eq!(
+            catalog
+                .get_table("audit_events")
+                .expect("table must exist")
+                .columns
+                .len(),
+            1
+        );
+        assert!(catalog.get_table("audit_targets").is_some());
+    }
+
+    #[test]
+    fn should_skip_postgresql_or_replace_trigger_with_procedure_argument() {
+        let schema = "\
+CREATE TABLE audit_events (id uuid PRIMARY KEY);\n\
+CREATE OR REPLACE TRIGGER audit_events_insert\n\
+AFTER INSERT ON audit_events\n\
+FOR EACH ROW\n\
+EXECUTE PROCEDURE audit_row('api_key');\n";
+
+        let schema = format!("{schema}CREATE TABLE audit_targets (id uuid PRIMARY KEY);\n");
+
+        let catalog = Catalog::from_ddl_with_dialect(&[&schema], &crate::dialect::SqlDialect::PostgreSQL)
+            .expect("legacy PostgreSQL procedure trigger arguments must not prevent catalog construction");
+
+        assert_eq!(catalog.tables_iter().count(), 2);
+        assert_eq!(
+            catalog
+                .get_table("audit_events")
+                .expect("table must exist")
+                .columns
+                .len(),
+            1
+        );
+        assert!(catalog.get_table("audit_targets").is_some());
     }
 
     #[test]

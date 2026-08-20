@@ -1530,6 +1530,56 @@ fn test_temporal_types() {
 }
 
 #[test]
+fn test_postgresql_trigger_arguments() {
+    // From: testing_data/catalog/create_trigger/01_postgresql_trigger_arguments.json
+    // "PostgreSQL trigger function and procedure arguments do not block catalog construction"
+    let schema_sql = &[
+        "CREATE TABLE audit_events (id uuid PRIMARY KEY, payload jsonb NOT NULL); CREATE OR REPLACE FUNCTION audit_row() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN RAISE NOTICE '%', TG_ARGV[0]; RETURN NULL; END; $$; CREATE TRIGGER audit_events_insert AFTER INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION audit_row('api_key'); CREATE TRIGGER audit_events_update AFTER UPDATE ON audit_events FOR EACH ROW EXECUTE PROCEDURE audit_row('legacy_key'); CREATE TABLE audit_targets (id uuid PRIMARY KEY)",
+    ];
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 2, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
+    // Assert table: audit_events
+    let table_audit_events = catalog
+        .get_table("audit_events")
+        .expect("table audit_events should exist");
+    assert_eq!(
+        table_audit_events.columns.len(),
+        2,
+        "column count for table audit_events"
+    );
+    assert_eq!(table_audit_events.columns[0].name, "id", "column name");
+    assert_eq!(table_audit_events.columns[0].sql_type, "uuid", "column sql_type for id");
+    assert!(!table_audit_events.columns[0].nullable, "column nullable for id");
+    assert_eq!(table_audit_events.columns[1].name, "payload", "column name");
+    assert_eq!(
+        table_audit_events.columns[1].sql_type, "jsonb",
+        "column sql_type for payload"
+    );
+    assert!(!table_audit_events.columns[1].nullable, "column nullable for payload");
+
+    // Assert table: audit_targets
+    let table_audit_targets = catalog
+        .get_table("audit_targets")
+        .expect("table audit_targets should exist");
+    assert_eq!(
+        table_audit_targets.columns.len(),
+        1,
+        "column count for table audit_targets"
+    );
+    assert_eq!(table_audit_targets.columns[0].name, "id", "column name");
+    assert_eq!(
+        table_audit_targets.columns[0].sql_type, "uuid",
+        "column sql_type for id"
+    );
+    assert!(!table_audit_targets.columns[0].nullable, "column nullable for id");
+}
+
+#[test]
 fn test_basic_view() {
     // From: testing_data/catalog/create_view/01_basic_view.json
     // "CREATE VIEW with a SELECT from an existing table"
