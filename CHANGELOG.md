@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1] - 2026-08-20
+
+This stabilization release fixes three generated TypeScript/JavaScript failures, accepts PostgreSQL
+trigger definitions that sqlparser cannot represent correctly, and closes gaps in generated-code
+validation. Integration harnesses now apply the same schema files used by code generation, while the
+Java and Kotlin harness templates share canonical lifecycle and test-program macros without changing
+their generated output.
+
+### Fixed
+
+- PostgreSQL schemas containing `EXECUTE FUNCTION` or `EXECUTE PROCEDURE` trigger arguments no
+  longer block catalog construction. Trigger definitions are skipped because they do not contribute
+  catalog state; surrounding tables and functions remain available. (#238)
+- `javascript-duckdb` qualifies `DuckDBBlobValue` through the DuckDB Node API in JSDoc output. (#230)
+- `typescript-postgres` guards nullable composite parameters, binds JSON through `sql.json`, and uses
+  the driver's `JSONValue` type. The backend now passes the torture-project TypeScript check. (#231)
+- TypeScript and C# integration harnesses execute their selected schema fixture instead of maintaining
+  inline copies of its DDL. (#234)
+
+### Changed
+
+- Java and Kotlin integration templates now centralize lifecycle and test programs in parameterized
+  macros. Regenerated JVM harnesses remain byte-identical. (#235)
+
+### Tests
+
+- Generated output from `rust-tiberius` and `rust-sibyl` now receives the same `syn` syntax gate as
+  the other Rust backends. (#229)
+- `javascript-mssql` reconstructs explicit result objects so strict JSDoc checking validates row
+  shapes; a mutation test proves incorrect emitted keys are rejected. (#233)
+
 ## [0.16.0] - 2026-08-15
 
 0.15.0 shipped fixes only and moved everything that was coverage debt or a feature into this

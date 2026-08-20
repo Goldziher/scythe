@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.0 backend=rust-sqlx engine=mysql schema=sch1:4332a9c33cb39297 queries=q1:f928696deb211f90 options=opt1:57af1d7acc85e6c7
+// scythe:provenance v=0.16.1 backend=rust-sqlx engine=mysql schema=sch1:4332a9c33cb39297 queries=q1:f928696deb211f90 options=opt1:57af1d7acc85e6c7
 #![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]

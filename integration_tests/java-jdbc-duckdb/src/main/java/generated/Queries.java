@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.0 backend=java-jdbc engine=duckdb schema=sch1:a58e9693abcdb5e7 queries=q1:3fcd9a387f9d569e options=opt1:cbf29ce484222325
+// scythe:provenance v=0.16.1 backend=java-jdbc engine=duckdb schema=sch1:a58e9693abcdb5e7 queries=q1:3fcd9a387f9d569e options=opt1:cbf29ce484222325
 package generated;
 
 import java.math.BigDecimal;

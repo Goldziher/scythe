@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.0 backend=go-database-sql engine=mssql schema=sch1:f761f948742217a4 queries=q1:e28b6d666ef6b1da options=opt1:cbf29ce484222325
+// scythe:provenance v=0.16.1 backend=go-database-sql engine=mssql schema=sch1:f761f948742217a4 queries=q1:e28b6d666ef6b1da options=opt1:cbf29ce484222325
 package queries
 
 import (

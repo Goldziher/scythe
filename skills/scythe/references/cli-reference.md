@@ -172,7 +172,7 @@ scythe migrate sqlc.yaml                 # Migrate from sqlc
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.16.0
+    rev: v0.16.1
     hooks:
       - id: scythe-fmt
       - id: scythe-lint

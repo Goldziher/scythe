@@ -42,7 +42,7 @@ Every generated file starts with a provenance header, then its driver import
 (`integration_tests/typescript-pg/generated/queries.ts:1-2`):
 
 ```typescript
-// scythe:provenance v=0.16.0 backend=typescript-pg engine=postgresql schema=sch1:... queries=q1:...
+// scythe:provenance v=0.16.1 backend=typescript-pg engine=postgresql schema=sch1:... queries=q1:...
 import type { PoolClient } from "pg";
 ```
 
@@ -387,7 +387,7 @@ comments. No driver import is emitted at all: driver types are referenced inline
 of `pg`. The provenance header names the JavaScript backend:
 
 ```javascript
-// scythe:provenance v=0.16.0 backend=javascript-pg engine=postgresql schema=sch1:... queries=q1:...
+// scythe:provenance v=0.16.1 backend=javascript-pg engine=postgresql schema=sch1:... queries=q1:...
 ```
 
 For the [SQL input](#sql-input) at the top of this page, `javascript-pg` generates:
