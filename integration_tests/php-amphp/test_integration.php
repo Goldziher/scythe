@@ -10,6 +10,7 @@ require_once __DIR__ . '/generated/queries.php';
 use App\Generated\Queries;
 use App\Generated\RecordNotFoundException;
 use App\Generated\UserStatus;
+use App\Generated\UserAddress;
 use App\Generated\CreateUserRow;
 use App\Generated\GetUserByIdRow;
 use App\Generated\ListActiveUsersRow;

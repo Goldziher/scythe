@@ -11,6 +11,7 @@ use App\Generated\Queries;
 use App\Generated\RecordNotFoundException;
 {%- if engine == "postgresql" %}
 use App\Generated\UserStatus;
+use App\Generated\UserAddress;
 {%- elif engine == "mysql" or engine == "mariadb" %}
 use App\Generated\UsersStatus;
 {%- endif %}
