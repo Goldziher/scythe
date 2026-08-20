@@ -255,11 +255,19 @@ impl CodegenBackend for RubyPgBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = crate::sql_literal::escape_ruby_double_quoted(&super::clean_sql_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        ));
+        let cleaned_sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let (rewritten_sql, _) =
+            super::rewrite_placeholders_indexed(&cleaned_sql, scythe_core::SqlDialect::PostgreSQL, |position| {
+                let placeholder = format!("${position}");
+                let param = super::resolved_param_for_position(&analyzed.params, params, position);
+                param
+                    .neutral_type
+                    .strip_prefix("composite::")
+                    .map_or(placeholder.clone(), |sql_type| {
+                        format!("{placeholder}::text::{sql_type}")
+                    })
+            });
+        let sql = crate::sql_literal::escape_ruby_double_quoted(&rewritten_sql);
         let mut out = String::new();
 
         let param_list = params
@@ -280,7 +288,13 @@ impl CodegenBackend for RubyPgBackend {
                 "[{}]",
                 params
                     .iter()
-                    .map(|p| p.field_name.clone())
+                    .map(|p| {
+                        if p.neutral_type.starts_with("composite::") {
+                            format!("{}&.to_pg_text", p.field_name)
+                        } else {
+                            p.field_name.clone()
+                        }
+                    })
                     .collect::<Vec<_>>()
                     .join(", ")
             )
@@ -343,9 +357,26 @@ impl CodegenBackend for RubyPgBackend {
                 let _ = writeln!(out, "    conn.transaction do");
                 let _ = writeln!(out, "      items.each do |item|");
                 if params.len() > 1 {
-                    let _ = writeln!(out, "        conn.exec_params(\"{}\", item)", sql);
+                    let item_params = params
+                        .iter()
+                        .enumerate()
+                        .map(|(index, param)| {
+                            if param.neutral_type.starts_with("composite::") {
+                                format!("item[{index}]&.to_pg_text")
+                            } else {
+                                format!("item[{index}]")
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let _ = writeln!(out, "        conn.exec_params(\"{}\", [{}])", sql, item_params);
                 } else if params.len() == 1 {
-                    let _ = writeln!(out, "        conn.exec_params(\"{}\", [item])", sql);
+                    let item = if params[0].neutral_type.starts_with("composite::") {
+                        "item&.to_pg_text"
+                    } else {
+                        "item"
+                    };
+                    let _ = writeln!(out, "        conn.exec_params(\"{}\", [{}])", sql, item);
                 } else {
                     let _ = writeln!(out, "        conn.exec_params(\"{}\", [])", sql);
                 }
@@ -418,11 +449,19 @@ impl CodegenBackend for RubyPgBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = crate::sql_literal::escape_ruby_double_quoted(&super::clean_sql_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        ));
+        let cleaned_sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let (rewritten_sql, _) =
+            super::rewrite_placeholders_indexed(&cleaned_sql, scythe_core::SqlDialect::PostgreSQL, |position| {
+                let placeholder = format!("${position}");
+                let param = super::resolved_param_for_position(&analyzed.params, params, position);
+                param
+                    .neutral_type
+                    .strip_prefix("composite::")
+                    .map_or(placeholder.clone(), |sql_type| {
+                        format!("{placeholder}::text::{sql_type}")
+                    })
+            });
+        let sql = crate::sql_literal::escape_ruby_double_quoted(&rewritten_sql);
 
         let param_list = params
             .iter()
@@ -437,7 +476,13 @@ impl CodegenBackend for RubyPgBackend {
                 "[{}]",
                 params
                     .iter()
-                    .map(|p| p.field_name.clone())
+                    .map(|p| {
+                        if p.neutral_type.starts_with("composite::") {
+                            format!("{}&.to_pg_text", p.field_name)
+                        } else {
+                            p.field_name.clone()
+                        }
+                    })
                     .collect::<Vec<_>>()
                     .join(", ")
             )
@@ -568,6 +613,35 @@ impl CodegenBackend for RubyPgBackend {
             let _ = writeln!(out, "        {}: {}{}", field.name, expr, sep);
         }
         let _ = writeln!(out, "      )");
+        let _ = writeln!(out, "    end");
+        let _ = writeln!(out);
+        let encoded_fields = composite
+            .fields
+            .iter()
+            .map(|field| format!("_encode_composite_field({})", field.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(out, "    def to_pg_text");
+        let _ = writeln!(out, "      \"(\" + [{}].join(\",\") + \")\"", encoded_fields);
+        let _ = writeln!(out, "    end");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    def self._encode_composite_field(value)");
+        let _ = writeln!(out, "      return \"\" if value.nil?");
+        let _ = writeln!(out, "      raw = if value.respond_to?(:to_pg_text)");
+        let _ = writeln!(out, "        value.to_pg_text");
+        let _ = writeln!(out, "      elsif value.respond_to?(:value)");
+        let _ = writeln!(out, "        value.value.to_s");
+        let _ = writeln!(out, "      else");
+        let _ = writeln!(out, "        value.to_s");
+        let _ = writeln!(out, "      end");
+        let _ = writeln!(
+            out,
+            "      return raw unless raw.empty? || raw.match?(/[(),\\\"\\\\]/) || raw != raw.strip"
+        );
+        let _ = writeln!(
+            out,
+            "      '\"' + raw.gsub('\\\\', '\\\\\\\\').gsub('\"', '\"\"') + '\"'"
+        );
         let _ = writeln!(out, "    end");
         let _ = writeln!(out);
         out.push_str(RUBY_PARSE_COMPOSITE_FIELDS_METHOD);
