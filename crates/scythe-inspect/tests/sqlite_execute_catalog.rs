@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use scythe_core::catalog::{GeneratedColumnKind, RelationKind};
+use scythe_core::catalog::{Catalog, CatalogObjectName, Column, GeneratedColumnKind, RelationKind};
 use scythe_inspect::execute_sqlite_schema_files;
 
 const SECRET_SENTINEL: &str = "SCYTHE_SECRET_SENTINEL";
@@ -9,6 +9,72 @@ fn write_schema(directory: &Path, name: &str, sql: &str) -> PathBuf {
     let path = directory.join(name);
     std::fs::write(&path, sql).expect("write schema file");
     path
+}
+
+struct ExpectedColumnMetadata<'a> {
+    name: &'a str,
+    resolved_type: &'a str,
+    raw_type: &'a str,
+    default: Option<&'a str>,
+    nullable: bool,
+    primary_key: bool,
+    generated: Option<GeneratedColumnKind>,
+}
+
+struct ExpectedRelationMetadata<'a> {
+    lookup_name: &'a str,
+    qualified_name: CatalogObjectName,
+    raw_name: &'a str,
+    kind: RelationKind,
+    columns: &'a [ExpectedColumnMetadata<'a>],
+}
+
+fn assert_catalog_relations(catalog: &Catalog, expected_relations: &[ExpectedRelationMetadata<'_>]) {
+    assert_eq!(catalog.tables().count(), expected_relations.len());
+    for expected_relation in expected_relations {
+        assert_relation(catalog, expected_relation);
+    }
+}
+
+fn assert_relation(catalog: &Catalog, expected: &ExpectedRelationMetadata<'_>) {
+    let relation = catalog
+        .get_table(expected.lookup_name)
+        .unwrap_or_else(|| panic!("missing relation {}", expected.lookup_name));
+    assert_eq!(
+        catalog.relation_name(expected.lookup_name),
+        Some(&expected.qualified_name)
+    );
+    assert_eq!(relation.raw_name, expected.raw_name);
+    assert_eq!(catalog.relation_kind(expected.lookup_name), Some(expected.kind));
+    assert_eq!(relation.columns.len(), expected.columns.len());
+    for (column, expected_column) in relation.columns.iter().zip(expected.columns) {
+        assert_column(catalog, expected.lookup_name, column, expected_column);
+    }
+}
+
+fn assert_column(catalog: &Catalog, relation_name: &str, column: &Column, expected: &ExpectedColumnMetadata<'_>) {
+    let column_path = format!("{relation_name}.{}", expected.name);
+    assert_eq!(column.name, expected.name, "name for {column_path}");
+    assert_eq!(
+        column.sql_type, expected.resolved_type,
+        "resolved type for {column_path}"
+    );
+    assert_eq!(
+        catalog.column_raw_sql_type(relation_name, expected.name),
+        Some(expected.raw_type),
+        "raw type for {column_path}"
+    );
+    assert_eq!(column.default.as_deref(), expected.default, "default for {column_path}");
+    assert_eq!(column.nullable, expected.nullable, "nullability for {column_path}");
+    assert_eq!(
+        column.primary_key, expected.primary_key,
+        "primary-key flag for {column_path}"
+    );
+    assert_eq!(
+        catalog.column_generated_kind(relation_name, expected.name),
+        expected.generated,
+        "generated kind for {column_path}"
+    );
 }
 
 #[test]
@@ -34,18 +100,104 @@ fn should_execute_files_in_order_and_preserve_sqlite_catalog_metadata() {
     );
 
     let catalog = execute_sqlite_schema_files(&[first, second]).expect("execute schema");
-    let membership = catalog.get_table("membership").expect("membership table");
-    assert_eq!(membership.columns.len(), 5);
-    assert!(membership.columns[0].primary_key);
-    assert!(membership.columns[1].primary_key);
-    assert_eq!(membership.columns[2].default.as_deref(), Some("'guest'"));
-    assert_eq!(membership.columns[4].default.as_deref(), Some("1"));
-    assert_eq!(catalog.relation_kind("membership"), Some(RelationKind::Table));
-    assert_eq!(catalog.relation_kind("active_membership"), Some(RelationKind::View));
-    assert_eq!(catalog.column_raw_sql_type("membership", "nickname"), Some("TEXT"));
-    assert_eq!(
-        catalog.column_generated_kind("membership", "slug"),
-        Some(GeneratedColumnKind::Stored)
+    assert_catalog_relations(
+        &catalog,
+        &[
+            ExpectedRelationMetadata {
+                lookup_name: "membership",
+                qualified_name: CatalogObjectName::new("membership"),
+                raw_name: "membership",
+                kind: RelationKind::Table,
+                columns: &[
+                    ExpectedColumnMetadata {
+                        name: "org_id",
+                        resolved_type: "integer",
+                        raw_type: "INTEGER",
+                        default: None,
+                        nullable: false,
+                        primary_key: true,
+                        generated: None,
+                    },
+                    ExpectedColumnMetadata {
+                        name: "user_id",
+                        resolved_type: "integer",
+                        raw_type: "INTEGER",
+                        default: None,
+                        nullable: false,
+                        primary_key: true,
+                        generated: None,
+                    },
+                    ExpectedColumnMetadata {
+                        name: "nickname",
+                        resolved_type: "text",
+                        raw_type: "TEXT",
+                        default: Some("'guest'"),
+                        nullable: true,
+                        primary_key: false,
+                        generated: None,
+                    },
+                    ExpectedColumnMetadata {
+                        name: "slug",
+                        resolved_type: "text",
+                        raw_type: "TEXT",
+                        default: None,
+                        nullable: true,
+                        primary_key: false,
+                        generated: Some(GeneratedColumnKind::Stored),
+                    },
+                    ExpectedColumnMetadata {
+                        name: "active",
+                        resolved_type: "integer",
+                        raw_type: "INTEGER",
+                        default: Some("1"),
+                        nullable: false,
+                        primary_key: false,
+                        generated: None,
+                    },
+                ],
+            },
+            ExpectedRelationMetadata {
+                lookup_name: "counted",
+                qualified_name: CatalogObjectName::new("counted"),
+                raw_name: "counted",
+                kind: RelationKind::Table,
+                columns: &[ExpectedColumnMetadata {
+                    name: "id",
+                    resolved_type: "integer",
+                    raw_type: "INTEGER",
+                    default: None,
+                    nullable: false,
+                    primary_key: true,
+                    generated: None,
+                }],
+            },
+            ExpectedRelationMetadata {
+                lookup_name: "active_membership",
+                qualified_name: CatalogObjectName::new("active_membership"),
+                raw_name: "active_membership",
+                kind: RelationKind::View,
+                columns: &[
+                    ExpectedColumnMetadata {
+                        name: "org_id",
+                        resolved_type: "integer",
+                        raw_type: "INTEGER",
+                        default: None,
+                        nullable: true,
+                        primary_key: false,
+                        generated: None,
+                    },
+                    ExpectedColumnMetadata {
+                        name: "user_id",
+                        resolved_type: "integer",
+                        raw_type: "INTEGER",
+                        default: None,
+                        nullable: true,
+                        primary_key: false,
+                        generated: None,
+                    },
+                ],
+            },
+        ],
     );
     assert!(!catalog.tables().any(|name| name.starts_with("sqlite_")));
 }
@@ -63,12 +215,34 @@ fn should_support_typeless_and_virtual_generated_columns() {
     );
 
     let catalog = execute_sqlite_schema_files(&[schema]).expect("execute schema");
-    let loose = catalog.get_table("loose").expect("loose table");
-    assert_eq!(loose.columns[0].sql_type, "blob");
-    assert_eq!(catalog.column_raw_sql_type("loose", "value"), Some(""));
-    assert_eq!(
-        catalog.column_generated_kind("loose", "doubled"),
-        Some(GeneratedColumnKind::Virtual)
+    assert_catalog_relations(
+        &catalog,
+        &[ExpectedRelationMetadata {
+            lookup_name: "loose",
+            qualified_name: CatalogObjectName::new("loose"),
+            raw_name: "loose",
+            kind: RelationKind::Table,
+            columns: &[
+                ExpectedColumnMetadata {
+                    name: "value",
+                    resolved_type: "blob",
+                    raw_type: "",
+                    default: None,
+                    nullable: true,
+                    primary_key: false,
+                    generated: None,
+                },
+                ExpectedColumnMetadata {
+                    name: "doubled",
+                    resolved_type: "integer",
+                    raw_type: "INTEGER",
+                    default: None,
+                    nullable: true,
+                    primary_key: false,
+                    generated: Some(GeneratedColumnKind::Virtual),
+                },
+            ],
+        }],
     );
 }
 
