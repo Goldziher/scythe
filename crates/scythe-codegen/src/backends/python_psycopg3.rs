@@ -13,6 +13,14 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 
+fn psycopg_param_expr(param: &ResolvedParam, raw: &str) -> String {
+    if param.neutral_type.starts_with("composite::") {
+        format!("None if {raw} is None else {raw}._to_pg_text()")
+    } else {
+        raw.to_string()
+    }
+}
+
 use super::python_common::{
     PythonRowType, generate_grouped_fold_positional, generate_grouped_structs_py, no_rows_exception_def,
     type_support_imports, write_missing_row_guard,
@@ -422,10 +430,20 @@ impl CodegenBackend for PythonPsycopg3Backend {
         } else {
             crate::sql_literal::double_percent_for_percent_paramstyle(&sql_clean)
         };
-        let sql =
-            crate::sql_literal::escape_python_triple_double(&super::rewrite_pg_placeholders(&percent_doubled, |n| {
-                format!("%({})s", name_map.get(&n).map_or("?", |s| s.as_str()))
-            }));
+        let sql = crate::sql_literal::escape_python_triple_double(&super::rewrite_pg_placeholders(
+            &percent_doubled,
+            |position| {
+                let field_name = name_map.get(&position).map_or("?", |name| name.as_str());
+                let placeholder = format!("%({field_name})s");
+                let param = super::resolved_param_for_position(&analyzed.params, params, position);
+                param
+                    .neutral_type
+                    .strip_prefix("composite::")
+                    .map_or(placeholder.clone(), |sql_type| {
+                        format!("{placeholder}::text::{sql_type}")
+                    })
+            },
+        ));
 
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
@@ -448,7 +466,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
                 } else {
                     let dict_entries: Vec<String> = params
                         .iter()
-                        .map(|p| format!("\"{}\": {}", p.field_name, p.field_name))
+                        .map(|p| format!("\"{}\": {}", p.field_name, psycopg_param_expr(p, &p.field_name)))
                         .collect();
                     let _ = writeln!(out, "    cur = await conn.execute(");
                     let _ = writeln!(out, "        \"\"\"{}\"\"\",", sql);
@@ -487,7 +505,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
                 } else {
                     let dict_entries: Vec<String> = params
                         .iter()
-                        .map(|p| format!("\"{}\": {}", p.field_name, p.field_name))
+                        .map(|p| format!("\"{}\": {}", p.field_name, psycopg_param_expr(p, &p.field_name)))
                         .collect();
                     let _ = writeln!(out, "    cur = await conn.execute(");
                     let _ = writeln!(out, "        \"\"\"{}\"\"\",", sql);
@@ -550,9 +568,10 @@ impl CodegenBackend for PythonPsycopg3Backend {
                         .enumerate()
                         .map(|(i, p)| {
                             if params.len() == 1 {
-                                format!("\"{}\": item", p.field_name)
+                                format!("\"{}\": {}", p.field_name, psycopg_param_expr(p, "item"))
                             } else {
-                                format!("\"{}\": item[{}]", p.field_name, i)
+                                let raw = format!("item[{i}]");
+                                format!("\"{}\": {}", p.field_name, psycopg_param_expr(p, &raw))
                             }
                         })
                         .collect();
@@ -582,7 +601,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
                 } else {
                     let dict_entries: Vec<String> = params
                         .iter()
-                        .map(|p| format!("\"{}\": {}", p.field_name, p.field_name))
+                        .map(|p| format!("\"{}\": {}", p.field_name, psycopg_param_expr(p, &p.field_name)))
                         .collect();
                     let _ = writeln!(out, "    await conn.execute(");
                     let _ = writeln!(out, "        \"\"\"{}\"\"\",", sql);
@@ -604,7 +623,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
                 } else {
                     let dict_entries: Vec<String> = params
                         .iter()
-                        .map(|p| format!("\"{}\": {}", p.field_name, p.field_name))
+                        .map(|p| format!("\"{}\": {}", p.field_name, psycopg_param_expr(p, &p.field_name)))
                         .collect();
                     let _ = writeln!(out, "    cur = await conn.execute(");
                     let _ = writeln!(out, "        \"\"\"{}\"\"\",", sql);
@@ -685,6 +704,36 @@ impl CodegenBackend for PythonPsycopg3Backend {
             let _ = writeln!(out, "            {}={value_expr},", to_snake_case(&field.name));
         }
         let _ = writeln!(out, "        )");
+        let _ = writeln!(out);
+        let encoded_fields = composite
+            .fields
+            .iter()
+            .map(|field| format!("self._encode_composite_field(self.{})", to_snake_case(&field.name)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(out, "    def _to_pg_text(self) -> str:");
+        let _ = writeln!(out, "        return \"(\" + \",\".join([{encoded_fields}]) + \")\"");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    @staticmethod");
+        let _ = writeln!(out, "    def _encode_composite_field(value: Any) -> str:");
+        let _ = writeln!(out, "        if value is None:");
+        let _ = writeln!(out, "            return \"\"");
+        let _ = writeln!(out, "        if hasattr(value, \"_to_pg_text\"):");
+        let _ = writeln!(out, "            raw = value._to_pg_text()");
+        let _ = writeln!(out, "        elif isinstance(value, Enum):");
+        let _ = writeln!(out, "            raw = str(value.value)");
+        let _ = writeln!(out, "        else:");
+        let _ = writeln!(out, "            raw = str(value)");
+        let _ = writeln!(
+            out,
+            "        if raw and not any(char in raw for char in ',()\\\"\\\\') and raw == raw.strip():"
+        );
+        let _ = writeln!(out, "            return raw");
+        let _ = writeln!(
+            out,
+            "        escaped = raw.replace(\"\\\\\", \"\\\\\\\\\").replace('\\\"', '\\\"\\\"')"
+        );
+        let _ = writeln!(out, "        return f'\\\"{{escaped}}\\\"'");
         let _ = writeln!(out);
         out.push_str(PY_PARSE_COMPOSITE_FIELDS_METHOD);
         if py_composite_needs_require_helper(composite) {
