@@ -1829,13 +1829,7 @@ mod tests {
     /// `json[]` value and can select a typed SQL-array reader.
     #[test]
     fn test_structural_backends_match_json_array_baseline() {
-        for backend_name in [
-            "typescript-pg",
-            "python-asyncpg",
-            "elixir-postgrex",
-            "php-pdo",
-            "ruby-pg",
-        ] {
+        for backend_name in ["typescript-pg", "python-asyncpg", "elixir-postgrex", "ruby-pg"] {
             let backend = get_backend(backend_name, "postgresql").unwrap();
 
             let baseline = make_query(
@@ -1867,6 +1861,41 @@ mod tests {
                 "{backend_name} query output must match the JSON array baseline"
             );
             assert_eq!(baseline_result.model_struct, nested_result.model_struct);
+        }
+    }
+
+    #[test]
+    fn test_php_backends_keep_native_nested_json_rows() {
+        for backend_name in ["php-pdo", "php-amphp"] {
+            let backend = get_backend(backend_name, "postgresql").unwrap();
+            let baseline = make_query(
+                "GetUserPosts",
+                QueryCommand::Many,
+                "SELECT json_agg(p.*) AS posts FROM users u JOIN posts p ON u.id = p.user_id",
+                vec![AnalyzedColumn {
+                    name: "posts".to_string(),
+                    neutral_type: "json_array".to_string(),
+                    nullable: true,
+                    ..Default::default()
+                }],
+                vec![],
+            );
+            let mut nested_query = baseline.clone();
+            nested_query.columns[0].neutral_type = "json_nested<array<GetUserPostsRowPosts>>".to_string();
+            nested_query.nested_structs = vec![a_nested_struct()];
+
+            let baseline_result = generate_with_backend(&baseline, &*backend).unwrap();
+            let nested_result = generate_with_backend(&nested_query, &*backend).unwrap();
+
+            assert_ne!(
+                baseline_result.row_struct, nested_result.row_struct,
+                "{backend_name} must retain its typed nested JSON row instead of degrading"
+            );
+            assert_eq!(nested_result.nested_struct_defs.len(), 1);
+            assert!(
+                nested_result.degraded_nested_structs.is_empty(),
+                "{backend_name} must not report native nested JSON support as degraded"
+            );
         }
     }
 
