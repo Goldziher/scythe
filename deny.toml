@@ -46,5 +46,9 @@ allow = [
   "Zlib",
   "Unicode-3.0",
   "Unicode-DFS-2016",
+  # ~keep tiny-keccak via DuckDB's Arrow stack; public-domain-equivalent and OSI-approved.
+  "CC0-1.0",
+  # ~keep webpki-roots is used only while building bundled libduckdb; permissive data license.
+  "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.8

@@ -38,6 +38,7 @@
 
 pub mod config;
 pub mod driver;
+pub mod duckdb;
 pub mod error;
 pub mod mysql;
 pub mod neutral;
@@ -52,6 +53,7 @@ pub mod verify;
 
 pub use config::{InspectConfig, SuppressionRule, parse_inspect_section};
 pub use driver::{CheckCatalogEntry, DbDriver};
+pub use duckdb::execute_duckdb_schema_files;
 pub use error::InspectError;
 pub use mysql::{MySqlCatalogSource, MySqlDriver};
 pub use neutral::normalize_neutral_type;

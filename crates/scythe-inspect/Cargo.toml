@@ -17,6 +17,7 @@ live-tests = []
 
 [dependencies]
 async-trait = "0.1"
+duckdb = { version = "1.10505.0", features = ["bundled"] }
 mysql_async = "0.37"
 regex = "1"
 rusqlite = { version = "0.40", features = ["bundled"] }
