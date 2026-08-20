@@ -385,6 +385,10 @@ impl CodegenBackend for CsharpNpgsqlBackend {
                 let placeholder = format!("@p{}", i + 1);
                 let casted = format!("@p{}::{}", i + 1, enum_name);
                 sql = sql.replace(&placeholder, &casted);
+            } else if let Some(composite_name) = p.neutral_type.strip_prefix("composite::") {
+                let placeholder = format!("@p{}", i + 1);
+                let casted = format!("@p{}::text::{}", i + 1, composite_name);
+                sql = sql.replace(&placeholder, &casted);
             }
         }
         let sql = crate::sql_literal::escape_csharp_verbatim_string(&sql);
@@ -444,11 +448,15 @@ impl CodegenBackend for CsharpNpgsqlBackend {
                     let field = to_pascal_case(&p.field_name);
                     if p.neutral_type.starts_with("enum::") {
                         format!("item.{}.ToDbValue()", field)
+                    } else if p.neutral_type.starts_with("composite::") {
+                        format!("(object?)item.{}?.ToPgText() ?? DBNull.Value", field)
                     } else {
                         format!("item.{}", field)
                     }
                 } else if p.neutral_type.starts_with("enum::") {
                     "item.ToDbValue()".to_string()
+                } else if p.neutral_type.starts_with("composite::") {
+                    "(object?)item?.ToPgText() ?? DBNull.Value".to_string()
                 } else {
                     "item".to_string()
                 };
@@ -499,6 +507,8 @@ impl CodegenBackend for CsharpNpgsqlBackend {
         for (i, p) in params.iter().enumerate() {
             let value_expr = if p.neutral_type.starts_with("enum::") {
                 format!("{}.ToDbValue()", p.field_name)
+            } else if p.neutral_type.starts_with("composite::") {
+                format!("(object?){}?.ToPgText() ?? DBNull.Value", p.field_name)
             } else {
                 p.field_name.clone()
             };
@@ -616,6 +626,10 @@ impl CodegenBackend for CsharpNpgsqlBackend {
                 let placeholder = format!("@p{}", i + 1);
                 let casted = format!("@p{}::{}", i + 1, enum_name);
                 sql = sql.replace(&placeholder, &casted);
+            } else if let Some(composite_name) = p.neutral_type.strip_prefix("composite::") {
+                let placeholder = format!("@p{}", i + 1);
+                let casted = format!("@p{}::text::{}", i + 1, composite_name);
+                sql = sql.replace(&placeholder, &casted);
             }
         }
         let sql = crate::sql_literal::escape_csharp_verbatim_string(&sql);
@@ -644,6 +658,8 @@ impl CodegenBackend for CsharpNpgsqlBackend {
         for (i, p) in params.iter().enumerate() {
             let value_expr = if p.neutral_type.starts_with("enum::") {
                 format!("{}.ToDbValue()", p.field_name)
+            } else if p.neutral_type.starts_with("composite::") {
+                format!("(object?){}?.ToPgText() ?? DBNull.Value", p.field_name)
             } else {
                 p.field_name.clone()
             };
@@ -780,6 +796,48 @@ impl CodegenBackend for CsharpNpgsqlBackend {
             let _ = writeln!(out, "            {}{}", value_expr, sep);
         }
         let _ = writeln!(out, "        );");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+        let encoded_fields = composite
+            .fields
+            .iter()
+            .map(|field| {
+                let field_name = to_pascal_case(&field.name);
+                if field.neutral_type.starts_with("composite::") {
+                    format!("EncodeCompositeField({field_name}.ToPgText())")
+                } else if field.neutral_type.starts_with("enum::") {
+                    format!("EncodeCompositeField({field_name}.ToDbValue())")
+                } else {
+                    format!("EncodeCompositeField({field_name})")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(out, "    public string ToPgText()");
+        let _ = writeln!(out, "    {{");
+        let _ = writeln!(
+            out,
+            "        return \"(\" + string.Join(\",\", new[] {{ {encoded_fields} }}) + \")\";"
+        );
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    private static string EncodeCompositeField(object? value)");
+        let _ = writeln!(out, "    {{");
+        let _ = writeln!(out, "        if (value is null) return string.Empty;");
+        let _ = writeln!(out, "        var raw = value is IFormattable formattable");
+        let _ = writeln!(
+            out,
+            "            ? formattable.ToString(null, System.Globalization.CultureInfo.InvariantCulture)"
+        );
+        let _ = writeln!(out, "            : value.ToString()!;");
+        let _ = writeln!(
+            out,
+            "        if (raw.Length > 0 && raw.IndexOfAny([',', '(', ')', '\"', '\\\\']) < 0 && raw == raw.Trim()) return raw;"
+        );
+        let _ = writeln!(
+            out,
+            "        return \"\\\"\" + raw.Replace(\"\\\\\", \"\\\\\\\\\").Replace(\"\\\"\", \"\\\"\\\"\") + \"\\\"\";"
+        );
         let _ = writeln!(out, "    }}");
         let _ = writeln!(out);
         out.push_str(CSHARP_PARSE_COMPOSITE_FIELDS_METHOD);
