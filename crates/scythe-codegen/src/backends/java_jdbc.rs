@@ -184,20 +184,65 @@ fn ps_setter(java_type: &str) -> &str {
 /// PostgreSQL requires `setObject(n, val, Types.OTHER)` for custom enum types.
 /// MySQL/MariaDB/Oracle use `setString(n, val.getValue())`.
 fn ps_bind_param(param: &ResolvedParam, index: usize, engine: &str) -> String {
+    ps_bind_param_for(param, index, engine, &param.field_name)
+}
+
+fn ps_bind_param_for(param: &ResolvedParam, index: usize, engine: &str, receiver: &str) -> String {
     if param.neutral_type.starts_with("enum::") {
         if engine == "postgresql" {
             format!(
                 "ps.setObject({}, {}.getValue(), java.sql.Types.OTHER);",
                 index + 1,
-                param.field_name
+                receiver
             )
         } else {
-            format!("ps.setString({}, {}.getValue());", index + 1, param.field_name)
+            format!("ps.setString({}, {}.getValue());", index + 1, receiver)
         }
+    } else if param.neutral_type.starts_with("composite::") && engine == "postgresql" {
+        format!(
+            "ps.setString({}, {} == null ? null : {}.toPgText());",
+            index + 1,
+            receiver,
+            receiver
+        )
     } else {
         let setter = ps_setter(&param.lang_type);
-        format!("ps.{}({}, {});", setter, index + 1, param.field_name)
+        format!("ps.{}({}, {});", setter, index + 1, receiver)
     }
+}
+
+fn add_pg_composite_casts(sql: &str, params: &[ResolvedParam], engine: &str) -> String {
+    if engine != "postgresql" || !params.iter().any(|p| p.neutral_type.starts_with("composite::")) {
+        return sql.to_string();
+    }
+    let mut result = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        result.push(ch);
+        if ch != '$' || !chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        let mut digits = String::new();
+        while let Some(c) = chars.peek().copied() {
+            if !c.is_ascii_digit() {
+                break;
+            }
+            digits.push(c);
+            result.push(c);
+            chars.next();
+        }
+        let composite_type = digits
+            .parse::<usize>()
+            .ok()
+            .and_then(|position| position.checked_sub(1))
+            .and_then(|index| params.get(index))
+            .and_then(|param| param.neutral_type.strip_prefix("composite::"));
+        if let Some(composite_type) = composite_type {
+            result.push_str("::text::");
+            result.push_str(composite_type);
+        }
+    }
+    result
 }
 
 /// The boxed Java element type for an array column's `List<{T}>`, derived
@@ -701,6 +746,7 @@ impl CodegenBackend for JavaJdbcBackend {
             &analyzed.optional_params,
             &analyzed.params,
         );
+        let cleaned_sql = add_pg_composite_casts(&cleaned_sql, params, &self.engine);
         let (rewritten_sql, occurrences) =
             super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
         let sql = crate::sql_literal::escape_java_string(&rewritten_sql);
@@ -875,14 +921,9 @@ impl CodegenBackend for JavaJdbcBackend {
                     let _ = writeln!(out, "        for (var item : items) {{");
                     for (i, position) in occurrences.iter().enumerate() {
                         let param = super::resolved_param_for_position(&analyzed.params, params, *position);
-                        let setter = ps_setter(&param.lang_type);
-                        let _ = writeln!(
-                            out,
-                            "            ps.{}({}, item.{}());",
-                            setter,
-                            i + 1,
-                            param.field_name
-                        );
+                        let receiver = format!("item.{}()", param.field_name);
+                        let bind = ps_bind_param_for(param, i, &self.engine, &receiver);
+                        let _ = writeln!(out, "            {bind}");
                     }
                     let _ = writeln!(out, "            ps.addBatch();");
                     let _ = writeln!(out, "        }}");
@@ -906,9 +947,9 @@ impl CodegenBackend for JavaJdbcBackend {
                     let _ = writeln!(out, "    conn.setAutoCommit(false);");
                     let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{}\")) {{", sql);
                     let _ = writeln!(out, "        for (var item : items) {{");
-                    let setter = ps_setter(&param.lang_type);
                     for i in 0..occurrences.len() {
-                        let _ = writeln!(out, "            ps.{}({}, item);", setter, i + 1);
+                        let bind = ps_bind_param_for(param, i, &self.engine, "item");
+                        let _ = writeln!(out, "            {bind}");
                     }
                     let _ = writeln!(out, "            ps.addBatch();");
                     let _ = writeln!(out, "        }}");
@@ -1048,6 +1089,46 @@ impl CodegenBackend for JavaJdbcBackend {
         let _ = writeln!(out, "        );");
         let _ = writeln!(out, "    }}");
         let _ = writeln!(out);
+        let encoded_fields = composite
+            .fields
+            .iter()
+            .map(|field| {
+                let field_name = to_camel_case(&field.name);
+                if field.neutral_type.starts_with("composite::") {
+                    format!("{field_name} == null ? null : {field_name}.toPgText()")
+                } else if field.neutral_type.starts_with("enum::") {
+                    format!("{field_name} == null ? null : {field_name}.getValue()")
+                } else if field.neutral_type == "bytes" {
+                    format!(
+                        "{field_name} == null ? null : \"\\\\x\" + java.util.HexFormat.of().formatHex({field_name})"
+                    )
+                } else {
+                    field_name.into_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(out, "    public String toPgText() {{");
+        let _ = writeln!(
+            out,
+            "        return java.util.stream.Stream.of({encoded_fields}).map({name}::encodeCompositeField).collect(java.util.stream.Collectors.joining(\",\", \"(\", \")\"));"
+        );
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    private static String encodeCompositeField(Object value) {{");
+        let _ = writeln!(out, "        if (value == null) return \"\";");
+        let _ = writeln!(out, "        String raw = String.valueOf(value);");
+        let _ = writeln!(
+            out,
+            r#"        boolean quote = raw.isEmpty() || raw.indexOf('(') >= 0 || raw.indexOf(')') >= 0 || raw.indexOf(',') >= 0 || raw.indexOf('"') >= 0 || raw.indexOf('\\') >= 0 || !raw.equals(raw.strip());"#
+        );
+        let _ = writeln!(out, "        if (!quote) return raw;");
+        let _ = writeln!(
+            out,
+            "        return \"\\\"\" + raw.replace(\"\\\\\", \"\\\\\\\\\").replace(\"\\\"\", \"\\\"\\\"\") + \"\\\"\";"
+        );
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
         out.push_str(JAVA_PARSE_COMPOSITE_FIELDS_METHOD);
         if composite_needs_bytes_helper(composite) {
             let _ = writeln!(out);
@@ -1120,6 +1201,7 @@ impl CodegenBackend for JavaJdbcBackend {
             &analyzed.optional_params,
             &analyzed.params,
         );
+        let cleaned_sql = add_pg_composite_casts(&cleaned_sql, params, &self.engine);
         let (rewritten_sql, occurrences) =
             super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
         let sql = crate::sql_literal::escape_java_string(&rewritten_sql);

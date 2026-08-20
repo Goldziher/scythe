@@ -385,10 +385,16 @@ fn exposed_column_type_class(kotlin_type: &str) -> &str {
 /// the read path uses, so a value round-trips even when its SQL spelling is not the uppercase
 /// of its variant name.
 fn exposed_bind_value(param: &ResolvedParam) -> String {
+    exposed_bind_value_for(param, &param.field_name)
+}
+
+fn exposed_bind_value_for(param: &ResolvedParam, receiver: &str) -> String {
     if param.neutral_type.starts_with("enum::") {
-        format!("{}.value", param.field_name)
+        format!("{receiver}?.value")
+    } else if param.neutral_type.starts_with("composite::") {
+        format!("{receiver}?.toPgText()")
     } else {
-        param.field_name.clone()
+        receiver.to_string()
     }
 }
 
@@ -445,6 +451,9 @@ fn add_exposed_enum_casts(
         if let Some(enum_type) = p.neutral_type.strip_prefix("enum::") {
             result.push_str("::");
             result.push_str(enum_type);
+        } else if let Some(composite_type) = p.neutral_type.strip_prefix("composite::") {
+            result.push_str("::text::");
+            result.push_str(composite_type);
         }
     }
     result
@@ -732,7 +741,12 @@ impl CodegenBackend for KotlinExposedBackend {
                         .iter()
                         .map(|&position| {
                             let p = super::resolved_param_for_position(&analyzed.params, params, position);
-                            format!("{} to item.{}", exposed_column_type_class(&p.lang_type), p.field_name)
+                            let receiver = format!("item.{}", p.field_name);
+                            format!(
+                                "{} to {}",
+                                exposed_column_type_class(&p.lang_type),
+                                exposed_bind_value_for(p, &receiver)
+                            )
                         })
                         .collect();
                     let _ = writeln!(out, "            exec(\"{}\", listOf({}))", sql, args.join(", "));
@@ -744,7 +758,13 @@ impl CodegenBackend for KotlinExposedBackend {
                     let _ = writeln!(out, "        for (item in items) {{");
                     let args: Vec<String> = occurrences
                         .iter()
-                        .map(|_| format!("{} to item", exposed_column_type_class(&params[0].lang_type)))
+                        .map(|_| {
+                            format!(
+                                "{} to {}",
+                                exposed_column_type_class(&params[0].lang_type),
+                                exposed_bind_value_for(&params[0], "item")
+                            )
+                        })
                         .collect();
                     let _ = writeln!(out, "            exec(\"{}\", listOf({}))", sql, args.join(", "));
                     let _ = writeln!(out, "        }}");
@@ -847,7 +867,43 @@ impl CodegenBackend for KotlinExposedBackend {
             return Ok(out);
         }
         let _ = writeln!(out, ") {{");
+        let encoded_fields = composite
+            .fields
+            .iter()
+            .map(|field| {
+                let field_name = to_camel_case(&field.name);
+                if field.neutral_type.starts_with("composite::") {
+                    format!("{field_name}?.toPgText()")
+                } else if field.neutral_type.starts_with("enum::") {
+                    format!("{field_name}?.value")
+                } else if field.neutral_type == "bytes" {
+                    format!("{field_name}?.joinToString(\"\") {{ \"%02x\".format(it) }}?.let {{ \"\\\\\\\\x\" + it }}")
+                } else {
+                    field_name.into_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(
+            out,
+            "    fun toPgText(): String = listOf({encoded_fields}).joinToString(\",\", \"(\", \")\") {{ encodeCompositeField(it) }}"
+        );
+        let _ = writeln!(out);
         let _ = writeln!(out, "    companion object {{");
+        let _ = writeln!(out, "        private fun encodeCompositeField(value: Any?): String {{");
+        let _ = writeln!(out, "            if (value == null) return \"\"");
+        let _ = writeln!(out, "            val raw = value.toString()");
+        out.push_str(
+            r#"            val quote = raw.isEmpty() || raw.any { it in charArrayOf('(', ')', ',', '"', '\\') } || raw != raw.trim()
+"#,
+        );
+        let _ = writeln!(out, "            if (!quote) return raw");
+        out.push_str(
+            r#"            return "\"" + raw.replace("\\", "\\\\").replace("\"", "\"\"") + "\""
+"#,
+        );
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out);
         let _ = writeln!(out, "        /**");
         let _ = writeln!(
             out,

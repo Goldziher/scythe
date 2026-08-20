@@ -166,6 +166,54 @@ fn ps_setter(kotlin_type: &str) -> &str {
     }
 }
 
+fn jdbc_bind_param_for(param: &ResolvedParam, index: usize, engine: &str, receiver: &str) -> String {
+    if param.neutral_type.starts_with("enum::") {
+        if engine == "postgresql" {
+            format!("ps.setObject({}, {}.value, java.sql.Types.OTHER)", index + 1, receiver)
+        } else {
+            format!("ps.setString({}, {}.value)", index + 1, receiver)
+        }
+    } else if param.neutral_type.starts_with("composite::") && engine == "postgresql" {
+        format!("ps.setString({}, {}?.toPgText())", index + 1, receiver)
+    } else {
+        format!("ps.{}({}, {})", ps_setter(&param.lang_type), index + 1, receiver)
+    }
+}
+
+fn add_pg_composite_casts(sql: &str, params: &[ResolvedParam], engine: &str) -> String {
+    if engine != "postgresql" || !params.iter().any(|p| p.neutral_type.starts_with("composite::")) {
+        return sql.to_string();
+    }
+    let mut result = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        result.push(ch);
+        if ch != '$' || !chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        let mut digits = String::new();
+        while let Some(c) = chars.peek().copied() {
+            if !c.is_ascii_digit() {
+                break;
+            }
+            digits.push(c);
+            result.push(c);
+            chars.next();
+        }
+        let composite_type = digits
+            .parse::<usize>()
+            .ok()
+            .and_then(|position| position.checked_sub(1))
+            .and_then(|index| params.get(index))
+            .and_then(|param| param.neutral_type.strip_prefix("composite::"));
+        if let Some(composite_type) = composite_type {
+            result.push_str("::text::");
+            result.push_str(composite_type);
+        }
+    }
+    result
+}
+
 /// The Kotlin `List<T>` expression that turns a `java.sql.Array` (already
 /// known non-null) into the declared element type. `sql_array_expr` is the
 /// expression producing the `java.sql.Array` -- either an inline
@@ -633,6 +681,7 @@ impl CodegenBackend for KotlinJdbcBackend {
             &analyzed.optional_params,
             &analyzed.params,
         );
+        let cleaned_sql = add_pg_composite_casts(&cleaned_sql, params, &self.engine);
         let (rewritten_sql, occurrences) =
             super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
         let sql = crate::sql_literal::escape_kotlin_string(&rewritten_sql);
@@ -648,21 +697,8 @@ impl CodegenBackend for KotlinJdbcBackend {
         let write_setters = |out: &mut String, occurrences: &[u32]| {
             for (i, position) in occurrences.iter().enumerate() {
                 let param = super::resolved_param_for_position(&analyzed.params, params, *position);
-                if param.neutral_type.starts_with("enum::") {
-                    if engine == "postgresql" {
-                        let _ = writeln!(
-                            out,
-                            "        ps.setObject({}, {}.value, java.sql.Types.OTHER)",
-                            i + 1,
-                            param.field_name
-                        );
-                    } else {
-                        let _ = writeln!(out, "        ps.setString({}, {}.value)", i + 1, param.field_name);
-                    }
-                } else {
-                    let setter = ps_setter(&param.lang_type);
-                    let _ = writeln!(out, "        ps.{}({}, {})", setter, i + 1, param.field_name);
-                }
+                let bind = jdbc_bind_param_for(param, i, engine, &param.field_name);
+                let _ = writeln!(out, "        {bind}");
             }
         };
 
@@ -869,14 +905,9 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "            for (item in items) {{");
                     for (i, position) in occurrences.iter().enumerate() {
                         let param = super::resolved_param_for_position(&analyzed.params, params, *position);
-                        let setter = ps_setter(&param.lang_type);
-                        let _ = writeln!(
-                            out,
-                            "                ps.{}({}, item.{})",
-                            setter,
-                            i + 1,
-                            param.field_name
-                        );
+                        let receiver = format!("item.{}", param.field_name);
+                        let bind = jdbc_bind_param_for(param, i, &self.engine, &receiver);
+                        let _ = writeln!(out, "                {bind}");
                     }
                     let _ = writeln!(out, "                ps.addBatch()");
                     let _ = writeln!(out, "            }}");
@@ -904,9 +935,9 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "    try {{");
                     let _ = writeln!(out, "        {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",);
                     let _ = writeln!(out, "            for (item in items) {{");
-                    let setter = ps_setter(&params[0].lang_type);
                     for i in 0..occurrences.len() {
-                        let _ = writeln!(out, "                ps.{}({}, item)", setter, i + 1);
+                        let bind = jdbc_bind_param_for(&params[0], i, &self.engine, "item");
+                        let _ = writeln!(out, "                {bind}");
                     }
                     let _ = writeln!(out, "                ps.addBatch()");
                     let _ = writeln!(out, "            }}");
@@ -1073,7 +1104,43 @@ impl CodegenBackend for KotlinJdbcBackend {
             return Ok(out);
         }
         let _ = writeln!(out, ") {{");
+        let encoded_fields = composite
+            .fields
+            .iter()
+            .map(|field| {
+                let field_name = to_camel_case(&field.name);
+                if field.neutral_type.starts_with("composite::") {
+                    format!("{field_name}?.toPgText()")
+                } else if field.neutral_type.starts_with("enum::") {
+                    format!("{field_name}?.value")
+                } else if field.neutral_type == "bytes" {
+                    format!("{field_name}?.joinToString(\"\") {{ \"%02x\".format(it) }}?.let {{ \"\\\\\\\\x\" + it }}")
+                } else {
+                    field_name.into_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(
+            out,
+            "    fun toPgText(): String = listOf({encoded_fields}).joinToString(\",\", \"(\", \")\") {{ encodeCompositeField(it) }}"
+        );
+        let _ = writeln!(out);
         let _ = writeln!(out, "    companion object {{");
+        let _ = writeln!(out, "        private fun encodeCompositeField(value: Any?): String {{");
+        let _ = writeln!(out, "            if (value == null) return \"\"");
+        let _ = writeln!(out, "            val raw = value.toString()");
+        out.push_str(
+            r#"            val quote = raw.isEmpty() || raw.any { it in charArrayOf('(', ')', ',', '"', '\\') } || raw != raw.trim()
+"#,
+        );
+        let _ = writeln!(out, "            if (!quote) return raw");
+        out.push_str(
+            r#"            return "\"" + raw.replace("\\", "\\\\").replace("\"", "\"\"") + "\""
+"#,
+        );
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out);
         let _ = writeln!(out, "        /**");
         let _ = writeln!(
             out,
@@ -1166,6 +1233,7 @@ impl CodegenBackend for KotlinJdbcBackend {
             &analyzed.optional_params,
             &analyzed.params,
         );
+        let cleaned_sql = add_pg_composite_casts(&cleaned_sql, params, &self.engine);
         let (rewritten_sql, occurrences) =
             super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
         let sql = crate::sql_literal::escape_kotlin_string(&rewritten_sql);
@@ -1188,21 +1256,8 @@ impl CodegenBackend for KotlinJdbcBackend {
         let write_setters = |out: &mut String, occurrences: &[u32]| {
             for (i, position) in occurrences.iter().enumerate() {
                 let param = super::resolved_param_for_position(&analyzed.params, params, *position);
-                if param.neutral_type.starts_with("enum::") {
-                    if engine == "postgresql" {
-                        let _ = writeln!(
-                            out,
-                            "        ps.setObject({}, {}.value, java.sql.Types.OTHER)",
-                            i + 1,
-                            param.field_name
-                        );
-                    } else {
-                        let _ = writeln!(out, "        ps.setString({}, {}.value)", i + 1, param.field_name);
-                    }
-                } else {
-                    let setter = ps_setter(&param.lang_type);
-                    let _ = writeln!(out, "        ps.{}({}, {})", setter, i + 1, param.field_name);
-                }
+                let bind = jdbc_bind_param_for(param, i, engine, &param.field_name);
+                let _ = writeln!(out, "        {bind}");
             }
         };
 

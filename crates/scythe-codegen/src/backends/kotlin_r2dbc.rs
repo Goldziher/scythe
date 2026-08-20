@@ -289,6 +289,8 @@ fn r2dbc_col_read_expr(col: &ResolvedColumn, manifest: &BackendManifest) -> Stri
 fn r2dbc_bind_expr_for(receiver: &str, param: &ResolvedParam) -> String {
     if param.neutral_type.starts_with("enum::") {
         format!("{receiver}.value")
+    } else if param.neutral_type.starts_with("composite::") {
+        format!("{receiver}.toPgText()")
     } else {
         receiver.to_string()
     }
@@ -298,6 +300,9 @@ fn r2dbc_bind_expr_for(receiver: &str, param: &ResolvedParam) -> String {
 /// `param`. Same boxing rule `r2dbc_row_class` already applies to a read result --
 /// `Statement.bindNull` is generic the same way `Row.get` is.
 fn r2dbc_bind_null_class(param: &ResolvedParam) -> String {
+    if param.neutral_type.starts_with("composite::") {
+        return "String::class.java".to_string();
+    }
     jvm_common::kotlin_boxed_class_literal(&param.lang_type)
 }
 
@@ -340,7 +345,7 @@ fn write_r2dbc_bind_for(out: &mut String, indent: &str, index: usize, param: &Re
         let _ = writeln!(out, "{indent}stmt.bind({index}, {expr})");
         return;
     }
-    if param.neutral_type.starts_with("enum::") {
+    if param.neutral_type.starts_with("enum::") || param.neutral_type.starts_with("composite::") {
         let _ = writeln!(out, "{indent}if ({receiver} == null) {{");
         let _ = writeln!(out, "{indent}    stmt.bindNull({index}, String::class.java)");
         let _ = writeln!(out, "{indent}}} else {{");
@@ -352,8 +357,7 @@ fn write_r2dbc_bind_for(out: &mut String, indent: &str, index: usize, param: &Re
     }
 }
 
-/// ~keep Append an explicit `::<enum type>` cast to each PostgreSQL placeholder whose parameter
-/// is an enum.
+/// ~keep Append explicit casts to PostgreSQL placeholders for typed string parameters.
 ///
 /// R2DBC is stricter than JDBC here. A JDBC `setObject` sends the value untyped and lets the
 /// server infer it, so `WHERE status = $1` against a `user_status` column just works. The
@@ -367,7 +371,11 @@ fn write_r2dbc_bind_for(out: &mut String, indent: &str, index: usize, param: &Re
 ///
 /// Only for PostgreSQL: MySQL enums are already strings on the wire.
 fn add_pg_enum_casts(sql: &str, params: &[ResolvedParam], is_pg: bool) -> String {
-    if !is_pg || !params.iter().any(|p| p.neutral_type.starts_with("enum::")) {
+    if !is_pg
+        || !params
+            .iter()
+            .any(|p| p.neutral_type.starts_with("enum::") || p.neutral_type.starts_with("composite::"))
+    {
         return sql.to_string();
     }
     let mut result = String::with_capacity(sql.len());
@@ -388,15 +396,17 @@ fn add_pg_enum_casts(sql: &str, params: &[ResolvedParam], is_pg: bool) -> String
         result.push('$');
         result.push_str(&digits);
         // Placeholders are 1-based; `params` is 0-based and in placeholder order.
-        let enum_type = digits
+        let param = digits
             .parse::<usize>()
             .ok()
             .and_then(|n| n.checked_sub(1))
-            .and_then(|idx| params.get(idx))
-            .and_then(|p| p.neutral_type.strip_prefix("enum::"));
-        if let Some(enum_type) = enum_type {
+            .and_then(|idx| params.get(idx));
+        if let Some(enum_type) = param.and_then(|p| p.neutral_type.strip_prefix("enum::")) {
             result.push_str("::");
             result.push_str(enum_type);
+        } else if let Some(composite_type) = param.and_then(|p| p.neutral_type.strip_prefix("composite::")) {
+            result.push_str("::text::");
+            result.push_str(composite_type);
         }
     }
     result
@@ -950,7 +960,43 @@ impl CodegenBackend for KotlinR2dbcBackend {
             return Ok(out);
         }
         let _ = writeln!(out, ") {{");
+        let encoded_fields = composite
+            .fields
+            .iter()
+            .map(|field| {
+                let field_name = to_camel_case(&field.name);
+                if field.neutral_type.starts_with("composite::") {
+                    format!("{field_name}?.toPgText()")
+                } else if field.neutral_type.starts_with("enum::") {
+                    format!("{field_name}?.value")
+                } else if field.neutral_type == "bytes" {
+                    format!("{field_name}?.joinToString(\"\") {{ \"%02x\".format(it) }}?.let {{ \"\\\\\\\\x\" + it }}")
+                } else {
+                    field_name.into_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(
+            out,
+            "    fun toPgText(): String = listOf({encoded_fields}).joinToString(\",\", \"(\", \")\") {{ encodeCompositeField(it) }}"
+        );
+        let _ = writeln!(out);
         let _ = writeln!(out, "    companion object {{");
+        let _ = writeln!(out, "        private fun encodeCompositeField(value: Any?): String {{");
+        let _ = writeln!(out, "            if (value == null) return \"\"");
+        let _ = writeln!(out, "            val raw = value.toString()");
+        out.push_str(
+            r#"            val quote = raw.isEmpty() || raw.any { it in charArrayOf('(', ')', ',', '"', '\\') } || raw != raw.trim()
+"#,
+        );
+        let _ = writeln!(out, "            if (!quote) return raw");
+        out.push_str(
+            r#"            return "\"" + raw.replace("\\", "\\\\").replace("\"", "\"\"") + "\""
+"#,
+        );
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out);
         let _ = writeln!(out, "        /**");
         let _ = writeln!(
             out,

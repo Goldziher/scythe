@@ -384,6 +384,8 @@ fn java_annotated_param(param: &ResolvedParam) -> String {
 fn r2dbc_bind_expr_for(receiver: &str, param: &ResolvedParam) -> String {
     if param.neutral_type.starts_with("enum::") {
         format!("{receiver}.getValue()")
+    } else if param.neutral_type.starts_with("composite::") {
+        format!("{receiver}.toPgText()")
     } else {
         receiver.to_string()
     }
@@ -394,6 +396,9 @@ fn r2dbc_bind_expr_for(receiver: &str, param: &ResolvedParam) -> String {
 /// `Statement.bindNull` is generic in the same way `Row.get` is, so the boxed class is what the
 /// driver expects here too.
 fn r2dbc_bind_null_class(param: &ResolvedParam) -> String {
+    if param.neutral_type.starts_with("composite::") {
+        return "String.class".to_string();
+    }
     jvm_common::java_class_literal(box_primitive(&param.lang_type))
 }
 
@@ -432,7 +437,7 @@ fn write_r2dbc_bind_for(out: &mut String, indent: &str, index: usize, param: &Re
         let _ = writeln!(out, "{indent}stmt.bind({index}, {expr});");
         return;
     }
-    if param.neutral_type.starts_with("enum::") {
+    if param.neutral_type.starts_with("enum::") || param.neutral_type.starts_with("composite::") {
         let _ = writeln!(out, "{indent}if ({receiver} == null) {{");
         let _ = writeln!(out, "{indent}    stmt.bindNull({index}, String.class);");
         let _ = writeln!(out, "{indent}}} else {{");
@@ -444,8 +449,7 @@ fn write_r2dbc_bind_for(out: &mut String, indent: &str, index: usize, param: &Re
     }
 }
 
-/// ~keep Append an explicit `::<enum type>` cast to each PostgreSQL placeholder whose parameter
-/// is an enum.
+/// ~keep Append explicit casts to PostgreSQL placeholders for typed string parameters.
 ///
 /// R2DBC is stricter than JDBC here. A JDBC `setObject` sends the value untyped and lets the
 /// server infer it, so `WHERE status = $1` against a `user_status` column just works. The
@@ -459,7 +463,11 @@ fn write_r2dbc_bind_for(out: &mut String, indent: &str, index: usize, param: &Re
 ///
 /// Only for PostgreSQL: MySQL enums are already strings on the wire.
 fn add_pg_enum_casts(sql: &str, params: &[ResolvedParam], is_pg: bool) -> String {
-    if !is_pg || !params.iter().any(|p| p.neutral_type.starts_with("enum::")) {
+    if !is_pg
+        || !params
+            .iter()
+            .any(|p| p.neutral_type.starts_with("enum::") || p.neutral_type.starts_with("composite::"))
+    {
         return sql.to_string();
     }
     let mut result = String::with_capacity(sql.len());
@@ -480,15 +488,17 @@ fn add_pg_enum_casts(sql: &str, params: &[ResolvedParam], is_pg: bool) -> String
         result.push('$');
         result.push_str(&digits);
         // Placeholders are 1-based; `params` is 0-based and in placeholder order.
-        let enum_type = digits
+        let param = digits
             .parse::<usize>()
             .ok()
             .and_then(|n| n.checked_sub(1))
-            .and_then(|idx| params.get(idx))
-            .and_then(|p| p.neutral_type.strip_prefix("enum::"));
-        if let Some(enum_type) = enum_type {
+            .and_then(|idx| params.get(idx));
+        if let Some(enum_type) = param.and_then(|p| p.neutral_type.strip_prefix("enum::")) {
             result.push_str("::");
             result.push_str(enum_type);
+        } else if let Some(composite_type) = param.and_then(|p| p.neutral_type.strip_prefix("composite::")) {
+            result.push_str("::text::");
+            result.push_str(composite_type);
         }
     }
     result
@@ -945,6 +955,46 @@ impl CodegenBackend for JavaR2dbcBackend {
             let _ = writeln!(out, "            {}{}", value_expr, sep);
         }
         let _ = writeln!(out, "        );");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+        let encoded_fields = composite
+            .fields
+            .iter()
+            .map(|field| {
+                let field_name = to_camel_case(&field.name);
+                if field.neutral_type.starts_with("composite::") {
+                    format!("{field_name} == null ? null : {field_name}.toPgText()")
+                } else if field.neutral_type.starts_with("enum::") {
+                    format!("{field_name} == null ? null : {field_name}.getValue()")
+                } else if field.neutral_type == "bytes" {
+                    format!(
+                        "{field_name} == null ? null : \"\\\\x\" + java.util.HexFormat.of().formatHex({field_name})"
+                    )
+                } else {
+                    field_name.into_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(out, "    public String toPgText() {{");
+        let _ = writeln!(
+            out,
+            "        return java.util.stream.Stream.of({encoded_fields}).map({name}::encodeCompositeField).collect(java.util.stream.Collectors.joining(\",\", \"(\", \")\"));"
+        );
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    private static String encodeCompositeField(Object value) {{");
+        let _ = writeln!(out, "        if (value == null) return \"\";");
+        let _ = writeln!(out, "        String raw = String.valueOf(value);");
+        let _ = writeln!(
+            out,
+            r#"        boolean quote = raw.isEmpty() || raw.indexOf('(') >= 0 || raw.indexOf(')') >= 0 || raw.indexOf(',') >= 0 || raw.indexOf('"') >= 0 || raw.indexOf('\\') >= 0 || !raw.equals(raw.strip());"#
+        );
+        let _ = writeln!(out, "        if (!quote) return raw;");
+        let _ = writeln!(
+            out,
+            "        return \"\\\"\" + raw.replace(\"\\\\\", \"\\\\\\\\\").replace(\"\\\"\", \"\\\"\\\"\") + \"\\\"\";"
+        );
         let _ = writeln!(out, "    }}");
         let _ = writeln!(out);
         out.push_str(JAVA_PARSE_COMPOSITE_FIELDS_METHOD);
