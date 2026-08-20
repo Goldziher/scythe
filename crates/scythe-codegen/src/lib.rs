@@ -13,6 +13,7 @@ pub use backend_trait::{
 pub use backends::get_backend;
 pub use overrides::TypeOverride;
 
+use ahash::AHashSet;
 use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{NamingConfig, apply_case, row_struct_name, sanitize_for_identifier, to_pascal_case};
 
@@ -211,6 +212,16 @@ pub fn generate_with_backend_and_overrides(
     backend: &dyn CodegenBackend,
     overrides: &[TypeOverride],
 ) -> Result<GeneratedCode, ScytheError> {
+    generate_with_backend_and_overrides_and_nested_composites(analyzed, backend, overrides, &AHashSet::new())
+}
+
+/// Generate code while promoting the named composites to their nested-capable form.
+pub fn generate_with_backend_and_overrides_and_nested_composites(
+    analyzed: &AnalyzedQuery,
+    backend: &dyn CodegenBackend,
+    overrides: &[TypeOverride],
+    nested_composite_names: &AHashSet<String>,
+) -> Result<GeneratedCode, ScytheError> {
     let manifest = backend.manifest();
     let source_table = analyzed.source_table.as_deref().unwrap_or("");
 
@@ -287,7 +298,8 @@ pub fn generate_with_backend_and_overrides(
         if !reachable_composites.contains(comp.sql_name.as_str()) {
             continue;
         }
-        let from_nested = nested_refs.composites.contains(comp.sql_name.as_str());
+        let from_nested = nested_refs.composites.contains(comp.sql_name.as_str())
+            || nested_composite_names.contains(comp.sql_name.as_str());
         if !extra_defs.is_empty() {
             extra_defs.push_str("\n\n");
         }
@@ -2105,6 +2117,42 @@ mod tests {
             "inner_point, reachable only through outer_shape's own field list, must also get a \
              definition emitted; got:\n{model}"
         );
+    }
+
+    #[test]
+    fn file_wide_nested_composite_promotion_uses_nested_capable_definition() {
+        use scythe_core::analyzer::{CompositeFieldInfo, CompositeInfo};
+
+        let backend = get_backend("rust-sqlx", "postgresql").unwrap();
+        let mut query = make_query(
+            "RoundTripAddress",
+            QueryCommand::One,
+            "SELECT $1::user_address AS address",
+            vec![AnalyzedColumn {
+                name: "address".to_string(),
+                neutral_type: "composite::user_address".to_string(),
+                nullable: false,
+                ..Default::default()
+            }],
+            Vec::new(),
+        );
+        query.composites = vec![CompositeInfo {
+            sql_name: "user_address".to_string(),
+            fields: vec![CompositeFieldInfo {
+                name: "street".to_string(),
+                neutral_type: "string".to_string(),
+            }],
+        }];
+        let nested_names = AHashSet::from_iter(["user_address".to_string()]);
+
+        let result =
+            generate_with_backend_and_overrides_and_nested_composites(&query, backend.as_ref(), &[], &nested_names)
+                .unwrap();
+        let definition = result.model_struct.unwrap();
+
+        assert!(definition.contains("serde::Serialize"), "{definition}");
+        assert!(definition.contains("serde::Deserialize"), "{definition}");
+        assert_eq!(definition.matches("pub struct UserAddress").count(), 1);
     }
 
     /// Must fail before the fix: `analyzed.composites` arrives in the analyzer's

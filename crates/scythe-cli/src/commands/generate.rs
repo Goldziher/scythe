@@ -9,7 +9,8 @@ use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, row_str
 use scythe_codegen::validation::{ValidationOutcome, validate_generated_code};
 use scythe_codegen::{
     CodegenBackend, RbsEnumInfo, RbsGenerationContext, RbsQueryInfo, TypeOverride, degrade_unsupported_nested_structs,
-    generate_single_enum_def_with_backend, generate_with_backend_and_overrides, get_backend,
+    generate_single_enum_def_with_backend, generate_with_backend_and_overrides,
+    generate_with_backend_and_overrides_and_nested_composites, get_backend,
 };
 use scythe_core::analyzer::{AnalyzedQuery, EnumInfo, analyze};
 use scythe_core::catalog::Catalog;
@@ -1415,9 +1416,41 @@ fn generate_for_backend(
         }
     }
 
+    let initial_codes: Vec<scythe_codegen::GeneratedCode> = analyzed_queries
+        .iter()
+        .map(|analyzed| generate_with_backend_and_overrides(analyzed, backend, overrides))
+        .collect::<Result<_, _>>()?;
+    let nested_composite_names: AHashSet<String> = analyzed_queries
+        .iter()
+        .zip(&initial_codes)
+        .flat_map(|(analyzed, code)| {
+            analyzed
+                .composites
+                .iter()
+                .filter(|composite| {
+                    scythe_codegen::nested_type_is_emitted(
+                        analyzed,
+                        &code.nested_struct_defs,
+                        "composite::",
+                        &composite.sql_name,
+                    )
+                })
+                .map(|composite| composite.sql_name.clone())
+        })
+        .collect();
+
     let mut results: Vec<QueryResult> = Vec::new();
-    for analyzed in analyzed_queries {
-        let code = generate_with_backend_and_overrides(analyzed, backend, overrides)?;
+    for (analyzed, initial_code) in analyzed_queries.iter().zip(initial_codes) {
+        let code = if nested_composite_names.is_empty() {
+            initial_code
+        } else {
+            generate_with_backend_and_overrides_and_nested_composites(
+                analyzed,
+                backend,
+                overrides,
+                &nested_composite_names,
+            )?
+        };
 
         // ~keep GH #147: `degrade_unsupported_nested_structs` rewrites a nested-aggregate
         // column to an opaque `json`/`json_array` scalar when the backend cannot build a
