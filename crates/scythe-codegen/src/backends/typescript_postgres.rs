@@ -235,6 +235,7 @@ fn batch_item_sql_single(sql: &str, param: &ResolvedParam, composites: &[Composi
 fn pg_bind_expr(access_expr: &str, neutral_type: &str, composites: &[CompositeInfo]) -> String {
     match neutral_type.strip_prefix("composite::") {
         Some(sql_name) => pg_composite_bind_expr(access_expr, sql_name, composites),
+        None if neutral_type == "json" => format!("${{sql.json({access_expr})}}"),
         None => format!("${{{access_expr}}}"),
     }
 }
@@ -275,7 +276,8 @@ fn pg_composite_bind_expr(access_expr: &str, sql_name: &str, composites: &[Compo
             pg_bind_expr(&field_access, &field.neutral_type, composites)
         })
         .collect();
-    format!("ROW({})::{}", fields.join(", "), sql_name)
+    let row = format!("ROW({})::{sql_name}", fields.join(", "));
+    format!("${{{access_expr} === null ? sql`NULL::{sql_name}` : sql`{row}`}}")
 }
 
 pub struct TypescriptPostgresBackend {
@@ -317,7 +319,11 @@ impl TypescriptPostgresBackend {
                 ));
             }
         };
-        let manifest = super::parse_manifest(default_toml)?;
+        let mut manifest = super::parse_manifest(default_toml)?;
+        manifest
+            .types
+            .scalars
+            .insert("json".to_string(), "import(\"postgres\").JSONValue".to_string());
         Ok(Self {
             manifest,
             row_type: TsRowType::default(),
@@ -1270,9 +1276,10 @@ impl TypescriptPostgresBackend {
 
 #[cfg(test)]
 mod tests {
-    use super::TypescriptPostgresBackend;
+    use super::{TypescriptPostgresBackend, pg_bind_expr};
     use crate::backend_trait::CodegenBackend;
     use scythe_core::analyzer::{AnalyzedColumn, AnalyzedParam, AnalyzedQuery, GroupByConfig};
+    use scythe_core::analyzer::{CompositeFieldInfo, CompositeInfo};
     use scythe_core::parser::QueryCommand;
 
     fn discriminated_join_columns() -> Vec<crate::backend_trait::ResolvedColumn> {
@@ -1698,13 +1705,17 @@ mod tests {
 
     /// Regression test guarding against a naive fix that splits
     /// `params_inline` on top-level `", "` to recover individual parameters.
-    /// A `json` param's TS type is `Record<string, unknown>`, which itself
-    /// contains `", "` -- splitting on it would corrupt a single parameter
-    /// into `payload: Record<string` and `unknown>[]`. The structured
-    /// `(name, type)` pairs must survive a wrapped signature intact.
+    /// The synthetic type contains a top-level-looking `", "` inside its
+    /// generic arguments. The structured `(name, type)` pairs must survive a
+    /// wrapped signature intact.
     #[test]
-    fn test_batch_signature_wrap_preserves_json_param_type_intact() {
-        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+    fn test_batch_signature_wrap_preserves_type_with_internal_comma() {
+        let mut backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        backend
+            .manifest
+            .types
+            .scalars
+            .insert("json".to_string(), "Record<string, unknown>".to_string());
         let query = make_batch_query(
             "CreateUserAccountRecordPayload",
             "INSERT INTO user_account_record_payload (payload) VALUES ($1)",
@@ -1722,12 +1733,44 @@ mod tests {
 
         assert!(
             query_fn.contains("\titems: Record<string, unknown>[],"),
-            "the json param's type must survive intact on the items line, not be split \
+            "the synthetic param type must survive intact on the items line, not be split \
              on its internal ', '; got:\n{query_fn}"
         );
         assert!(
             !query_fn.contains("Record<string,\n"),
-            "the json type must not be split at its internal comma; got:\n{query_fn}"
+            "the synthetic type must not be split at its internal comma; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_json_uses_postgres_driver_json_value_type() {
+        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        assert_eq!(
+            backend.manifest.types.scalars.get("json").map(String::as_str),
+            Some("import(\"postgres\").JSONValue")
+        );
+    }
+
+    #[test]
+    fn test_pg_bind_expr_serializes_json_and_preserves_null_composites() {
+        let composites = vec![CompositeInfo {
+            sql_name: "address".to_string(),
+            fields: vec![
+                CompositeFieldInfo {
+                    name: "street".to_string(),
+                    neutral_type: "string".to_string(),
+                },
+                CompositeFieldInfo {
+                    name: "metadata".to_string(),
+                    neutral_type: "json".to_string(),
+                },
+            ],
+        }];
+
+        assert_eq!(pg_bind_expr("metadata", "json", &composites), "${sql.json(metadata)}");
+        assert_eq!(
+            pg_bind_expr("home_address", "composite::address", &composites),
+            "${home_address === null ? sql`NULL::address` : sql`ROW(${home_address.street}, ${sql.json(home_address.metadata)})::address`}"
         );
     }
 
