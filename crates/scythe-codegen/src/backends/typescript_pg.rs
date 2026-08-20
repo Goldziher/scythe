@@ -95,6 +95,29 @@ fn ts_parse_composite_fields_helper(name: &str) -> String {
     )
 }
 
+fn ts_encode_composite_helper(composite: &CompositeInfo, naming: &scythe_backend::naming::NamingConfig) -> String {
+    let fields = composite
+        .fields
+        .iter()
+        .map(|field| format!("encode(value.{})", to_camel_case(&field.name)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "function encode{name}(value: {name} | null): string | null {{\n\
+\tif (value === null) return null;\n\
+\tconst encode = (field: unknown): string => {{\n\
+\t\tconst text = String(field);\n\
+\t\tif (text === \"\" || /[(),\\\"\\\\\\s]/.test(text)) {{\n\
+\t\t\treturn `\"${{text.replaceAll(\"\\\\\", \"\\\\\\\\\").replaceAll('\\\"', '\\\"\\\"')}}\"`;\n\
+\t\t}}\n\
+\t\treturn text;\n\
+\t}};\n\
+\treturn `({fields})`;\n\
+}}",
+        name = composite_type_name(&composite.sql_name, naming),
+    )
+}
+
 /// PostgreSQL's default `bytea` text output is hex (`"\x48656c6c6f"`); decode the digits after
 /// the `\x` prefix back into a `Buffer`. Emitted only when a composite has a `bytes` field.
 fn ts_parse_composite_bytes_helper(name: &str) -> String {
@@ -357,6 +380,32 @@ impl CodegenBackend for TypescriptPgBackend {
             &analyzed.params,
         ));
 
+        let encode_param = |param: &ResolvedParam, member: String| {
+            let Some(neutral_type) = analyzed
+                .params
+                .iter()
+                .find(|candidate| candidate.name == param.name)
+                .map(|candidate| candidate.neutral_type.as_str())
+            else {
+                return member;
+            };
+            neutral_type
+                .strip_prefix("composite::")
+                .map_or(member.clone(), |sql_name| {
+                    format!(
+                        "encode{}({member})",
+                        composite_type_name(sql_name, &self.manifest.naming)
+                    )
+                })
+        };
+        let bind_expr = |param: &ResolvedParam, receiver: Option<&str>| {
+            let member = receiver.map_or_else(
+                || param.field_name.clone(),
+                |value| ts_member_access(value, &param.field_name),
+            );
+            encode_param(param, member)
+        };
+
         let query_sig_params: Vec<(String, String)> = std::iter::once(("client".to_string(), "PoolClient".to_string()))
             .chain(params.iter().map(|p| (p.field_name.clone(), p.full_type.clone())))
             .collect();
@@ -366,7 +415,7 @@ impl CodegenBackend for TypescriptPgBackend {
                 let _ = writeln!(out, "{}client.query<{}>(", prefix, type_name);
                 let _ = writeln!(out, "\t\t`{}`,", sql);
                 if !params.is_empty() {
-                    let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+                    let args: Vec<String> = params.iter().map(|p| bind_expr(p, None)).collect();
                     let _ = writeln!(out, "\t\t[{}],", args.join(", "));
                 }
                 let _ = writeln!(out, "\t);");
@@ -376,7 +425,7 @@ impl CodegenBackend for TypescriptPgBackend {
             let param_str = if params.is_empty() {
                 String::new()
             } else {
-                let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+                let args: Vec<String> = params.iter().map(|p| bind_expr(p, None)).collect();
                 format!(", [{}]", args.join(", "))
             };
             let oneliner = format!("{}client.query(`{}`{});", prefix, sql, param_str);
@@ -387,7 +436,7 @@ impl CodegenBackend for TypescriptPgBackend {
                 let _ = writeln!(out, "{}client.query(", prefix);
                 let _ = writeln!(out, "\t\t`{}`,", sql);
                 if !params.is_empty() {
-                    let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+                    let args: Vec<String> = params.iter().map(|p| bind_expr(p, None)).collect();
                     let _ = writeln!(out, "\t\t[{}],", args.join(", "));
                 }
                 let _ = writeln!(out, "\t);");
@@ -561,7 +610,7 @@ impl CodegenBackend for TypescriptPgBackend {
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
                     let _ = writeln!(out, "\t\t\tawait client.query(");
                     let _ = writeln!(out, "\t\t\t\t`{}`,", sql);
-                    let args: Vec<String> = params.iter().map(|p| ts_member_access("item", &p.field_name)).collect();
+                    let args: Vec<String> = params.iter().map(|p| bind_expr(p, Some("item"))).collect();
                     let _ = writeln!(out, "\t\t\t\t[{}],", args.join(", "));
                     let _ = writeln!(out, "\t\t\t);");
                     let _ = writeln!(out, "\t\t}}");
@@ -585,7 +634,8 @@ impl CodegenBackend for TypescriptPgBackend {
                     let _ = writeln!(out, "\ttry {{");
                     let _ = writeln!(out, "\t\tawait client.query(\"BEGIN\");");
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
-                    let _ = writeln!(out, "\t\t\tawait client.query(`{}`, [item]);", sql);
+                    let item = encode_param(&params[0], "item".to_string());
+                    let _ = writeln!(out, "\t\t\tawait client.query(`{}`, [{}]);", sql, item);
                     let _ = writeln!(out, "\t\t}}");
                     let _ = writeln!(out, "\t\tawait client.query(\"COMMIT\");");
                     let _ = writeln!(out, "\t}} catch (error) {{");
@@ -833,6 +883,9 @@ impl CodegenBackend for TypescriptPgBackend {
             let _ = writeln!(out);
             out.push_str(&ts_parse_composite_offset_datetime_helper(&name));
         }
+        let _ = writeln!(out);
+        let _ = writeln!(out);
+        out.push_str(&ts_encode_composite_helper(composite, &self.manifest.naming));
         Ok(out)
     }
 

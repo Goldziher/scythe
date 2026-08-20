@@ -107,6 +107,64 @@ fn javascript_postgres_binds_a_composite_param_as_a_row_constructor() {
     );
 }
 
+#[test]
+fn typescript_pg_encodes_a_composite_param_as_postgres_text() {
+    let backend = get_backend("typescript-pg", "postgresql").expect("typescript-pg supports postgresql");
+    let query = composite_param_query();
+    let composite_def = backend
+        .generate_composite_def(&query.composites[0])
+        .expect("composite definition must be generated");
+    let result = generate_with_backend(&query, &*backend).expect("codegen must not fail on a composite param");
+    let query_fn = result.query_fn.expect("Exec command must produce a query fn");
+
+    assert!(
+        query_fn.contains("[encodeAddress(home_address)]"),
+        "must encode the composite before binding it; got:\n{query_fn}"
+    );
+    assert!(
+        composite_def.contains("function encodeAddress(value: Address | null): string | null"),
+        "must generate a nullable whole-composite encoder; got:\n{composite_def}"
+    );
+    assert!(
+        composite_def.contains("replaceAll(\"\\\\\", \"\\\\\\\\\").replaceAll('\\\"', '\\\"\\\"')"),
+        "encoder must escape backslashes and quotes; got:\n{composite_def}"
+    );
+}
+
+#[test]
+fn typescript_kysely_encodes_a_composite_param_as_postgres_text() {
+    let backend = get_backend("typescript-kysely", "postgresql").expect("typescript-kysely supports postgresql");
+    let query = composite_param_query();
+    let composite_def = backend
+        .generate_composite_def(&query.composites[0])
+        .expect("composite definition must be generated");
+    let result = generate_with_backend(&query, &*backend).expect("codegen must not fail on a composite param");
+    let query_fn = result.query_fn.expect("Exec command must produce a query fn");
+
+    assert!(
+        query_fn.contains("${encodeAddress(home_address)}"),
+        "must encode the composite before binding it; got:\n{query_fn}"
+    );
+    assert!(
+        composite_def.contains("function encodeAddress(value: Address | null): string | null"),
+        "must generate a nullable whole-composite encoder; got:\n{composite_def}"
+    );
+}
+
+#[test]
+fn typescript_kysely_encodes_a_single_composite_batch_item() {
+    let backend = get_backend("typescript-kysely", "postgresql").expect("typescript-kysely supports postgresql");
+    let mut query = composite_param_query();
+    query.command = QueryCommand::Batch;
+    let result = generate_with_backend(&query, &*backend).expect("codegen must not fail on a composite batch item");
+    let query_fn = result.query_fn.expect("Batch command must produce a query fn");
+
+    assert!(
+        query_fn.contains("${encodeAddress(item)}"),
+        "must encode each composite batch item; got:\n{query_fn}"
+    );
+}
+
 /// A `:batch` query whose only parameter is composite-typed binds each item
 /// as a whole (`${item}` today) -- the same defect one level up, since the
 /// composite is now the entire batch item rather than one field of it.

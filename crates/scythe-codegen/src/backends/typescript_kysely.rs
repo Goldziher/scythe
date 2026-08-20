@@ -79,6 +79,29 @@ fn ts_parse_composite_fields_helper(name: &str) -> String {
     )
 }
 
+fn ts_encode_composite_helper(composite: &CompositeInfo, naming: &scythe_backend::naming::NamingConfig) -> String {
+    let fields = composite
+        .fields
+        .iter()
+        .map(|field| format!("encode(value.{})", to_camel_case(&field.name)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "function encode{name}(value: {name} | null): string | null {{\n\
+\tif (value === null) return null;\n\
+\tconst encode = (field: unknown): string => {{\n\
+\t\tconst text = String(field);\n\
+\t\tif (text === \"\" || /[(),\\\"\\\\\\s]/.test(text)) {{\n\
+\t\t\treturn `\"${{text.replaceAll(\"\\\\\", \"\\\\\\\\\").replaceAll('\\\"', '\\\"\\\"')}}\"`;\n\
+\t\t}}\n\
+\t\treturn text;\n\
+\t}};\n\
+\treturn `({fields})`;\n\
+}}",
+        name = composite_type_name(&composite.sql_name, naming),
+    )
+}
+
 /// PostgreSQL's default `bytea` text output is hex (`"\x48656c6c6f"`); decode the digits after
 /// the `\x` prefix back into a `Buffer`. Emitted only when a composite has a `bytes` field.
 fn ts_parse_composite_bytes_helper(name: &str) -> String {
@@ -323,6 +346,22 @@ fn interpolate_kysely_params(sql: &str, exprs: &[String]) -> String {
     })
 }
 
+fn kysely_param_expr(
+    analyzed: &AnalyzedQuery,
+    param: &ResolvedParam,
+    member: String,
+    naming: &scythe_backend::naming::NamingConfig,
+) -> String {
+    analyzed
+        .params
+        .iter()
+        .find(|candidate| candidate.name == param.name)
+        .and_then(|candidate| candidate.neutral_type.strip_prefix("composite::"))
+        .map_or(member.clone(), |sql_name| {
+            format!("encode{}({member})", composite_type_name(sql_name, naming))
+        })
+}
+
 /// Emit a `:batch` function body that reuses the caller's transaction instead
 /// of always opening a new one.
 ///
@@ -417,7 +456,10 @@ impl CodegenBackend for TypescriptKyselyBackend {
         // Escape the user's SQL before any of scythe's own `${}` bindings
         // are interpolated into it (see `interpolate_kysely_params` doc).
         let escaped = escape_ts_template_literal(&cleaned);
-        let exprs: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+        let exprs: Vec<String> = params
+            .iter()
+            .map(|param| kysely_param_expr(analyzed, param, param.field_name.clone(), &self.manifest.naming))
+            .collect();
         let sql_text = interpolate_kysely_params(&escaped, &exprs);
 
         // ~keep Query/exec commands only ever call `.execute(db)` through the `sql`
@@ -534,8 +576,17 @@ impl CodegenBackend for TypescriptKyselyBackend {
                 let batch_fn_name = format!("{}Batch", func_name);
                 if params.len() > 1 {
                     let params_type_name = format!("{}BatchParams", struct_name);
-                    let item_exprs: Vec<String> =
-                        params.iter().map(|p| ts_member_access("item", &p.field_name)).collect();
+                    let item_exprs: Vec<String> = params
+                        .iter()
+                        .map(|param| {
+                            kysely_param_expr(
+                                analyzed,
+                                param,
+                                ts_member_access("item", &param.field_name),
+                                &self.manifest.naming,
+                            )
+                        })
+                        .collect();
                     let batch_sql = interpolate_kysely_params(&escaped, &item_exprs);
 
                     let _ = writeln!(out, "/** Params for {} batch operation. */", struct_name);
@@ -563,7 +614,8 @@ impl CodegenBackend for TypescriptKyselyBackend {
                     );
                     write_batch_transaction_body(&mut out, "for (const item of items) {", &batch_sql);
                 } else if params.len() == 1 {
-                    let batch_sql = interpolate_kysely_params(&escaped, &["item".to_string()]);
+                    let item = kysely_param_expr(analyzed, &params[0], "item".to_string(), &self.manifest.naming);
+                    let batch_sql = interpolate_kysely_params(&escaped, &[item]);
 
                     let _ = writeln!(
                         out,
@@ -664,7 +716,10 @@ impl CodegenBackend for TypescriptKyselyBackend {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let cleaned = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         let escaped = escape_ts_template_literal(&cleaned);
-        let exprs: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+        let exprs: Vec<String> = params
+            .iter()
+            .map(|param| kysely_param_expr(analyzed, param, param.field_name.clone(), &self.manifest.naming))
+            .collect();
         let sql_text = interpolate_kysely_params(&escaped, &exprs);
         let mut out = String::new();
 
@@ -846,6 +901,9 @@ impl CodegenBackend for TypescriptKyselyBackend {
             let _ = writeln!(out);
             out.push_str(&ts_parse_composite_offset_datetime_helper(&name));
         }
+        let _ = writeln!(out);
+        let _ = writeln!(out);
+        out.push_str(&ts_encode_composite_helper(composite, &self.manifest.naming));
         Ok(out)
     }
 
