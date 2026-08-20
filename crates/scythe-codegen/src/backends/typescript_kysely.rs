@@ -85,7 +85,7 @@ fn ts_encode_composite_helper(composite: &CompositeInfo, naming: &scythe_backend
         .iter()
         .map(|field| format!("${{encode(value.{})}}", to_camel_case(&field.name)))
         .collect::<Vec<_>>()
-        .join(", ");
+        .join(",");
     format!(
         "function encode{name}(value: {name} | null): string | null {{\n\
 \tif (value === null) return null;\n\
