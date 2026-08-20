@@ -323,7 +323,7 @@ impl TypescriptPostgresBackend {
         manifest
             .types
             .scalars
-            .insert("json".to_string(), "import(\"postgres\").JSONValue".to_string());
+            .insert("json".to_string(), "PostgresJsonValue".to_string());
         Ok(Self {
             manifest,
             row_type: TsRowType::default(),
@@ -381,7 +381,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
         if self.js_mode {
             // Nothing left for this header to carry: the "do not edit"
             // notice lives in the scythe:provenance line every backend emits.
-            return String::new();
+            return "/** @typedef {null | string | number | boolean | Date | readonly PostgresJsonValue[] | {[key: string]: undefined | PostgresJsonValue}} PostgresJsonValue */\n".to_string();
         }
         if self.structs_only {
             if self.row_type == TsRowType::Zod {
@@ -389,7 +389,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
             }
             return String::new();
         }
-        let mut header = "import type { Sql } from \"postgres\";\n".to_string();
+        let mut header = "type PostgresJsonValue = null | string | number | boolean | Date | readonly PostgresJsonValue[] | { readonly [key: string]: undefined | PostgresJsonValue };\nimport type { Sql } from \"postgres\";\n".to_string();
         if self.row_type == TsRowType::Zod {
             header.push_str("import { z } from \"zod\";\n");
         }
@@ -1743,11 +1743,11 @@ mod tests {
     }
 
     #[test]
-    fn test_json_uses_postgres_driver_json_value_type() {
+    fn test_json_uses_postgres_driver_json_parameter_type() {
         let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
         assert_eq!(
             backend.manifest.types.scalars.get("json").map(String::as_str),
-            Some("import(\"postgres\").JSONValue")
+            Some("PostgresJsonValue")
         );
     }
 
@@ -2039,7 +2039,9 @@ mod tests {
 
     #[test]
     fn test_js_mode_file_header_has_no_ts_only_imports() {
-        assert_eq!(js_backend().file_header(), "");
+        let header = js_backend().file_header();
+        assert!(header.contains("@typedef"), "got:\n{header}");
+        assert!(!header.contains("import type"), "got:\n{header}");
     }
 
     #[test]

@@ -980,6 +980,13 @@ const JS_MODE_PG_SCHEMA: [&str; 2] = [
 const JS_MODE_PG_ONE: &str = "-- @name GetUserById\n-- @returns :one\n\
     SELECT id, name, bio FROM users WHERE id = $1;";
 
+const JS_MODE_POSTGRES_SCHEMA: [&str; 2] = [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, bio TEXT, metadata JSONB NOT NULL);",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total NUMERIC);",
+];
+const JS_MODE_POSTGRES_ONE: &str = "-- @name GetUserById\n-- @returns :one\n\
+    SELECT id, name, bio, metadata FROM users WHERE id = $1;";
+
 const JS_MODE_MYSQL_SCHEMA: [&str; 2] = [
     "CREATE TABLE users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, bio TEXT);",
     "CREATE TABLE orders (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, total DECIMAL(10,2));",
@@ -1152,11 +1159,15 @@ fn test_javascript_postgres_grouped_and_nullable_pass_real_tools() {
         "javascript-postgres",
         "postgresql",
         &SqlDialect::PostgreSQL,
-        &JS_MODE_PG_SCHEMA,
-        JS_MODE_PG_ONE,
+        &JS_MODE_POSTGRES_SCHEMA,
+        JS_MODE_POSTGRES_ONE,
     );
     eprintln!("\n=== javascript-postgres (nullable + grouped) ===\n{code}\n=== END ===\n");
     assert_js_mode_nullable_property_is_type_or_null(&code, "bio");
+    assert!(
+        code.contains("@property {PostgresJsonValue} metadata"),
+        "expected the public postgres.js json-parameter type; got:\n{code}"
+    );
     assert!(
         code.contains("@typedef {object} GetUsersWithOrdersRow"),
         "expected the grouped parent typedef; got:\n{code}"
