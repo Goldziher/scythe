@@ -166,20 +166,23 @@ fn ts_composite_field_from_text(neutral_type: &str, field_type: &str, raw: &str,
 /// query selects no composite column, so a caller can skip the spread rewrite entirely in the
 /// common case.
 ///
-/// Keys the raw driver read by `col.name` (the default/`Snake` shape -- see
-/// `generate_grouped_query_fn`'s `driver_key_for` doc comment for why that is *not* generally
-/// the same as `col.field_name`, and for the one case this does not cover: a caller running
-/// `field_case = "camelCase"` with Kysely's `CamelCasePlugin` registered, whose `flatRows` are
-/// already camelCase-keyed before this code runs. `generate_query_fn` ignored every column's
-/// name before this fix regardless of `field_case`, so this is a strict improvement for the
-/// default shape without claiming to fix that pre-existing, separate gap.
-fn ts_composite_field_overrides(columns: &[ResolvedColumn], var: &str) -> Vec<(String, String)> {
+/// ~keep Read raw driver keys under the default shape and generated field names when CamelCasePlugin
+/// has already transformed the row. This follows the grouped-query key contract below.
+fn ts_composite_field_overrides(
+    columns: &[ResolvedColumn],
+    var: &str,
+    field_case: TsFieldCase,
+) -> Vec<(String, String)> {
     columns
         .iter()
         .filter(|c| c.neutral_type.starts_with("composite::"))
         .map(|c| {
             let key = ts_property_key(&c.field_name);
-            let member = ts_member_access(var, &c.name);
+            let driver_key = match field_case {
+                TsFieldCase::Snake => &c.name,
+                TsFieldCase::Camel => &c.field_name,
+            };
+            let member = ts_member_access(var, driver_key);
             (key, format!("parse{}({member}) as {}", c.lang_type, c.full_type))
         })
         .collect()
@@ -511,7 +514,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
                 let _ = writeln!(out, "\tif (row === undefined) {{");
                 let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
                 let _ = writeln!(out, "\t}}");
-                let overrides = ts_composite_field_overrides(columns, "row");
+                let overrides = ts_composite_field_overrides(columns, "row", self.field_case);
                 if overrides.is_empty() {
                     let _ = writeln!(out, "\treturn row;");
                 } else {
@@ -533,7 +536,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
                     "\tconst result = await sql<{}>`{}`.execute(db);",
                     struct_name, sql_text
                 );
-                let overrides = ts_composite_field_overrides(columns, "row");
+                let overrides = ts_composite_field_overrides(columns, "row", self.field_case);
                 if overrides.is_empty() {
                     let _ = writeln!(out, "\treturn result.rows[0] ?? null;");
                 } else {
@@ -559,7 +562,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
                     "\tconst result = await sql<{}>`{}`.execute(db);",
                     struct_name, sql_text
                 );
-                let overrides = ts_composite_field_overrides(columns, "row");
+                let overrides = ts_composite_field_overrides(columns, "row", self.field_case);
                 if overrides.is_empty() {
                     let _ = writeln!(out, "\treturn result.rows;");
                 } else {
@@ -947,7 +950,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
 
 #[cfg(test)]
 mod tests {
-    use super::TypescriptKyselyBackend;
+    use super::{TsFieldCase, TypescriptKyselyBackend, ts_composite_field_overrides};
     use crate::GeneratedCode;
     use crate::backend_trait::CodegenBackend;
     use scythe_core::analyzer::{AnalyzedColumn, AnalyzedParam, AnalyzedQuery, GroupByConfig};
@@ -1555,6 +1558,31 @@ mod tests {
         assert!(
             !query_fn.contains("row['order_id']") && !query_fn.contains("row['order_date']"),
             "must not read the raw SQL name once field_case renamed it; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_composite_row_override_reads_camel_case_driver_key() {
+        use crate::backend_trait::ResolvedColumn;
+
+        let columns = vec![ResolvedColumn {
+            name: "home_address".to_string(),
+            field_name: "homeAddress".to_string(),
+            lang_type: "WidgetAddress".to_string(),
+            full_type: "WidgetAddress".to_string(),
+            neutral_type: "composite::widget_address".to_string(),
+            sql_type: "widget_address".to_string(),
+            nullable: false,
+            join_group: None,
+            nullable_before_join: false,
+        }];
+
+        assert_eq!(
+            ts_composite_field_overrides(&columns, "row", TsFieldCase::Camel),
+            vec![(
+                "homeAddress".to_string(),
+                "parseWidgetAddress(row.homeAddress) as WidgetAddress".to_string(),
+            )]
         );
     }
 
