@@ -121,35 +121,9 @@ async function main(): Promise<void> {
 		await sql`DROP TYPE IF EXISTS user_status CASCADE`;
 		await sql`DROP TYPE IF EXISTS user_address CASCADE`;
 
-		await sql`CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned')`;
-		// board #197: a nullable composite type, used by the nullable
-		// `address` column below.
-		await sql`CREATE TYPE user_address AS (street TEXT, city TEXT, zip TEXT)`;
-		await sql`CREATE TABLE users (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL,
-      email TEXT,
-      status user_status NOT NULL DEFAULT 'active',
-      secondary_status user_status,
-      address user_address,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`;
-		await sql`CREATE TABLE orders (
-      id SERIAL PRIMARY KEY,
-      user_id INT NOT NULL REFERENCES users (id),
-      total NUMERIC(10, 2) NOT NULL,
-      notes TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`;
-		await sql`CREATE TABLE tags (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE
-    )`;
-		await sql`CREATE TABLE user_tags (
-      user_id INT NOT NULL REFERENCES users (id),
-      tag_id INT NOT NULL REFERENCES tags (id),
-      PRIMARY KEY (user_id, tag_id)
-    )`;
+		const { readFile } = await import("node:fs/promises");
+		const schemaPath = new URL("../sql/pg/schema.sql", import.meta.url).pathname;
+		await sql.unsafe(await readFile(schemaPath, "utf8"), [], { prepare: false });
 
 		// Test: CreateUser
 		const user = await createUser(

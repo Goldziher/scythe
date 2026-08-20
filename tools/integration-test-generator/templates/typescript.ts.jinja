@@ -345,39 +345,9 @@ async function main(): Promise<void> {
 		await client.query("DROP TYPE IF EXISTS user_status CASCADE");
 		await client.query("DROP TYPE IF EXISTS user_address CASCADE");
 
-		await client.query(
-			"CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned')",
-		);
-		// board #197: a nullable composite type, used by the nullable
-		// `address` column below.
-		await client.query(
-			"CREATE TYPE user_address AS (street TEXT, city TEXT, zip TEXT)",
-		);
-		await client.query(`CREATE TABLE users (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL,
-      email TEXT,
-      status user_status NOT NULL DEFAULT 'active',
-      secondary_status user_status,
-      address user_address,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`);
-		await client.query(`CREATE TABLE orders (
-      id SERIAL PRIMARY KEY,
-      user_id INT NOT NULL REFERENCES users (id),
-      total NUMERIC(10, 2) NOT NULL,
-      notes TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`);
-		await client.query(`CREATE TABLE tags (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE
-    )`);
-		await client.query(`CREATE TABLE user_tags (
-      user_id INT NOT NULL REFERENCES users (id),
-      tag_id INT NOT NULL REFERENCES tags (id),
-      PRIMARY KEY (user_id, tag_id)
-    )`);
+		const { readFile } = await import("node:fs/promises");
+		const schemaPath = new URL("{{ schema_dir }}/{{ schema_file }}", import.meta.url).pathname;
+		await client.query(await readFile(schemaPath, "utf8"));
 {%- endif %}
 {% if options.row_type == "zod" %}
 		// Test: Zod schemas exist and are ZodType instances
@@ -742,42 +712,11 @@ async function main(): Promise<void> {
 		await sql`DROP TABLE IF EXISTS orders CASCADE`.execute(db);
 		await sql`DROP TABLE IF EXISTS users CASCADE`.execute(db);
 		await sql`DROP TYPE IF EXISTS user_status CASCADE`.execute(db);
-		{#- This branch builds its own schema inline rather than reading sql/pg/schema.sql,
-		    so it never creates user_address -- but every postgres project in the CI job
-		    shares one database, and leaving the type behind makes the next project's
-		    CREATE TYPE fail with 42710. Teardown has to cover types this harness does not
-		    itself create. #}
 		await sql`DROP TYPE IF EXISTS user_address CASCADE`.execute(db);
 
-		await sql`CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned')`.execute(db);
-		// board #197: a nullable composite type, used by the nullable
-		// `address` column below.
-		await sql`CREATE TYPE user_address AS (street TEXT, city TEXT, zip TEXT)`.execute(db);
-		await sql`CREATE TABLE users (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL,
-      email TEXT,
-      status user_status NOT NULL DEFAULT 'active',
-      secondary_status user_status,
-      address user_address,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`.execute(db);
-		await sql`CREATE TABLE orders (
-      id SERIAL PRIMARY KEY,
-      user_id INT NOT NULL REFERENCES users (id),
-      total NUMERIC(10, 2) NOT NULL,
-      notes TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`.execute(db);
-		await sql`CREATE TABLE tags (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE
-    )`.execute(db);
-		await sql`CREATE TABLE user_tags (
-      user_id INT NOT NULL REFERENCES users (id),
-      tag_id INT NOT NULL REFERENCES tags (id),
-      PRIMARY KEY (user_id, tag_id)
-    )`.execute(db);
+		const { readFile } = await import("node:fs/promises");
+		const schemaPath = new URL("{{ schema_dir }}/{{ schema_file }}", import.meta.url).pathname;
+		await sql.raw(await readFile(schemaPath, "utf8")).execute(db);
 {%- endif %}
 
 		// Test: CreateUser
@@ -1067,39 +1006,11 @@ async function main(): Promise<void> {
 		await sql`DROP TABLE IF EXISTS orders CASCADE`;
 		await sql`DROP TABLE IF EXISTS users CASCADE`;
 		await sql`DROP TYPE IF EXISTS user_status CASCADE`;
-		{#- Same reason as the kysely branch above: this harness builds its schema inline and
-		    never creates user_address, but it shares the CI database with projects that do. #}
 		await sql`DROP TYPE IF EXISTS user_address CASCADE`;
 
-		await sql`CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned')`;
-		// board #197: a nullable composite type, used by the nullable
-		// `address` column below.
-		await sql`CREATE TYPE user_address AS (street TEXT, city TEXT, zip TEXT)`;
-		await sql`CREATE TABLE users (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL,
-      email TEXT,
-      status user_status NOT NULL DEFAULT 'active',
-      secondary_status user_status,
-      address user_address,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`;
-		await sql`CREATE TABLE orders (
-      id SERIAL PRIMARY KEY,
-      user_id INT NOT NULL REFERENCES users (id),
-      total NUMERIC(10, 2) NOT NULL,
-      notes TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`;
-		await sql`CREATE TABLE tags (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE
-    )`;
-		await sql`CREATE TABLE user_tags (
-      user_id INT NOT NULL REFERENCES users (id),
-      tag_id INT NOT NULL REFERENCES tags (id),
-      PRIMARY KEY (user_id, tag_id)
-    )`;
+		const { readFile } = await import("node:fs/promises");
+		const schemaPath = new URL("{{ schema_dir }}/{{ schema_file }}", import.meta.url).pathname;
+		await sql.unsafe(await readFile(schemaPath, "utf8"), [], { prepare: false });
 {%- endif %}
 
 		// Test: CreateUser
@@ -1298,7 +1209,7 @@ async function main(): Promise<void> {
 		await pool.query("DROP TABLE IF EXISTS users");
 
 		const schemaPath = new URL(
-			"../sql/{% if engine == "mariadb" %}mariadb{% else %}mysql{% endif %}/schema.sql",
+			"{{ schema_dir }}/{{ schema_file }}",
 			import.meta.url,
 		).pathname;
 		const { readFile } = await import("node:fs/promises");
@@ -1425,7 +1336,7 @@ async function main(): Promise<void> {
 		await sql.raw("DROP TABLE IF EXISTS users").execute(db);
 
 		const schemaPath = new URL(
-			"../sql/{% if engine == "mariadb" %}mariadb{% else %}mysql{% endif %}/schema.sql",
+			"{{ schema_dir }}/{{ schema_file }}",
 			import.meta.url,
 		).pathname;
 		const { readFile } = await import("node:fs/promises");
@@ -1551,7 +1462,7 @@ async function main(): Promise<void> {
 		await sql.raw("DROP TABLE IF EXISTS orders").execute(db);
 		await sql.raw("DROP TABLE IF EXISTS users").execute(db);
 
-		const schemaPath = new URL("../sql/sqlite/schema.sql", import.meta.url).pathname;
+		const schemaPath = new URL("{{ schema_dir }}/{{ schema_file }}", import.meta.url).pathname;
 		const { readFile } = await import("node:fs/promises");
 		const schemaSql = await readFile(schemaPath, "utf8");
 		for (const stmt of splitSqlStatements(schemaSql)) {
@@ -1654,7 +1565,7 @@ async function main(): Promise<void> {
 		db.exec("DROP TABLE IF EXISTS orders");
 		db.exec("DROP TABLE IF EXISTS users");
 
-		const schemaPath = new URL("../sql/sqlite/schema.sql", import.meta.url).pathname;
+		const schemaPath = new URL("{{ schema_dir }}/{{ schema_file }}", import.meta.url).pathname;
 		const { readFile } = await import("node:fs/promises");
 		const schemaSql = await readFile(schemaPath, "utf8");
 		db.exec(schemaSql);
@@ -1755,7 +1666,7 @@ async function main(): Promise<void> {
 		db.exec("DROP TABLE IF EXISTS orders");
 		db.exec("DROP TABLE IF EXISTS users");
 
-		const schemaPath = new URL("../sql/sqlite/schema.sql", import.meta.url).pathname;
+		const schemaPath = new URL("{{ schema_dir }}/{{ schema_file }}", import.meta.url).pathname;
 		const { readFile } = await import("node:fs/promises");
 		const schemaSql = await readFile(schemaPath, "utf8");
 		db.exec(schemaSql);
@@ -1853,7 +1764,7 @@ async function main(): Promise<void> {
 		// Fresh in-memory database each run: nothing to drop, and no leftover
 		// sequence state to conflict with the schema's unconditional
 		// CREATE SEQUENCE statements.
-		const schemaPath = new URL("../sql/duckdb/schema.sql", import.meta.url).pathname;
+		const schemaPath = new URL("{{ schema_dir }}/{{ schema_file }}", import.meta.url).pathname;
 		const { readFile } = await import("node:fs/promises");
 		const schemaSql = await readFile(schemaPath, "utf8");
 		for (const stmt of splitSqlStatements(schemaSql)) {
@@ -2078,7 +1989,7 @@ async function main(): Promise<void> {
 		}
 
 		const { readFile } = await import("node:fs/promises");
-		const schemaPath = new URL("../sql/mssql/schema.sql", import.meta.url).pathname;
+		const schemaPath = new URL("{{ schema_dir }}/{{ schema_file }}", import.meta.url).pathname;
 		const schemaSql = await readFile(schemaPath, "utf8");
 		for (const stmt of splitSqlStatements(schemaSql)) {
 			await pool.request().query(stmt);
@@ -2191,7 +2102,7 @@ async function main(): Promise<void> {
 		}
 
 		const { readFile } = await import("node:fs/promises");
-		const schemaPath = new URL("../sql/mssql/schema.sql", import.meta.url).pathname;
+		const schemaPath = new URL("{{ schema_dir }}/{{ schema_file }}", import.meta.url).pathname;
 		const schemaSql = await readFile(schemaPath, "utf8");
 		for (const stmt of splitSqlStatements(schemaSql)) {
 			await sql.raw(stmt).execute(db);
@@ -2323,7 +2234,7 @@ async function main(): Promise<void> {
 		// Load and execute schema
 		const { readFile } = await import("node:fs/promises");
 		const schemaPath = fileURLToPath(
-			new URL("../sql/snowflake/schema.sql", import.meta.url),
+			new URL("{{ schema_dir }}/{{ schema_file }}", import.meta.url),
 		);
 		const schemaSql = await readFile(schemaPath, "utf8");
 		for (const stmt of splitSqlStatements(schemaSql)) {

@@ -38,29 +38,14 @@ await using (var cmd = new NpgsqlCommand(@"
     DROP TABLE IF EXISTS tags CASCADE;
     DROP TABLE IF EXISTS orders CASCADE;
     DROP TABLE IF EXISTS users CASCADE;
-    CREATE TABLE users (
-        id SERIAL PRIMARY KEY,
-        name TEXT NOT NULL,
-        email TEXT,
-        status VARCHAR(50) NOT NULL DEFAULT 'active',
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE TABLE orders (
-        id SERIAL PRIMARY KEY,
-        user_id INT NOT NULL REFERENCES users (id),
-        total NUMERIC(10, 2) NOT NULL,
-        notes TEXT,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE TABLE tags (
-        id SERIAL PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE
-    );
-    CREATE TABLE user_tags (
-        user_id INT NOT NULL REFERENCES users (id),
-        tag_id INT NOT NULL REFERENCES tags (id),
-        PRIMARY KEY (user_id, tag_id)
-    );", conn))
+", conn))
+{
+    await cmd.ExecuteNonQueryAsync();
+}
+
+var schemaPath = Path.Combine(Directory.GetCurrentDirectory(), "../sql/redshift", "schema_pg_compat.sql");
+var schemaText = await File.ReadAllTextAsync(schemaPath);
+await using (var cmd = new NpgsqlCommand(schemaText, conn))
 {
     await cmd.ExecuteNonQueryAsync();
 }

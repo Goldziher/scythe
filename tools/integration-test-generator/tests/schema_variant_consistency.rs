@@ -1,12 +1,5 @@
-//! Closes GH #196 item 2: `schema_file` (`src/main.rs` `SCHEMA_FILE_OVERRIDES`,
-//! now keyed by engine rather than by backend name) controls which schema
-//! file a backend is *generated from*, and every integration-test harness
-//! template now reads `{{ schema_file }}` for its runtime schema filename
-//! too — oracle backends generate from and apply `schema_full.sql`, redshift
-//! backends generate from and apply `schema_pg_compat.sql`. Before this fix,
-//! only 2 of 9 oracle backends and 0 of 14 redshift backends had a matching
-//! override, so the rest generated code from `schema.sql` while their
-//! harness applied a different file at runtime.
+//! Verifies that the retained Oracle and Redshift reference schemas have the
+//! same table shape as the variants used for generation and runtime setup.
 //!
 //! `oracle/schema.sql` and `redshift/schema.sql` (the bare, non-override
 //! variants) are no longer read by any generated codegen or harness — every
@@ -144,4 +137,25 @@ fn redshift_schema_pg_compat_matches_schema_shape() {
     // cluster. This test is what keeps it from silently drifting out of sync
     // with the file everything actually uses.
     assert_same_shape("redshift/schema.sql", "redshift/schema_pg_compat.sql");
+}
+
+#[test]
+fn typescript_and_csharp_harnesses_load_the_selected_schema_fixture() {
+    for template_path in ["templates/typescript.ts.jinja", "templates/csharp.cs.jinja"] {
+        let template =
+            fs::read_to_string(template_path).unwrap_or_else(|error| panic!("reading {template_path}: {error}"));
+
+        assert!(
+            !template.contains("CREATE TABLE"),
+            "{template_path} must not duplicate fixture DDL with inline CREATE TABLE statements"
+        );
+        assert!(
+            !template.contains("schema.sql"),
+            "{template_path} must not hardcode schema.sql instead of the selected schema_file"
+        );
+        assert!(
+            template.contains("{{ schema_dir }}") && template.contains("{{ schema_file }}"),
+            "{template_path} must load the schema selected by the generator"
+        );
+    }
 }

@@ -43,39 +43,14 @@ await using (var cmd = new NpgsqlCommand(@"
     DROP TYPE IF EXISTS user_status CASCADE;
     DROP TYPE IF EXISTS user_address CASCADE;
 {%- endif %}
-{%- if engine == "postgresql" and engine != "redshift" %}
-    CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned');
-    -- board #197: a nullable composite type, used by the nullable
-    -- `address` column below.
-    CREATE TYPE user_address AS (street TEXT, city TEXT, zip TEXT);
-{%- endif %}
-    CREATE TABLE users (
-        id SERIAL PRIMARY KEY,
-        name TEXT NOT NULL,
-        email TEXT,
-        status {% if engine == "postgresql" and engine != "redshift" %}user_status{% else %}VARCHAR(50){% endif %} NOT NULL DEFAULT 'active',
-{%- if engine == "postgresql" and engine != "redshift" %}
-        secondary_status user_status,
-        address user_address,
-{%- endif %}
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE TABLE orders (
-        id SERIAL PRIMARY KEY,
-        user_id INT NOT NULL REFERENCES users (id),
-        total NUMERIC(10, 2) NOT NULL,
-        notes TEXT,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE TABLE tags (
-        id SERIAL PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE
-    );
-    CREATE TABLE user_tags (
-        user_id INT NOT NULL REFERENCES users (id),
-        tag_id INT NOT NULL REFERENCES tags (id),
-        PRIMARY KEY (user_id, tag_id)
-    );", conn))
+", conn))
+{
+    await cmd.ExecuteNonQueryAsync();
+}
+
+var schemaPath = Path.Combine(Directory.GetCurrentDirectory(), "{{ schema_dir }}", "{{ schema_file }}");
+var schemaText = await File.ReadAllTextAsync(schemaPath);
+await using (var cmd = new NpgsqlCommand(schemaText, conn))
 {
     await cmd.ExecuteNonQueryAsync();
 }
@@ -282,32 +257,14 @@ await using (var cmd = new MySqlCommand(@"
     DROP TABLE IF EXISTS tags;
     DROP TABLE IF EXISTS orders;
     DROP TABLE IF EXISTS users;
-    CREATE TABLE users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        email VARCHAR(255),
-        status ENUM('active', 'inactive', 'banned') NOT NULL DEFAULT 'active',
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE orders (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id INT NOT NULL,
-        total DECIMAL(10, 2) NOT NULL,
-        notes TEXT,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users (id)
-    );
-    CREATE TABLE tags (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL UNIQUE
-    );
-    CREATE TABLE user_tags (
-        user_id INT NOT NULL,
-        tag_id INT NOT NULL,
-        PRIMARY KEY (user_id, tag_id),
-        FOREIGN KEY (user_id) REFERENCES users (id),
-        FOREIGN KEY (tag_id) REFERENCES tags (id)
-    );", conn))
+", conn))
+{
+    await cmd.ExecuteNonQueryAsync();
+}
+
+var schemaPath = Path.Combine(Directory.GetCurrentDirectory(), "{{ schema_dir }}", "{{ schema_file }}");
+var schemaText = await File.ReadAllTextAsync(schemaPath);
+await using (var cmd = new MySqlCommand(schemaText, conn))
 {
     await cmd.ExecuteNonQueryAsync();
 }
@@ -432,33 +389,14 @@ await using (var cmd = new MySqlCommand(@"
     DROP TABLE IF EXISTS tags;
     DROP TABLE IF EXISTS orders;
     DROP TABLE IF EXISTS users;
-    CREATE TABLE users (
-        id UUID DEFAULT UUID() PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        email VARCHAR(255),
-        home_ip INET4,
-        status ENUM('active', 'inactive', 'banned') NOT NULL DEFAULT 'active',
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE orders (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id UUID NOT NULL,
-        total DECIMAL(10, 2) NOT NULL,
-        notes TEXT,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users (id)
-    );
-    CREATE TABLE tags (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL UNIQUE
-    );
-    CREATE TABLE user_tags (
-        user_id UUID NOT NULL,
-        tag_id INT NOT NULL,
-        PRIMARY KEY (user_id, tag_id),
-        FOREIGN KEY (user_id) REFERENCES users (id),
-        FOREIGN KEY (tag_id) REFERENCES tags (id)
-    );", conn))
+", conn))
+{
+    await cmd.ExecuteNonQueryAsync();
+}
+
+var schemaPath = Path.Combine(Directory.GetCurrentDirectory(), "{{ schema_dir }}", "{{ schema_file }}");
+var schemaText = await File.ReadAllTextAsync(schemaPath);
+await using (var cmd = new MySqlCommand(schemaText, conn))
 {
     await cmd.ExecuteNonQueryAsync();
 }
@@ -732,8 +670,8 @@ await using (var cmd = new SqlCommand(@"
     await cmd.ExecuteNonQueryAsync();
 }
 
-// Read and execute schema.sql
-var schemaPath = Path.Combine(Directory.GetCurrentDirectory(), "{{ schema_dir }}", "schema.sql");
+// Read and execute the selected schema fixture
+var schemaPath = Path.Combine(Directory.GetCurrentDirectory(), "{{ schema_dir }}", "{{ schema_file }}");
 var schemaText = await File.ReadAllTextAsync(schemaPath);
 foreach (var block in schemaText.Split("GO\n"))
 {
@@ -852,31 +790,9 @@ void Pass(string testName, string? label = null)
     }
 }
 
-// Clean slate
-using (var cmd = new SqliteCommand(@"
-    CREATE TABLE users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        email TEXT,
-        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'inactive', 'banned')),
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE TABLE orders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL REFERENCES users (id),
-        total REAL NOT NULL,
-        notes TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE TABLE tags (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE
-    );
-    CREATE TABLE user_tags (
-        user_id INTEGER NOT NULL REFERENCES users (id),
-        tag_id INTEGER NOT NULL REFERENCES tags (id),
-        PRIMARY KEY (user_id, tag_id)
-    );", conn))
+var schemaPath = Path.Combine(Directory.GetCurrentDirectory(), "{{ schema_dir }}", "{{ schema_file }}");
+var schemaText = await File.ReadAllTextAsync(schemaPath);
+using (var cmd = new SqliteCommand(schemaText, conn))
 {
     cmd.ExecuteNonQuery();
 }
@@ -1143,7 +1059,7 @@ foreach (var dropStatement in new[]
 }
 
 // Load schema
-var schemaPath = Path.Combine(Directory.GetCurrentDirectory(), "{{ schema_dir }}", "schema.sql");
+var schemaPath = Path.Combine(Directory.GetCurrentDirectory(), "{{ schema_dir }}", "{{ schema_file }}");
 var schemaText = await File.ReadAllTextAsync(schemaPath);
 foreach (var stmt in SplitSqlStatements(schemaText))
 {
