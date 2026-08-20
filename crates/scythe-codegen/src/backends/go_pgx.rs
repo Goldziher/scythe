@@ -93,6 +93,38 @@ const GO_PARSE_COMPOSITE_FIELDS_FUNC: &str = r#"func parseCompositeFields(text s
 	return fields
 }"#;
 
+const GO_ENCODE_COMPOSITE_FIELD_FUNC: &str = r#"type pgCompositeTextEncoder interface {
+	ToPgText() string
+}
+
+func encodeCompositeField(value any) string {
+	if value == nil {
+		return ""
+	}
+	var raw string
+	if nested, ok := value.(pgCompositeTextEncoder); ok {
+		raw = nested.ToPgText()
+	} else {
+		raw = fmt.Sprint(value)
+	}
+	if raw != "" && !strings.ContainsAny(raw, ",()\"\\") && raw == strings.TrimSpace(raw) {
+		return raw
+	}
+	escaped := strings.ReplaceAll(strings.ReplaceAll(raw, "\\", "\\\\"), "\"", "\"\"")
+	return "\"" + escaped + "\""
+}"#;
+
+fn go_pgx_param_expr(param: &ResolvedParam, raw: &str) -> String {
+    if !param.neutral_type.starts_with("composite::") {
+        return raw.to_string();
+    }
+    if param.nullable {
+        format!("func() *string {{ if {raw} == nil {{ return nil }}; text := {raw}.ToPgText(); return &text }}()")
+    } else {
+        format!("{raw}.ToPgText()")
+    }
+}
+
 /// Whether one composite field's neutral type is one this backend knows how to parse back out of
 /// PostgreSQL's composite text form.
 ///
@@ -586,6 +618,10 @@ impl CodegenBackend for GoPgxBackend {
             header.push('\n');
             header.push_str(GO_PARSE_COMPOSITE_FIELDS_FUNC);
         }
+        if super::go_common::generated_code_uses_prefix(generated, "encodeCompositeField(") {
+            header.push('\n');
+            header.push_str(GO_ENCODE_COMPOSITE_FIELD_FUNC);
+        }
         header
     }
 
@@ -614,11 +650,20 @@ impl CodegenBackend for GoPgxBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = crate::sql_literal::escape_go_interpreted_string(&super::clean_sql_oneline_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        ));
+        let cleaned_sql =
+            super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let (rewritten_sql, _) =
+            super::rewrite_placeholders_indexed(&cleaned_sql, scythe_core::SqlDialect::PostgreSQL, |position| {
+                let placeholder = format!("${position}");
+                let param = super::resolved_param_for_position(&analyzed.params, params, position);
+                param
+                    .neutral_type
+                    .strip_prefix("composite::")
+                    .map_or(placeholder.clone(), |sql_type| {
+                        format!("{placeholder}::text::{sql_type}")
+                    })
+            });
+        let sql = crate::sql_literal::escape_go_interpreted_string(&rewritten_sql);
 
         let param_list = params
             .iter()
@@ -632,7 +677,7 @@ impl CodegenBackend for GoPgxBackend {
 
         let args = params
             .iter()
-            .map(|p| to_pascal_case(&p.field_name).into_owned())
+            .map(|p| go_pgx_param_expr(p, &to_pascal_case(&p.field_name)))
             .collect::<Vec<_>>();
 
         let mut out = String::new();
@@ -840,11 +885,12 @@ impl CodegenBackend for GoPgxBackend {
                     if params.len() > 1 {
                         let item_args: Vec<String> = params
                             .iter()
-                            .map(|p| format!("item.{}", to_pascal_case(&p.field_name)))
+                            .map(|p| go_pgx_param_expr(p, &format!("item.{}", to_pascal_case(&p.field_name))))
                             .collect();
                         let _ = writeln!(out, "\t\t_, err := tx.Exec(ctx, \"{}\", {})", sql, item_args.join(", "));
                     } else {
-                        let _ = writeln!(out, "\t\t_, err := tx.Exec(ctx, \"{}\", item)", sql);
+                        let item = go_pgx_param_expr(&params[0], "item");
+                        let _ = writeln!(out, "\t\t_, err := tx.Exec(ctx, \"{}\", {})", sql, item);
                     }
                 }
                 let _ = writeln!(out, "\t\tif err != nil {{");
@@ -905,11 +951,20 @@ impl CodegenBackend for GoPgxBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = crate::sql_literal::escape_go_interpreted_string(&super::clean_sql_oneline_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        ));
+        let cleaned_sql =
+            super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let (rewritten_sql, _) =
+            super::rewrite_placeholders_indexed(&cleaned_sql, scythe_core::SqlDialect::PostgreSQL, |position| {
+                let placeholder = format!("${position}");
+                let param = super::resolved_param_for_position(&analyzed.params, params, position);
+                param
+                    .neutral_type
+                    .strip_prefix("composite::")
+                    .map_or(placeholder.clone(), |sql_type| {
+                        format!("{placeholder}::text::{sql_type}")
+                    })
+            });
+        let sql = crate::sql_literal::escape_go_interpreted_string(&rewritten_sql);
 
         let param_list = params
             .iter()
@@ -923,7 +978,7 @@ impl CodegenBackend for GoPgxBackend {
         } else {
             let args: Vec<String> = params
                 .iter()
-                .map(|p| to_pascal_case(&p.field_name).into_owned())
+                .map(|p| go_pgx_param_expr(p, &to_pascal_case(&p.field_name)))
                 .collect();
             format!(", {}", args.join(", "))
         };
@@ -1035,6 +1090,20 @@ impl CodegenBackend for GoPgxBackend {
         // ~keep board #221: `CREATE TYPE ... AS ()` is rejected by PostgreSQL, so a fieldless
         // composite has no reachable runtime value that would ever need `fromText`.
         if !composite.fields.is_empty() {
+            let encoded_fields = composite
+                .fields
+                .iter()
+                .map(|field| format!("encodeCompositeField(v.{})", to_pascal_case(&field.name)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let _ = writeln!(out);
+            let _ = writeln!(out);
+            let _ = writeln!(out, "func (v {}) ToPgText() string {{", name);
+            let _ = writeln!(
+                out,
+                "\treturn \"(\" + strings.Join([]string{{{encoded_fields}}}, \",\") + \")\""
+            );
+            let _ = write!(out, "}}");
             let _ = writeln!(out);
             let _ = writeln!(out);
             out.push_str(&self.generate_composite_from_text(composite, &name, &field_go_types));
