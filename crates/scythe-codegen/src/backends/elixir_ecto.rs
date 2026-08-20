@@ -8,6 +8,17 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
+fn postgrex_param_expr(param: &ResolvedParam, raw: &str) -> String {
+    if param.neutral_type.starts_with("composite::") {
+        format!(
+            "if(is_nil({raw}), do: nil, else: {param_type}.to_tuple({raw}))",
+            param_type = param.lang_type
+        )
+    } else {
+        raw.to_string()
+    }
+}
+
 /// Board #219: `Ecto.Adapters.SQL.query`'s raw-SQL path runs through the same Postgrex binary
 /// protocol as `elixir-postgrex` -- see the identical note there for what was verified live
 /// against PostgreSQL 16. An unregistered composite column decodes to a bare positional tuple,
@@ -157,7 +168,7 @@ impl CodegenBackend for ElixirEctoBackend {
                 "[{}]",
                 params
                     .iter()
-                    .map(|p| p.field_name.clone())
+                    .map(|p| postgrex_param_expr(p, &p.field_name))
                     .collect::<Vec<_>>()
                     .join(", ")
             )
@@ -208,16 +219,23 @@ impl CodegenBackend for ElixirEctoBackend {
                 let _ = writeln!(out, "  repo.transaction(fn ->");
                 let _ = writeln!(out, "    Enum.each(items, fn item ->");
                 if params.len() > 1 {
+                    let item_args = params
+                        .iter()
+                        .enumerate()
+                        .map(|(index, param)| postgrex_param_expr(param, &format!("elem(item, {index})")))
+                        .collect::<Vec<_>>()
+                        .join(", ");
                     let _ = writeln!(
                         out,
-                        "      case Ecto.Adapters.SQL.query(repo, \"{}\", Tuple.to_list(item), []) do",
-                        sql
+                        "      case Ecto.Adapters.SQL.query(repo, \"{}\", [{}], []) do",
+                        sql, item_args
                     );
                 } else if params.len() == 1 {
+                    let item = postgrex_param_expr(&params[0], "item");
                     let _ = writeln!(
                         out,
-                        "      case Ecto.Adapters.SQL.query(repo, \"{}\", [item], []) do",
-                        sql
+                        "      case Ecto.Adapters.SQL.query(repo, \"{}\", [{}], []) do",
+                        sql, item
                     );
                 } else {
                     let _ = writeln!(out, "      case Ecto.Adapters.SQL.query(repo, \"{}\", [], []) do", sql);
@@ -409,6 +427,28 @@ impl CodegenBackend for ElixirEctoBackend {
             }
             let _ = writeln!(out, "    }}");
             let _ = writeln!(out, "  end");
+            let tuple_values = composite
+                .fields
+                .iter()
+                .map(|field| {
+                    let field_name = to_snake_case(&field.name);
+                    if field.neutral_type.starts_with("composite::") {
+                        let nested_type = field.neutral_type.trim_start_matches("composite::");
+                        let nested_name = composite_type_name(nested_type, &self.manifest.naming);
+                        format!(
+                            "if(is_nil(value.{field_name}), do: nil, else: {nested_name}.to_tuple(value.{field_name}))"
+                        )
+                    } else {
+                        format!("value.{field_name}")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            let tuple_suffix = if composite.fields.len() == 1 { "," } else { "" };
+            let _ = writeln!(out);
+            let _ = writeln!(out, "  def to_tuple(%__MODULE__{{}} = value) do");
+            let _ = writeln!(out, "    {{{tuple_values}{tuple_suffix}}}");
+            let _ = writeln!(out, "  end");
         }
         let _ = write!(out, "end");
         Ok(out)
@@ -515,7 +555,7 @@ impl CodegenBackend for ElixirEctoBackend {
                 "[{}]",
                 params
                     .iter()
-                    .map(|p| p.field_name.clone())
+                    .map(|p| postgrex_param_expr(p, &p.field_name))
                     .collect::<Vec<_>>()
                     .join(", ")
             )
