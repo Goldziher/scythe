@@ -22,6 +22,36 @@ pub fn error_chain(error: &dyn std::error::Error) -> String {
 /// or interpreting a connection URL.
 #[derive(Debug, Error)]
 pub enum InspectError {
+    /// Reading or executing one configured schema file failed.
+    #[error(
+        "{engine} schema file `{path}` failed while {operation}: {}",
+        error_chain(&**source),
+        path = path.display()
+    )]
+    SchemaExecution {
+        /// Engine executing the schema.
+        engine: &'static str,
+        /// File whose read or execution failed.
+        path: std::path::PathBuf,
+        /// Operation in progress when the failure occurred.
+        operation: &'static str,
+        /// Underlying filesystem or database error.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    /// Engine introspection produced definitions rejected by the catalog boundary.
+    #[error("{engine} catalog construction failed while {operation}: {source}")]
+    CatalogConstruction {
+        /// Engine whose inspected definitions were rejected.
+        engine: &'static str,
+        /// Introspection operation in progress.
+        operation: &'static str,
+        /// Catalog validation error.
+        #[source]
+        source: scythe_core::errors::ScytheError,
+    },
+
     /// Connection setup failed (TLS handshake, auth, network, etc.).
     ///
     /// Rendered through [`error_chain`] rather than `{source}`: a

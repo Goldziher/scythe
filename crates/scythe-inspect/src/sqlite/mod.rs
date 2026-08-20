@@ -23,8 +23,14 @@
 
 pub mod types;
 
+use std::path::PathBuf;
+
 use async_trait::async_trait;
 use rusqlite::Connection;
+use scythe_core::catalog::{
+    Catalog, CatalogBuilder, CatalogObjectName, ColumnDefinition, GeneratedColumnKind, RelationDefinition,
+};
+use scythe_core::dialect::SqlDialect;
 
 use crate::error::InspectError;
 use crate::schema_diff::model::{ColumnDescription, SchemaDescription, TableDescription, object_key};
@@ -32,8 +38,130 @@ use crate::schema_diff::source::SchemaCatalogDriver;
 
 use types::neutral_type_for_sqlite;
 
+const SQLITE_ENGINE: &str = "sqlite";
+
 /// Relation types [`SqliteCatalogSource`] reads out of `sqlite_master`.
 const RELATION_TYPES: [&str; 2] = ["table", "view"];
+
+/// Execute trusted schema files in order inside a fresh in-memory SQLite database.
+///
+/// Each call creates an isolated bundled-SQLite connection, executes every file
+/// with `execute_batch`, introspects the engine-resolved schema, and discards the
+/// database after returning. Schema SQL is executable input and must come from a
+/// trusted source.
+pub fn execute_sqlite_schema_files(paths: &[PathBuf]) -> Result<Catalog, InspectError> {
+    let connection = Connection::open_in_memory().map_err(|source| InspectError::Connect {
+        engine: SQLITE_ENGINE,
+        source: Box::new(source),
+    })?;
+
+    for path in paths {
+        let sql = std::fs::read_to_string(path).map_err(|source| InspectError::SchemaExecution {
+            engine: SQLITE_ENGINE,
+            path: path.clone(),
+            operation: "reading schema SQL",
+            source: Box::new(source),
+        })?;
+        connection
+            .execute_batch(&sql)
+            .map_err(|source| InspectError::SchemaExecution {
+                engine: SQLITE_ENGINE,
+                path: path.clone(),
+                operation: "executing schema DDL",
+                source: Box::new(source),
+            })?;
+    }
+
+    build_catalog(&connection)
+}
+
+fn build_catalog(connection: &Connection) -> Result<Catalog, InspectError> {
+    let mut builder = CatalogBuilder::new(SqlDialect::SQLite).engine(SQLITE_ENGINE);
+    for (name, relation_type) in list_relations(connection)? {
+        let columns = fetch_catalog_columns(connection, &name)?;
+        let relation_name = CatalogObjectName::new(name);
+        let relation = if relation_type == "view" {
+            RelationDefinition::view(relation_name, columns)
+        } else {
+            RelationDefinition::table(relation_name, columns)
+        };
+        builder = builder.relation(relation);
+    }
+    builder.build().map_err(|source| InspectError::CatalogConstruction {
+        engine: SQLITE_ENGINE,
+        operation: "validating introspected schema",
+        source,
+    })
+}
+
+#[derive(Debug)]
+struct CatalogColumnMetadata {
+    name: String,
+    raw_sql_type: String,
+    not_null: bool,
+    default: Option<String>,
+    primary_key: bool,
+    generated: Option<GeneratedColumnKind>,
+}
+
+fn fetch_catalog_columns(connection: &Connection, table: &str) -> Result<Vec<ColumnDefinition>, InspectError> {
+    let sql = format!("PRAGMA table_xinfo({})", quote_ident(table));
+    let mut statement = connection.prepare(&sql).map_err(|error| query_error(table, error))?;
+    let rows = statement
+        .query_map([], |row| {
+            let hidden: i64 = row.get("hidden")?;
+            let generated = match hidden {
+                2 => Some(GeneratedColumnKind::Virtual),
+                3 => Some(GeneratedColumnKind::Stored),
+                _ => None,
+            };
+            Ok((
+                hidden,
+                CatalogColumnMetadata {
+                    name: row.get("name")?,
+                    raw_sql_type: row.get("type")?,
+                    not_null: row.get::<_, i64>("notnull")? != 0,
+                    default: row.get("dflt_value")?,
+                    primary_key: row.get::<_, i64>("pk")? != 0,
+                    generated,
+                },
+            ))
+        })
+        .map_err(|error| query_error(table, error))?;
+
+    let mut raw_columns = Vec::new();
+    for row in rows {
+        let (hidden, column) = row.map_err(|error| query_error(table, error))?;
+        if hidden != 1 {
+            raw_columns.push(column);
+        }
+    }
+    let primary_key_column_count = raw_columns.iter().filter(|column| column.primary_key).count();
+    Ok(raw_columns
+        .into_iter()
+        .map(|column| catalog_column_definition(column, primary_key_column_count))
+        .collect())
+}
+
+fn catalog_column_definition(column: CatalogColumnMetadata, primary_key_column_count: usize) -> ColumnDefinition {
+    let is_rowid_alias = column.primary_key
+        && primary_key_column_count == 1
+        && column.raw_sql_type.trim().eq_ignore_ascii_case("integer");
+    let mut definition = ColumnDefinition::new(column.name, &column.raw_sql_type, !(column.not_null || is_rowid_alias));
+    if column.raw_sql_type.trim().is_empty() {
+        definition = definition.resolved_sql_type("blob");
+    }
+    if let Some(default) = column.default {
+        definition = definition.default(default);
+    }
+    if column.primary_key {
+        definition = definition.primary_key();
+    }
+    if let Some(generated) = column.generated {
+        definition = definition.generated(generated);
+    }
+    definition
+}
 
 /// A [`SchemaCatalogDriver`] backed by a `rusqlite::Connection`.
 ///

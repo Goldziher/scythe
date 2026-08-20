@@ -17,7 +17,7 @@ use type_normalizer::{bare_name, ident_to_lower, normalize_data_type, object_nam
 
 pub use builder::{
     CatalogBuilder, CatalogObjectName, ColumnDefinition, CompositeDefinition, CompositeFieldDefinition,
-    DomainDefinition, EnumDefinition, RelationDefinition, RelationKind,
+    DomainDefinition, EnumDefinition, GeneratedColumnKind, RelationDefinition, RelationKind,
 };
 
 #[derive(Debug)]
@@ -52,6 +52,7 @@ pub struct Catalog {
     relation_names: AHashMap<String, CatalogObjectName>,
     relation_kinds: AHashMap<String, RelationKind>,
     raw_column_types: AHashMap<String, AHashMap<String, String>>,
+    generated_column_kinds: AHashMap<String, AHashMap<String, GeneratedColumnKind>>,
     enum_names: AHashMap<String, CatalogObjectName>,
     composite_names: AHashMap<String, CatalogObjectName>,
     domain_names: AHashMap<String, CatalogObjectName>,
@@ -137,6 +138,7 @@ impl Catalog {
             relation_names: AHashMap::new(),
             relation_kinds: AHashMap::new(),
             raw_column_types: AHashMap::new(),
+            generated_column_kinds: AHashMap::new(),
             enum_names: AHashMap::new(),
             composite_names: AHashMap::new(),
             domain_names: AHashMap::new(),
@@ -245,6 +247,13 @@ impl Catalog {
         lookup_qualified(&self.raw_column_types, relation)?
             .get(&column.to_lowercase())
             .map(String::as_str)
+    }
+
+    /// Return how an inspected generated column is persisted by the engine.
+    pub fn column_generated_kind(&self, relation: &str, column: &str) -> Option<GeneratedColumnKind> {
+        lookup_qualified(&self.generated_column_kinds, relation)?
+            .get(&column.to_lowercase())
+            .copied()
     }
 
     /// Return the preserved qualified spelling of an inspected enum name.

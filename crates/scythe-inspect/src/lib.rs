@@ -62,7 +62,7 @@ pub use schema_diff::{
     fetch_live_schema,
 };
 pub use spec::{CheckCategory, CheckSpec, ConfigError, load_checks_from_file, parse_check_file};
-pub use sqlite::SqliteCatalogSource;
+pub use sqlite::{SqliteCatalogSource, execute_sqlite_schema_files};
 pub use suppression::SuppressionEngine;
 pub use unsupported::UnsupportedDriver;
 pub use verify::verify_queries;
