@@ -18,30 +18,26 @@ use sha2::{Digest, Sha256};
 
 use crate::dialect::SqlDialect;
 
-use super::Catalog;
+use super::{Catalog, CatalogObjectName, GeneratedColumnKind, RelationKind};
 
 /// Version tag for the fingerprint algorithm itself.
 ///
 /// The trigger for bumping this is **not** "the code in this module
-/// changed" -- it is "the emitted `sch1:...` value moved for a schema that
-/// did not change". Those are different things. [`canonical_form`] uses an
-/// escape-only-when-needed scheme (see [`escape_component`]): a value is
-/// rewritten only if it contains one of the five reserved delimiter bytes
-/// (`\`, `|`, `:`, tab, newline). For every schema that contains none of
-/// them -- which, as of this writing, is every schema in this repo's
-/// `integration_tests/sql/` corpus -- the escaping pass is a no-op and the
-/// emitted bytes are identical to before it existed. Bumping the tag for a
-/// change like that would itself cause the mass false-drift this tag exists
-/// to prevent: [`Catalog::fingerprint`]'s doc comment explains why
-/// `verify_provenance` treats the tag plus hash as one opaque string with no
-/// migration path.
+/// changed" -- it is "the emitted `sch2:...` value moved for a schema that
+/// did not change". Those are different things. `sch2` adds conditional
+/// records for inspected metadata introduced with [`CatalogBuilder`]. The
+/// records are absent for parser-equivalent defaults, but an inspected view,
+/// generated column, raw type alias, or preserved object identity now moves
+/// the hash. That canonical-form expansion requires a new tag so an `sch1`
+/// artifact is never mistaken for one produced by the metadata-aware
+/// algorithm.
 ///
 /// Bump this when a canonical-form change moves the emitted value for a
 /// schema that is otherwise unchanged (a new line kind whose absence was
 /// previously indistinguishable from "no such construct", a changed
 /// separator, a changed truncation length, etc.). Do not bump it merely
 /// because this file's code changed.
-const FINGERPRINT_ALGORITHM_TAG: &str = "sch1";
+const FINGERPRINT_ALGORITHM_TAG: &str = "sch2";
 
 /// Number of leading hash bytes kept (rendered as `2 * TRUNCATED_BYTES` hex
 /// characters).
@@ -50,7 +46,7 @@ const TRUNCATED_BYTES: usize = 8;
 impl Catalog {
     /// Compute a deterministic fingerprint of this catalog's schema shape.
     ///
-    /// The result is a short tag of the form `sch1:<16 hex chars>`. Two
+    /// The result is a short tag of the form `sch2:<16 hex chars>`. Two
     /// catalogs produce the same fingerprint if and only if they have the
     /// same tables (name, columns, column order, column type, column
     /// nullability, primary-key flags), the same enum types (name, ordered
@@ -88,13 +84,19 @@ impl Catalog {
     ///   [`SqlDialect`] rather than the 9-way engine alias — so `mysql` and
     ///   `mariadb`, which both resolve to [`SqlDialect::MySQL`], never
     ///   register as drift against each other.
+    /// - Inspected metadata that changes how a catalog is consumed: views,
+    ///   generated-column persistence, materially distinct database-reported
+    ///   types, and preserved qualified or case-sensitive object names.
     ///
     /// Table, enum, composite, and domain names all have a single leading
     /// `schema.` qualifier stripped before hashing, on every dialect --
     /// mirroring [`Catalog::get_table`]'s dialect-blind, qualifier-agnostic
     /// resolution (see [`canonical_entries`]). So `myschema.users` and
     /// `users`, or MSSQL's `dbo.users` and `users`, fingerprint identically
-    /// when they would also resolve to the same lookup.
+    /// when they would also resolve to the same lookup. Inspected catalogs
+    /// additionally preserve the database-reported object identity; a
+    /// qualified or case-sensitive spelling is therefore significant when
+    /// that metadata is present.
     ///
     /// # What is excluded, deliberately
     ///
@@ -181,7 +183,105 @@ impl Catalog {
             ));
         }
 
+        self.append_inspection_metadata(&mut lines);
+
         lines.join("\n")
+    }
+
+    fn append_inspection_metadata(&self, lines: &mut Vec<String>) {
+        append_relation_metadata(self, lines);
+        append_preserved_names(lines, "relation", &self.relation_names);
+        append_preserved_names(lines, "enum", &self.enum_names);
+        append_preserved_names(lines, "composite", &self.composite_names);
+        append_preserved_names(lines, "domain", &self.domain_names);
+        append_raw_domain_types(self, lines);
+    }
+}
+
+fn append_relation_metadata(catalog: &Catalog, lines: &mut Vec<String>) {
+    for (key, kind) in sorted_entries(&catalog.relation_kinds) {
+        if *kind == RelationKind::View {
+            lines.push(format!("relation-kind\t{}\tview", escape_component(key)));
+        }
+    }
+
+    for (relation_key, raw_types) in sorted_entries(&catalog.raw_column_types) {
+        for (column_key, raw_type) in sorted_entries(raw_types) {
+            let normalized_type = catalog
+                .tables
+                .get(relation_key)
+                .and_then(|table| {
+                    table
+                        .columns
+                        .iter()
+                        .find(|column| column.name.trim().to_lowercase() == *column_key)
+                })
+                .map(|column| column.sql_type.as_str());
+            if normalized_type.is_none_or(|resolved| !equivalent_sql_type(raw_type, resolved)) {
+                lines.push(format!(
+                    "raw-column-type\t{}\t{}\t{}",
+                    escape_component(relation_key),
+                    escape_component(column_key),
+                    escape_component(raw_type)
+                ));
+            }
+        }
+    }
+
+    for (relation_key, generated_kinds) in sorted_entries(&catalog.generated_column_kinds) {
+        for (column_key, kind) in sorted_entries(generated_kinds) {
+            lines.push(format!(
+                "generated-column\t{}\t{}\t{}",
+                escape_component(relation_key),
+                escape_component(column_key),
+                generated_column_kind_tag(*kind)
+            ));
+        }
+    }
+}
+
+fn append_preserved_names(lines: &mut Vec<String>, object_kind: &str, names: &AHashMap<String, CatalogObjectName>) {
+    for (key, name) in sorted_entries(names) {
+        if name.schema().is_none() && name.name() == key {
+            continue;
+        }
+        lines.push(format!(
+            "object-name\t{}\t{}\t{}\t{}",
+            object_kind,
+            escape_component(key),
+            escape_component(name.schema().unwrap_or("")),
+            escape_component(name.name())
+        ));
+    }
+}
+
+fn append_raw_domain_types(catalog: &Catalog, lines: &mut Vec<String>) {
+    for (key, raw_type) in sorted_entries(&catalog.raw_domain_types) {
+        let normalized_type = catalog.domains.get(key).map(|domain| domain.base_type.as_str());
+        if normalized_type.is_none_or(|resolved| !equivalent_sql_type(raw_type, resolved)) {
+            lines.push(format!(
+                "raw-domain-type\t{}\t{}",
+                escape_component(key),
+                escape_component(raw_type)
+            ));
+        }
+    }
+}
+
+fn sorted_entries<T>(map: &AHashMap<String, T>) -> Vec<(&str, &T)> {
+    let mut entries: Vec<(&str, &T)> = map.iter().map(|(key, value)| (key.as_str(), value)).collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    entries
+}
+
+fn equivalent_sql_type(raw: &str, resolved: &str) -> bool {
+    raw.trim().to_lowercase() == resolved
+}
+
+fn generated_column_kind_tag(kind: GeneratedColumnKind) -> &'static str {
+    match kind {
+        GeneratedColumnKind::Virtual => "virtual",
+        GeneratedColumnKind::Stored => "stored",
     }
 }
 
@@ -302,7 +402,7 @@ fn strip_leading_qualifier(key: &str) -> String {
 /// Both are cleaner in isolation, and both are wrong here: they rewrite
 /// every value, including the overwhelming majority that contain none of
 /// the five reserved bytes. That moves the emitted hash for schemas that
-/// did not change. `Catalog::fingerprint`'s `sch1:` tag is compared as an
+/// did not change. `Catalog::fingerprint`'s `sch2:` tag is compared as an
 /// opaque string by `verify_provenance`, with no migration path — so a
 /// scheme that isn't the identity function on delimiter-free input would
 /// hand every existing user a false `scythe check` drift failure. Escape-
@@ -325,6 +425,10 @@ fn escape_component(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::catalog::{
+        CatalogBuilder, CatalogObjectName, ColumnDefinition, CompositeDefinition, DomainDefinition, EnumDefinition,
+        GeneratedColumnKind, RelationDefinition,
+    };
     use crate::dialect::SqlDialect;
 
     use super::Catalog;
@@ -380,6 +484,157 @@ mod tests {
             b.fingerprint(),
             "Column.default must be excluded from the fingerprint"
         );
+    }
+
+    #[test]
+    fn test_inspected_column_default_change_produces_same_hash() {
+        let build = |default: &str| {
+            CatalogBuilder::new(SqlDialect::SQLite)
+                .relation(RelationDefinition::table(
+                    CatalogObjectName::new("items"),
+                    vec![ColumnDefinition::new("quantity", "INTEGER", false).default(default)],
+                ))
+                .build()
+                .expect("valid inspected catalog")
+        };
+
+        assert_eq!(
+            build("0").fingerprint(),
+            build("1").fingerprint(),
+            "inspected Column.default must remain excluded from the fingerprint"
+        );
+    }
+
+    #[test]
+    fn test_inspected_table_and_view_produce_different_hashes() {
+        let table = CatalogBuilder::new(SqlDialect::SQLite)
+            .relation(RelationDefinition::table(
+                CatalogObjectName::new("items"),
+                vec![ColumnDefinition::new("id", "INTEGER", false)],
+            ))
+            .build()
+            .expect("valid inspected table");
+        let view = CatalogBuilder::new(SqlDialect::SQLite)
+            .relation(RelationDefinition::view(
+                CatalogObjectName::new("items"),
+                vec![ColumnDefinition::new("id", "INTEGER", false)],
+            ))
+            .build()
+            .expect("valid inspected view");
+
+        assert_ne!(table.fingerprint(), view.fingerprint());
+    }
+
+    #[test]
+    fn test_inspected_virtual_and_stored_columns_produce_different_hashes() {
+        let build = |kind| {
+            CatalogBuilder::new(SqlDialect::SQLite)
+                .relation(RelationDefinition::table(
+                    CatalogObjectName::new("items"),
+                    vec![ColumnDefinition::new("computed", "INTEGER", false).generated(kind)],
+                ))
+                .build()
+                .expect("valid inspected catalog")
+        };
+
+        assert_ne!(
+            build(GeneratedColumnKind::Virtual).fingerprint(),
+            build(GeneratedColumnKind::Stored).fingerprint()
+        );
+    }
+
+    #[test]
+    fn test_materially_distinct_raw_column_type_changes_hash() {
+        let build = |raw_type: &str| {
+            CatalogBuilder::new(SqlDialect::PostgreSQL)
+                .relation(RelationDefinition::table(
+                    CatalogObjectName::new("items"),
+                    vec![ColumnDefinition::new("id", raw_type, false).resolved_sql_type("integer")],
+                ))
+                .build()
+                .expect("valid inspected catalog")
+        };
+
+        assert_ne!(build("int4").fingerprint(), build("serial4").fingerprint());
+    }
+
+    #[test]
+    fn test_materially_distinct_raw_domain_type_changes_hash() {
+        let build = || {
+            CatalogBuilder::new(SqlDialect::PostgreSQL)
+                .domain(DomainDefinition::new(
+                    CatalogObjectName::new("identifier"),
+                    "bigint",
+                    false,
+                ))
+                .build()
+                .expect("valid inspected catalog")
+        };
+        let mut int8 = build();
+        let mut serial8 = build();
+        int8.raw_domain_types
+            .insert("identifier".to_string(), "int8".to_string());
+        serial8
+            .raw_domain_types
+            .insert("identifier".to_string(), "serial8".to_string());
+
+        assert_ne!(int8.fingerprint(), serial8.fingerprint());
+    }
+
+    #[test]
+    fn test_preserved_qualified_and_caseful_names_change_hash() {
+        let bare = CatalogBuilder::new(SqlDialect::PostgreSQL)
+            .relation(RelationDefinition::table(
+                CatalogObjectName::new("items"),
+                vec![ColumnDefinition::new("id", "integer", false)],
+            ))
+            .enum_type(EnumDefinition::new(
+                CatalogObjectName::new("mood"),
+                vec!["happy".to_string()],
+            ))
+            .composite(CompositeDefinition::new(CatalogObjectName::new("address"), vec![]))
+            .domain(DomainDefinition::new(
+                CatalogObjectName::new("identifier"),
+                "bigint",
+                false,
+            ))
+            .build()
+            .expect("valid normalized catalog");
+        let preserved = CatalogBuilder::new(SqlDialect::PostgreSQL)
+            .relation(RelationDefinition::table(
+                CatalogObjectName::qualified("Public", "Items"),
+                vec![ColumnDefinition::new("id", "integer", false)],
+            ))
+            .enum_type(EnumDefinition::new(
+                CatalogObjectName::new("Mood"),
+                vec!["happy".to_string()],
+            ))
+            .composite(CompositeDefinition::new(CatalogObjectName::new("Address"), vec![]))
+            .domain(DomainDefinition::new(
+                CatalogObjectName::new("Identifier"),
+                "bigint",
+                false,
+            ))
+            .build()
+            .expect("valid preserved-name catalog");
+
+        assert_ne!(bare.fingerprint(), preserved.fingerprint());
+    }
+
+    #[test]
+    fn test_default_inspection_metadata_remains_parser_compatible() {
+        let parsed =
+            Catalog::from_ddl_with_dialect(&["CREATE TABLE items (id INTEGER NOT NULL);"], &SqlDialect::SQLite)
+                .expect("valid DDL catalog");
+        let inspected = CatalogBuilder::new(SqlDialect::SQLite)
+            .relation(RelationDefinition::table(
+                CatalogObjectName::new("items"),
+                vec![ColumnDefinition::new("id", "INTEGER", false)],
+            ))
+            .build()
+            .expect("valid inspected catalog");
+
+        assert_eq!(parsed.fingerprint(), inspected.fingerprint());
     }
 
     #[test]
@@ -618,7 +873,7 @@ mod tests {
     /// canonical form changed shape and moved every emitted value at once.
     /// That is exactly the change this pin exists to catch.
     ///
-    /// `verify_provenance` compares the `sch1:` tag as an opaque string. So a
+    /// `verify_provenance` compares the algorithm tag as part of an opaque string. So a
     /// canonical-form edit that alters the emitted hash for a schema that did
     /// not change hands every existing user a `scythe check` failure reporting
     /// schema drift that is not real, until they regenerate. These values are
@@ -643,32 +898,32 @@ mod tests {
             (
                 "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, bio TEXT);",
                 SqlDialect::PostgreSQL,
-                "sch1:4bf6bb703d5818da",
+                "sch2:4bf6bb703d5818da",
             ),
             (
                 "CREATE TYPE status AS ENUM ('active', 'inactive', 'banned');",
                 SqlDialect::PostgreSQL,
-                "sch1:b23bd2728dc1df1c",
+                "sch2:b23bd2728dc1df1c",
             ),
             (
                 "CREATE TYPE address AS (street TEXT, city TEXT, zip INTEGER);",
                 SqlDialect::PostgreSQL,
-                "sch1:08277bec474dde8b",
+                "sch2:08277bec474dde8b",
             ),
             (
                 "CREATE TABLE public.users (id INTEGER PRIMARY KEY);",
                 SqlDialect::PostgreSQL,
-                "sch1:83901ff72944cf53",
+                "sch2:83901ff72944cf53",
             ),
             (
                 "CREATE TABLE t (id INT NOT NULL, note VARCHAR(255));",
                 SqlDialect::MySQL,
-                "sch1:d1b6623bd34edc4b",
+                "sch2:d1b6623bd34edc4b",
             ),
             (
                 "CREATE TABLE t (id INTEGER NOT NULL, note TEXT);",
                 SqlDialect::SQLite,
-                "sch1:4eb52891d7937ab9",
+                "sch2:4eb52891d7937ab9",
             ),
         ];
 
@@ -684,7 +939,7 @@ mod tests {
 
     /// Line prefix the child half prints its fingerprint behind. Shared by
     /// both halves so the writer and the reader cannot drift.
-    const CHILD_FINGERPRINT_PREFIX: &str = "SCH1_CHILD_FINGERPRINT=";
+    const CHILD_FINGERPRINT_PREFIX: &str = "SCH2_CHILD_FINGERPRINT=";
 
     /// Fully qualified name of [`cross_process_child_prints_fingerprint`],
     /// as libtest's `--exact` filter spells it.

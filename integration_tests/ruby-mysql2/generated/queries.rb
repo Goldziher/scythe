@@ -1,5 +1,5 @@
 # frozen_string_literal: true
-# scythe:provenance v=0.16.1 backend=ruby-mysql2 engine=mysql schema=sch1:4332a9c33cb39297 queries=q1:f928696deb211f90 options=opt1:cbf29ce484222325
+# scythe:provenance v=0.16.1 backend=ruby-mysql2 engine=mysql schema=sch2:4332a9c33cb39297 queries=q1:f928696deb211f90 options=opt1:cbf29ce484222325
 
 require "bigdecimal/util"
 

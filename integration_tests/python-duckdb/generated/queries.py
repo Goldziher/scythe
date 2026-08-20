@@ -1,4 +1,4 @@
-# scythe:provenance v=0.16.1 backend=python-duckdb engine=duckdb schema=sch1:a58e9693abcdb5e7 queries=q1:3fcd9a387f9d569e options=opt1:cbf29ce484222325  # noqa: E501
+# scythe:provenance v=0.16.1 backend=python-duckdb engine=duckdb schema=sch2:a58e9693abcdb5e7 queries=q1:3fcd9a387f9d569e options=opt1:cbf29ce484222325  # noqa: E501
 import datetime  # noqa: F401
 import decimal  # noqa: F401
 from dataclasses import dataclass
