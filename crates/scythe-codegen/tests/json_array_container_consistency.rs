@@ -74,7 +74,14 @@ const JSON_ARRAY_ALLOWLIST: &[(&str, &str)] = &[
 /// returns, never on this key. Adding one without the matching backend override
 /// would be a declaration that does nothing at all, which is why this list is
 /// pinned rather than left to drift.
-const JSON_NESTED_BACKENDS: &[&str] = &["go-pgx", "python-psycopg3", "rust-sqlx", "rust-tokio-postgres"];
+const JSON_NESTED_BACKENDS: &[&str] = &[
+    "go-pgx",
+    "php-amphp",
+    "php-pdo",
+    "python-psycopg3",
+    "rust-sqlx",
+    "rust-tokio-postgres",
+];
 
 fn manifest_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("manifests")
