@@ -15,6 +15,8 @@ use std::path::PathBuf;
 const CANDIDATE_BACKENDS: &[&str] = &[
     "rust-sqlx",
     "rust-tokio-postgres",
+    "rust-tiberius",
+    "rust-sibyl",
     "python-psycopg3",
     "python-asyncpg",
     "typescript-postgres",
@@ -398,9 +400,12 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     // turn this "did the backend emit anything?" guard into a tautology.
     out.push_str("                if body.lines().count() > 1 {\n");
     out.push_str("                    // Only validate Rust syntax with syn for Rust backends\n");
+    out.push_str("                    if matches!(\n");
+    out.push_str("                        *backend_name,\n");
     out.push_str(
-        "                    if *backend_name == \"rust-sqlx\" || *backend_name == \"rust-tokio-postgres\" {\n",
+        "                        \"rust-sqlx\" | \"rust-tokio-postgres\" | \"rust-tiberius\" | \"rust-sibyl\"\n",
     );
+    out.push_str("                    ) {\n");
     out.push_str("                        assert!(\n");
     out.push_str("                            syn::parse_file(&code).is_ok(),\n");
     let _ = writeln!(
@@ -1130,6 +1135,52 @@ mod tests {
             !mysql_backends.contains(&"csharp-npgsql"),
             "csharp-npgsql (Npgsql) has no MySQL manifest and must be excluded, got: {mysql_backends:?}"
         );
+    }
+
+    #[test]
+    fn should_include_engine_specific_rust_backends() {
+        let mssql_backends = applicable_backends("mssql");
+        assert!(
+            mssql_backends.contains(&"rust-tiberius"),
+            "rust-tiberius supports mssql and must be included, got: {mssql_backends:?}"
+        );
+
+        let oracle_backends = applicable_backends("oracle");
+        assert!(
+            oracle_backends.contains(&"rust-sibyl"),
+            "rust-sibyl supports oracle and must be included, got: {oracle_backends:?}"
+        );
+    }
+
+    #[test]
+    fn should_generate_syntax_checks_for_every_rust_backend() {
+        let fixture = fixture_from_json(
+            r#"{
+                "name": "rust_syntax_gate",
+                "description": "d",
+                "category": "smoke",
+                "schema_sql": ["CREATE TABLE t (id INT)"],
+                "query_sql": "SELECT id FROM t",
+                "expected": {
+                    "success": true,
+                    "query": {
+                        "name": "GetT",
+                        "command": "one",
+                        "columns": [{ "name": "id", "type": "integer", "nullable": true }]
+                    }
+                },
+                "source": "original"
+            }"#,
+        );
+
+        let code = generate_query_test(&fixture, "<test>");
+        assert!(code.contains("matches!(\n                        *backend_name,"));
+        for backend in ["rust-sqlx", "rust-tokio-postgres", "rust-tiberius", "rust-sibyl"] {
+            assert!(
+                code.contains(&format!("\"{backend}\"")),
+                "generated syntax gate must include {backend}\n\nGenerated:\n{code}"
+            );
+        }
     }
 
     #[test]

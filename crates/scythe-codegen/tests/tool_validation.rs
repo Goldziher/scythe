@@ -1343,8 +1343,8 @@ fn test_kotlin_r2dbc_extension_functions_default_off() {
 ///   did it to shorten the list.
 ///
 /// Rust is the sharpest entry: `validate_structural` returns `vec![]` for the
-/// four `rust-*` backends too, so their generated code is currently checked by
-/// nothing whatsoever in this file.
+/// four `rust-*` backends too. Their generated suites parse all four with
+/// `syn`, but this file still has no real driver-backed validator for them.
 #[test]
 fn backends_with_no_tool_validator_are_a_known_and_shrinking_set() {
     const NO_TOOL_VALIDATOR: &[&str] = &[
@@ -1368,13 +1368,10 @@ fn backends_with_no_tool_validator_are_a_known_and_shrinking_set() {
         // `rust-sibyl` reference their driver crates by fully-qualified path
         // with no `use` to stub around, so resolving them needs `--extern`
         // pointing at real compiled `.rlib`s -- a full Cargo dependency graph
-        // per backend. Only two of the four have a `syn::parse_file` fallback:
-        // the generated suite gates that call on `rust-sqlx` and
-        // `rust-tokio-postgres` by name, and `crates/scythe-cli/tests/compile_check.rs`
-        // reaches `rust-sqlx` alone because it calls `scythe_codegen::generate`,
-        // which is pinned to that backend. `rust-tiberius` and `rust-sibyl` are
-        // syntax-checked nowhere -- see #229. Do not restore the claim that all
-        // four are covered without a test that actually parses their output.
+        // per backend. The generated suite provides `syn::parse_file` syntax
+        // coverage for all four, and `crates/scythe-cli/tests/compile_check.rs`
+        // additionally reaches `rust-sqlx`; neither is a real driver-backed
+        // validator, so these remain in this inventory.
         "rust-sqlx",
         "rust-tokio-postgres",
         "rust-tiberius",

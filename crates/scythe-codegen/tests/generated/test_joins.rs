@@ -140,7 +140,10 @@ fn test_basic_full_join() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -313,7 +316,10 @@ fn test_basic_inner_join() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -497,7 +503,10 @@ fn test_inner_join_three_tables() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -675,7 +684,10 @@ fn test_inner_join_with_where() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -846,7 +858,10 @@ fn test_join_using() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -1019,7 +1034,10 @@ fn test_lateral_left_join_nullable() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -1192,7 +1210,10 @@ fn test_lateral_subquery_basic() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -1365,7 +1386,10 @@ fn test_basic_left_join() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -1556,7 +1580,10 @@ fn test_left_join_multiple_cols() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -1737,7 +1764,10 @@ fn test_left_join_with_where() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -1910,7 +1940,10 @@ fn test_basic_right_join() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -2098,7 +2131,10 @@ fn test_right_join_left_cols_nullable() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -2270,7 +2306,10 @@ fn test_self_join() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",

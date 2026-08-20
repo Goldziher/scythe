@@ -119,7 +119,10 @@ fn test_mariadb_insert_returning() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -276,7 +279,10 @@ fn test_mariadb_uuid_type() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -377,7 +383,13 @@ fn test_mssql_basic_types() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "mssql";
-    let all_backends = ["typescript-kysely", "java-jdbc", "kotlin-jdbc", "php-pdo"];
+    let all_backends = [
+        "rust-tiberius",
+        "typescript-kysely",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "php-pdo",
+    ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
@@ -437,7 +449,10 @@ fn test_mssql_basic_types() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -544,7 +559,13 @@ fn test_mssql_datetime_types() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "mssql";
-    let all_backends = ["typescript-kysely", "java-jdbc", "kotlin-jdbc", "php-pdo"];
+    let all_backends = [
+        "rust-tiberius",
+        "typescript-kysely",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "php-pdo",
+    ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
@@ -604,7 +625,10 @@ fn test_mssql_datetime_types() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -705,7 +729,7 @@ fn test_oracle_number_types() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "oracle";
-    let all_backends = ["java-jdbc", "kotlin-jdbc"];
+    let all_backends = ["rust-sibyl", "java-jdbc", "kotlin-jdbc"];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
@@ -765,7 +789,10 @@ fn test_oracle_number_types() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -858,7 +885,7 @@ fn test_oracle_varchar2_clob() {
     // every entry here is expected to construct -- a construction failure
     // below is a real regression, not an expected engine mismatch. See #156.
     let engine = "oracle";
-    let all_backends = ["java-jdbc", "kotlin-jdbc"];
+    let all_backends = ["rust-sibyl", "java-jdbc", "kotlin-jdbc"];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, engine) {
             Ok(b) => b,
@@ -918,7 +945,10 @@ fn test_oracle_varchar2_clob() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -1083,7 +1113,10 @@ fn test_redshift_identity_column() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -1251,7 +1284,10 @@ fn test_redshift_no_enum() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -1409,7 +1445,10 @@ fn test_redshift_super_type() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -1564,7 +1603,10 @@ fn test_snowflake_timestamp_variants() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
@@ -1711,7 +1753,10 @@ fn test_snowflake_variant_type() {
                 );
                 if body.lines().count() > 1 {
                     // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
                         assert!(
                             syn::parse_file(&code).is_ok(),
                             "backend {} generated invalid Rust for {}",
