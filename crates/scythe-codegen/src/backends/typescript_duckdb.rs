@@ -104,19 +104,6 @@ impl TypescriptDuckdbBackend {
     /// `needs_value_type`/`needs_blob_type`, which only govern the TS import
     /// list this mode skips outright.
     ///
-    /// ~keep One gap this does not close: a `bytes` column's declared type is
-    /// the bare manifest string `"DuckDBBlobValue"` (see
-    /// `manifests/typescript-duckdb.toml`), not an `import(...)`-qualified
-    /// one, because the manifest is shared between both emit modes and TS
-    /// mode resolves the bare name through its own `import type { ... }`
-    /// line. With that line dropped here, a `.js` file whose query selects a
-    /// `BLOB` column would emit a JSDoc `@property {DuckDBBlobValue}` with no
-    /// import anywhere binding that name -- an unresolved-identifier error
-    /// under real `tsc --checkJs`. No fixture in this crate's test suite
-    /// selects a `bytes` column through `javascript-duckdb`, so nothing here
-    /// catches it; fixing it properly needs the manifest (or `resolve_type`)
-    /// to carry a JS-mode-qualified spelling, which is out of scope for this
-    /// backend addition.
     fn file_header_with_value_type(&self, needs_value_type: bool, needs_blob_type: bool) -> String {
         if self.js_mode {
             return String::new();
@@ -178,6 +165,10 @@ impl TypescriptDuckdbBackend {
     pub fn new_js(engine: &str) -> Result<Self, ScytheError> {
         let mut backend = Self::new(engine)?;
         backend.js_mode = true;
+        backend.manifest.types.scalars.insert(
+            "bytes".to_string(),
+            "import(\"@duckdb/node-api\").DuckDBBlobValue".to_string(),
+        );
         Ok(backend)
     }
 }
@@ -1015,7 +1006,7 @@ impl TypescriptDuckdbBackend {
 
 #[cfg(test)]
 mod tests {
-    use super::TypescriptDuckdbBackend;
+    use super::{TypescriptDuckdbBackend, resolve_type};
     use crate::backend_trait::CodegenBackend;
     use scythe_core::analyzer::{AnalyzedColumn, AnalyzedParam, AnalyzedQuery, GroupByConfig};
     use scythe_core::parser::QueryCommand;
@@ -1603,6 +1594,37 @@ mod tests {
     #[test]
     fn test_js_mode_file_header_has_no_ts_only_imports() {
         assert_eq!(js_backend().file_header(), "");
+    }
+
+    #[test]
+    fn test_js_mode_qualifies_blob_type_inline_without_changing_ts_mode() {
+        use crate::backend_trait::ResolvedColumn;
+
+        let ts = TypescriptDuckdbBackend::new("duckdb").unwrap();
+        let js = js_backend();
+        let column = |backend: &TypescriptDuckdbBackend| {
+            let resolved = resolve_type("bytes", backend.manifest(), false).unwrap().into_owned();
+            ResolvedColumn {
+                name: "payload".to_string(),
+                field_name: "payload".to_string(),
+                lang_type: resolved.clone(),
+                full_type: resolved,
+                neutral_type: "bytes".to_string(),
+                sql_type: "BLOB".to_string(),
+                nullable: false,
+                join_group: None,
+                nullable_before_join: false,
+            }
+        };
+
+        let ts_row = ts.generate_row_struct("GetBlob", &[column(&ts)]).unwrap();
+        let js_row = js.generate_row_struct("GetBlob", &[column(&js)]).unwrap();
+
+        assert!(ts_row.contains("payload: DuckDBBlobValue;"), "got:\n{ts_row}");
+        assert!(
+            js_row.contains("@property {import(\"@duckdb/node-api\").DuckDBBlobValue} payload"),
+            "got:\n{js_row}"
+        );
     }
 
     #[test]

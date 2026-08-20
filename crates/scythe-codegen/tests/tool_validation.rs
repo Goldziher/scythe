@@ -1006,11 +1006,11 @@ const JS_MODE_SNOWFLAKE_ONE: &str = "-- @name GetUserById\n-- @returns :one\n\
 // (see `ts_identifier_quoting_regression.rs`'s `TS_BACKENDS`/`JS_BACKENDS`
 // for the same convention).
 const JS_MODE_DUCKDB_SCHEMA: [&str; 2] = [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, bio TEXT);",
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, bio TEXT, payload BLOB NOT NULL);",
     "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total NUMERIC);",
 ];
 const JS_MODE_DUCKDB_ONE: &str = "-- @name GetUserById\n-- @returns :one\n\
-    SELECT id, name, bio FROM users WHERE id = $1;";
+    SELECT id, name, bio, payload FROM users WHERE id = $1;";
 
 const JS_MODE_MSSQL_SCHEMA: [&str; 2] = [
     "CREATE TABLE users (id INT IDENTITY(1,1) PRIMARY KEY, name NVARCHAR(255) NOT NULL, bio NVARCHAR(255));",
@@ -1265,6 +1265,10 @@ fn test_javascript_duckdb_grouped_and_nullable_pass_real_tools() {
     );
     eprintln!("\n=== javascript-duckdb (nullable + grouped) ===\n{code}\n=== END ===\n");
     assert_js_mode_nullable_property_is_type_or_null(&code, "bio");
+    assert!(
+        code.contains("@property {import(\"@duckdb/node-api\").DuckDBBlobValue} payload"),
+        "expected an inline-qualified DuckDB blob type; got:\n{code}"
+    );
     assert!(
         code.contains("@typedef {object} GetUsersWithOrdersRow"),
         "expected the grouped parent typedef; got:\n{code}"
