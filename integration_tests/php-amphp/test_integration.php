@@ -329,7 +329,20 @@ function test_nested_json($pdo): void
 
     $many = Queries::getUsersAsJson($pdo)->payload;
     assert_true(count($many) >= 1, "GetUsersAsJson rows");
-    assert_true($many[0]->created_at instanceof DateTimeImmutable, "GetUsersAsJson datetime");
+    $matches = array_values(array_filter(
+        $many,
+        static fn ($candidate): bool => $candidate->id === $user_id
+    ));
+    assert_equal(1, count($matches), "GetUsersAsJson seeded row count");
+    $row = $matches[0];
+    assert_equal("Nested", $row->name, "GetUsersAsJson aggregate name");
+    assert_true($row->status === UserStatus::ACTIVE, "GetUsersAsJson aggregate enum");
+    assert_true($row->secondary_status === UserStatus::INACTIVE, "GetUsersAsJson aggregate nullable enum");
+    assert_not_null($row->address, "GetUsersAsJson aggregate composite");
+    assert_equal("5 JSON Way", $row->address->street, "GetUsersAsJson aggregate address.street");
+    assert_equal("Berlin", $row->address->city, "GetUsersAsJson aggregate address.city");
+    assert_equal("10115", $row->address->zip, "GetUsersAsJson aggregate address.zip");
+    assert_true($row->created_at instanceof DateTimeImmutable, "GetUsersAsJson aggregate datetime");
 
     $orders = Queries::getUserOrdersAsJson($pdo, $user_id)->payload;
     assert_equal(1, count($orders), "GetUserOrdersAsJson null element count");
@@ -345,6 +358,14 @@ function test_nested_json($pdo): void
     Queries::deleteOrdersByUser($pdo, $user_id);
     Queries::deleteUser($pdo, $user_id);
     echo "PASS: NestedJson\n";
+}
+
+function test_empty_nested_json($pdo): void
+{
+    $pdo->query("DELETE FROM users");
+    $empty = Queries::getUsersAsJson($pdo);
+    assert_null($empty->payload, "GetUsersAsJson empty aggregate");
+    echo "PASS: EmptyNestedJson\n";
 }
 
 function test_delete_user($pdo, int $user_id): void
@@ -378,6 +399,7 @@ try {
     test_round_trip_user_address($pdo);
     test_nested_json($pdo);
     test_delete_user($pdo, $user_id);
+    test_empty_nested_json($pdo);
 
     echo "\nALL TESTS PASSED\n";
     exit(0);
