@@ -883,6 +883,28 @@ pub(crate) fn resolved_param_for_position<'a>(
     &resolved[idx]
 }
 
+/// ~keep Rewrite live SQL placeholders and append PostgreSQL casts derived from their resolved types.
+pub(crate) fn rewrite_pg_typed_placeholders(
+    sql: &str,
+    analyzed_params: &[AnalyzedParam],
+    resolved_params: &[ResolvedParam],
+    cast_enums: bool,
+    formatter: impl Fn(u32) -> String,
+) -> (String, Vec<u32>) {
+    rewrite_placeholders_indexed(sql, SqlDialect::PostgreSQL, |position| {
+        let mut placeholder = formatter(position);
+        let param = resolved_param_for_position(analyzed_params, resolved_params, position);
+        if cast_enums && let Some(enum_type) = param.neutral_type.strip_prefix("enum::") {
+            placeholder.push_str("::");
+            placeholder.push_str(enum_type);
+        } else if let Some(composite_type) = param.neutral_type.strip_prefix("composite::") {
+            placeholder.push_str("::text::");
+            placeholder.push_str(composite_type);
+        }
+        placeholder
+    })
+}
+
 /// Whether `text` (a `Code`-span substring, guaranteed free of strings and
 /// comments) contains a `$` immediately followed by an ASCII digit.
 fn code_span_has_dollar_number(text: &str) -> bool {
@@ -1130,6 +1152,45 @@ mod tests {
             position,
             source_relation: None,
         }
+    }
+
+    fn resolved_param(name: &str, neutral_type: &str) -> ResolvedParam {
+        ResolvedParam {
+            name: name.to_string(),
+            field_name: name.to_string(),
+            lang_type: "String".to_string(),
+            full_type: "String".to_string(),
+            borrowed_type: "&str".to_string(),
+            neutral_type: neutral_type.to_string(),
+            nullable: false,
+        }
+    }
+
+    #[test]
+    fn typed_placeholder_casts_only_rewrite_live_tokens_and_keep_number_boundaries() {
+        let analyzed: Vec<AnalyzedParam> = (1..=10)
+            .map(|position| param(&format!("p{position}"), position))
+            .collect();
+        let resolved: Vec<ResolvedParam> = (1..=10)
+            .map(|position| {
+                let neutral_type = match position {
+                    1 => "composite::address",
+                    10 => "enum::status",
+                    _ => "string",
+                };
+                resolved_param(&format!("p{position}"), neutral_type)
+            })
+            .collect();
+        let sql = "SELECT $1, $10, '$1', \"$10\", $$ $1 $10 $$ -- $1\n/* $10 */ WHERE x = $2";
+
+        let (rewritten, occurrences) =
+            rewrite_pg_typed_placeholders(sql, &analyzed, &resolved, true, |position| format!("@p{position}"));
+
+        assert_eq!(
+            rewritten,
+            "SELECT @p1::text::address, @p10::status, '$1', \"$10\", $$ $1 $10 $$ -- $1\n/* $10 */ WHERE x = @p2"
+        );
+        assert_eq!(occurrences, vec![1, 10, 2]);
     }
 
     /// Structural guard for #82: no source file under `src/backends` may

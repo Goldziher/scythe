@@ -57,3 +57,36 @@ fn csharp_npgsql_encodes_nullable_composite_params_as_text() {
         "encoder must preserve declared field order:\n{composite}"
     );
 }
+
+#[test]
+fn csharp_npgsql_casts_placeholder_tokens_without_prefix_corruption() {
+    let query = AnalyzedQuery::build(|query| {
+        query.name = "AdversarialPlaceholders".to_string();
+        query.command = QueryCommand::Exec;
+        query.sql = "SELECT $1, $10, '$1', $$ $1 $10 $$".to_string();
+        query.params = (1..=10)
+            .map(|position| AnalyzedParam {
+                name: format!("p{position}"),
+                neutral_type: if position == 1 {
+                    "composite::address".to_string()
+                } else {
+                    "string".to_string()
+                },
+                nullable: false,
+                position,
+                source_relation: None,
+            })
+            .collect();
+        query.composites = vec![address_composite()];
+    });
+    let backend = get_backend("csharp-npgsql", "postgresql").expect("backend must exist");
+    let query_fn = generate_with_backend(&query, &*backend)
+        .expect("query generation must succeed")
+        .query_fn
+        .expect("exec query must emit a function");
+
+    assert!(query_fn.contains("@p1::text::address, @p10"), "{query_fn}");
+    assert!(!query_fn.contains("@p1::text::address0"), "{query_fn}");
+    assert!(query_fn.contains("'$1'"), "{query_fn}");
+    assert!(query_fn.contains("$$ $1 $10 $$"), "{query_fn}");
+}

@@ -376,21 +376,13 @@ impl CodegenBackend for CsharpNpgsqlBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let mut sql = super::rewrite_pg_placeholders(
+        let (sql, _) = super::rewrite_pg_typed_placeholders(
             &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+            &analyzed.params,
+            params,
+            true,
             |n| format!("@p{n}"),
         );
-        for (i, p) in params.iter().enumerate() {
-            if let Some(enum_name) = p.neutral_type.strip_prefix("enum::") {
-                let placeholder = format!("@p{}", i + 1);
-                let casted = format!("@p{}::{}", i + 1, enum_name);
-                sql = sql.replace(&placeholder, &casted);
-            } else if let Some(composite_name) = p.neutral_type.strip_prefix("composite::") {
-                let placeholder = format!("@p{}", i + 1);
-                let casted = format!("@p{}::text::{}", i + 1, composite_name);
-                sql = sql.replace(&placeholder, &casted);
-            }
-        }
         let sql = crate::sql_literal::escape_csharp_verbatim_string(&sql);
         let mut out = String::new();
 
@@ -617,21 +609,13 @@ impl CodegenBackend for CsharpNpgsqlBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let mut sql = super::rewrite_pg_placeholders(
+        let (sql, _) = super::rewrite_pg_typed_placeholders(
             &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+            &analyzed.params,
+            params,
+            true,
             |n| format!("@p{n}"),
         );
-        for (i, p) in params.iter().enumerate() {
-            if let Some(enum_name) = p.neutral_type.strip_prefix("enum::") {
-                let placeholder = format!("@p{}", i + 1);
-                let casted = format!("@p{}::{}", i + 1, enum_name);
-                sql = sql.replace(&placeholder, &casted);
-            } else if let Some(composite_name) = p.neutral_type.strip_prefix("composite::") {
-                let placeholder = format!("@p{}", i + 1);
-                let casted = format!("@p{}::text::{}", i + 1, composite_name);
-                sql = sql.replace(&placeholder, &casted);
-            }
-        }
         let sql = crate::sql_literal::escape_csharp_verbatim_string(&sql);
 
         let mut out = String::new();

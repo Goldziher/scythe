@@ -98,3 +98,40 @@ fn jvm_backends_encode_single_composite_batch_items() {
         );
     }
 }
+
+#[test]
+fn jvm_backends_cast_only_live_composite_placeholders() {
+    let query = AnalyzedQuery::build(|query| {
+        query.name = "AdversarialPlaceholders".to_string();
+        query.command = QueryCommand::Exec;
+        query.sql = "SELECT $1, $10, '$1', $$ $1 $10 $$ -- $1\n/* $10 */".to_string();
+        query.params = (1..=10)
+            .map(|position| AnalyzedParam {
+                name: format!("p{position}"),
+                neutral_type: if position == 1 {
+                    "composite::address".to_string()
+                } else {
+                    "string".to_string()
+                },
+                nullable: false,
+                position,
+                source_relation: None,
+            })
+            .collect();
+        query.composites = vec![address_composite()];
+    });
+
+    for backend_name in JVM_BACKENDS {
+        let backend = get_backend(backend_name, "postgresql").expect("JVM backend must support PostgreSQL");
+        let query_fn = generate_with_backend(&query, &*backend)
+            .expect("query generation must succeed")
+            .query_fn
+            .expect("exec query must emit a function");
+
+        assert_eq!(
+            query_fn.matches("::text::address").count(),
+            1,
+            "{backend_name} rewrote a quoted or commented placeholder:\n{query_fn}"
+        );
+    }
+}

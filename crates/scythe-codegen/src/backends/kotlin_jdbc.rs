@@ -180,40 +180,6 @@ fn jdbc_bind_param_for(param: &ResolvedParam, index: usize, engine: &str, receiv
     }
 }
 
-fn add_pg_composite_casts(sql: &str, params: &[ResolvedParam], engine: &str) -> String {
-    if engine != "postgresql" || !params.iter().any(|p| p.neutral_type.starts_with("composite::")) {
-        return sql.to_string();
-    }
-    let mut result = String::with_capacity(sql.len());
-    let mut chars = sql.chars().peekable();
-    while let Some(ch) = chars.next() {
-        result.push(ch);
-        if ch != '$' || !chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-            continue;
-        }
-        let mut digits = String::new();
-        while let Some(c) = chars.peek().copied() {
-            if !c.is_ascii_digit() {
-                break;
-            }
-            digits.push(c);
-            result.push(c);
-            chars.next();
-        }
-        let composite_type = digits
-            .parse::<usize>()
-            .ok()
-            .and_then(|position| position.checked_sub(1))
-            .and_then(|index| params.get(index))
-            .and_then(|param| param.neutral_type.strip_prefix("composite::"));
-        if let Some(composite_type) = composite_type {
-            result.push_str("::text::");
-            result.push_str(composite_type);
-        }
-    }
-    result
-}
-
 /// The Kotlin `List<T>` expression that turns a `java.sql.Array` (already
 /// known non-null) into the declared element type. `sql_array_expr` is the
 /// expression producing the `java.sql.Array` -- either an inline
@@ -681,9 +647,11 @@ impl CodegenBackend for KotlinJdbcBackend {
             &analyzed.optional_params,
             &analyzed.params,
         );
-        let cleaned_sql = add_pg_composite_casts(&cleaned_sql, params, &self.engine);
-        let (rewritten_sql, occurrences) =
-            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
+        let (rewritten_sql, occurrences) = if self.engine == "postgresql" {
+            super::rewrite_pg_typed_placeholders(&cleaned_sql, &analyzed.params, params, false, |_| "?".to_string())
+        } else {
+            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string())
+        };
         let sql = crate::sql_literal::escape_kotlin_string(&rewritten_sql);
 
         let use_multiline_params = !params.is_empty();
@@ -1233,9 +1201,11 @@ impl CodegenBackend for KotlinJdbcBackend {
             &analyzed.optional_params,
             &analyzed.params,
         );
-        let cleaned_sql = add_pg_composite_casts(&cleaned_sql, params, &self.engine);
-        let (rewritten_sql, occurrences) =
-            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
+        let (rewritten_sql, occurrences) = if self.engine == "postgresql" {
+            super::rewrite_pg_typed_placeholders(&cleaned_sql, &analyzed.params, params, false, |_| "?".to_string())
+        } else {
+            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string())
+        };
         let sql = crate::sql_literal::escape_kotlin_string(&rewritten_sql);
 
         let ext = self.extension_functions;

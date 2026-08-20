@@ -462,7 +462,12 @@ fn write_r2dbc_bind_for(out: &mut String, indent: &str, index: usize, param: &Re
 /// onto every caller and silently break the ones who did not.
 ///
 /// Only for PostgreSQL: MySQL enums are already strings on the wire.
-fn add_pg_enum_casts(sql: &str, params: &[ResolvedParam], is_pg: bool) -> String {
+fn add_pg_enum_casts(
+    sql: &str,
+    analyzed_params: &[scythe_core::analyzer::AnalyzedParam],
+    params: &[ResolvedParam],
+    is_pg: bool,
+) -> String {
     if !is_pg
         || !params
             .iter()
@@ -470,38 +475,7 @@ fn add_pg_enum_casts(sql: &str, params: &[ResolvedParam], is_pg: bool) -> String
     {
         return sql.to_string();
     }
-    let mut result = String::with_capacity(sql.len());
-    let mut chars = sql.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch != '$' || !chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-            result.push(ch);
-            continue;
-        }
-        let mut digits = String::new();
-        while let Some(c) = chars.peek().copied() {
-            if !c.is_ascii_digit() {
-                break;
-            }
-            digits.push(c);
-            chars.next();
-        }
-        result.push('$');
-        result.push_str(&digits);
-        // Placeholders are 1-based; `params` is 0-based and in placeholder order.
-        let param = digits
-            .parse::<usize>()
-            .ok()
-            .and_then(|n| n.checked_sub(1))
-            .and_then(|idx| params.get(idx));
-        if let Some(enum_type) = param.and_then(|p| p.neutral_type.strip_prefix("enum::")) {
-            result.push_str("::");
-            result.push_str(enum_type);
-        } else if let Some(composite_type) = param.and_then(|p| p.neutral_type.strip_prefix("composite::")) {
-            result.push_str("::text::");
-            result.push_str(composite_type);
-        }
-    }
-    result
+    super::rewrite_pg_typed_placeholders(sql, analyzed_params, params, true, |position| format!("${position}")).0
 }
 
 impl CodegenBackend for JavaR2dbcBackend {
@@ -614,6 +588,7 @@ impl CodegenBackend for JavaR2dbcBackend {
         let sql = crate::sql_literal::escape_java_string(&pg_to_r2dbc_params(
             &add_pg_enum_casts(
                 &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+                &analyzed.params,
                 params,
                 self.is_pg,
             ),
@@ -1066,6 +1041,7 @@ impl CodegenBackend for JavaR2dbcBackend {
         let sql = crate::sql_literal::escape_java_string(&pg_to_r2dbc_params(
             &add_pg_enum_casts(
                 &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+                &analyzed.params,
                 params,
                 self.is_pg,
             ),

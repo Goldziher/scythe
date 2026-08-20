@@ -211,40 +211,6 @@ fn ps_bind_param_for(param: &ResolvedParam, index: usize, engine: &str, receiver
     }
 }
 
-fn add_pg_composite_casts(sql: &str, params: &[ResolvedParam], engine: &str) -> String {
-    if engine != "postgresql" || !params.iter().any(|p| p.neutral_type.starts_with("composite::")) {
-        return sql.to_string();
-    }
-    let mut result = String::with_capacity(sql.len());
-    let mut chars = sql.chars().peekable();
-    while let Some(ch) = chars.next() {
-        result.push(ch);
-        if ch != '$' || !chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-            continue;
-        }
-        let mut digits = String::new();
-        while let Some(c) = chars.peek().copied() {
-            if !c.is_ascii_digit() {
-                break;
-            }
-            digits.push(c);
-            result.push(c);
-            chars.next();
-        }
-        let composite_type = digits
-            .parse::<usize>()
-            .ok()
-            .and_then(|position| position.checked_sub(1))
-            .and_then(|index| params.get(index))
-            .and_then(|param| param.neutral_type.strip_prefix("composite::"));
-        if let Some(composite_type) = composite_type {
-            result.push_str("::text::");
-            result.push_str(composite_type);
-        }
-    }
-    result
-}
-
 /// The boxed Java element type for an array column's `List<{T}>`, derived
 /// from the element's own neutral type through the manifest's ordinary
 /// scalar/enum/composite resolution.
@@ -746,9 +712,11 @@ impl CodegenBackend for JavaJdbcBackend {
             &analyzed.optional_params,
             &analyzed.params,
         );
-        let cleaned_sql = add_pg_composite_casts(&cleaned_sql, params, &self.engine);
-        let (rewritten_sql, occurrences) =
-            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
+        let (rewritten_sql, occurrences) = if self.engine == "postgresql" {
+            super::rewrite_pg_typed_placeholders(&cleaned_sql, &analyzed.params, params, false, |_| "?".to_string())
+        } else {
+            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string())
+        };
         let sql = crate::sql_literal::escape_java_string(&rewritten_sql);
 
         let param_list = params.iter().map(java_annotated_param).collect::<Vec<_>>().join(", ");
@@ -1201,9 +1169,11 @@ impl CodegenBackend for JavaJdbcBackend {
             &analyzed.optional_params,
             &analyzed.params,
         );
-        let cleaned_sql = add_pg_composite_casts(&cleaned_sql, params, &self.engine);
-        let (rewritten_sql, occurrences) =
-            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
+        let (rewritten_sql, occurrences) = if self.engine == "postgresql" {
+            super::rewrite_pg_typed_placeholders(&cleaned_sql, &analyzed.params, params, false, |_| "?".to_string())
+        } else {
+            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string())
+        };
         let sql = crate::sql_literal::escape_java_string(&rewritten_sql);
 
         let param_list = params.iter().map(java_annotated_param).collect::<Vec<_>>().join(", ");

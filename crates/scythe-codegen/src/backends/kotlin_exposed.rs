@@ -398,67 +398,6 @@ fn exposed_bind_value_for(param: &ResolvedParam, receiver: &str) -> String {
     }
 }
 
-/// ~keep Append an explicit `::<enum type>` cast to each `?` placeholder whose parameter is an
-/// enum.
-///
-/// Exposed binds an enum parameter through `TextColumnType()`, which sends a *typed*
-/// `character varying`. PostgreSQL will not coerce that to a user enum type, so a bare
-/// placeholder fails with `column "status" is of type user_status but expression is of type
-/// character varying`, or `operator does not exist: user_status = character varying` in a
-/// predicate. Casting at the placeholder keeps the generated code self-sufficient. This is the
-/// same defect, and the same fix, as `add_pg_enum_casts` in java_r2dbc.rs/kotlin_r2dbc.rs --
-/// three backends now, so it is a property of sending a typed varchar at an enum column rather
-/// than anything specific to one driver.
-///
-/// `occurrences[k]` is the 1-based parameter position bound at the k-th `?`, as returned by
-/// `rewrite_placeholders_indexed`. The scan skips single-quoted string literals: a `?` inside
-/// one is data, not a placeholder, and counting it would shift every cast after it onto the
-/// wrong parameter.
-fn add_exposed_enum_casts(
-    sql: &str,
-    occurrences: &[u32],
-    analyzed_params: &[scythe_core::analyzer::AnalyzedParam],
-    params: &[ResolvedParam],
-) -> String {
-    if occurrences.is_empty() {
-        return sql.to_string();
-    }
-    let mut result = String::with_capacity(sql.len());
-    let mut in_string = false;
-    let mut seen = 0usize;
-    let mut chars = sql.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\'' {
-            // '' is an escaped quote inside a literal, not the end of one.
-            if in_string && chars.peek() == Some(&'\'') {
-                result.push(ch);
-                result.push('\'');
-                chars.next();
-                continue;
-            }
-            in_string = !in_string;
-            result.push(ch);
-            continue;
-        }
-        result.push(ch);
-        if ch != '?' || in_string {
-            continue;
-        }
-        let position = occurrences.get(seen).copied();
-        seen += 1;
-        let Some(position) = position else { continue };
-        let p = super::resolved_param_for_position(analyzed_params, params, position);
-        if let Some(enum_type) = p.neutral_type.strip_prefix("enum::") {
-            result.push_str("::");
-            result.push_str(enum_type);
-        } else if let Some(composite_type) = p.neutral_type.strip_prefix("composite::") {
-            result.push_str("::text::");
-            result.push_str(composite_type);
-        }
-    }
-    result
-}
-
 impl CodegenBackend for KotlinExposedBackend {
     fn name(&self) -> &str {
         "kotlin-exposed"
@@ -583,8 +522,7 @@ impl CodegenBackend for KotlinExposedBackend {
             &analyzed.params,
         );
         let (rewritten_sql, occurrences) =
-            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
-        let rewritten_sql = add_exposed_enum_casts(&rewritten_sql, &occurrences, &analyzed.params, params);
+            super::rewrite_pg_typed_placeholders(&cleaned_sql, &analyzed.params, params, true, |_| "?".to_string());
         let sql = crate::sql_literal::escape_kotlin_string(&rewritten_sql);
 
         let mut out = String::new();
@@ -997,8 +935,7 @@ impl CodegenBackend for KotlinExposedBackend {
             &analyzed.params,
         );
         let (rewritten_sql, occurrences) =
-            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
-        let rewritten_sql = add_exposed_enum_casts(&rewritten_sql, &occurrences, &analyzed.params, params);
+            super::rewrite_pg_typed_placeholders(&cleaned_sql, &analyzed.params, params, true, |_| "?".to_string());
         let sql = crate::sql_literal::escape_kotlin_string(&rewritten_sql);
 
         let key_col = parent_columns
