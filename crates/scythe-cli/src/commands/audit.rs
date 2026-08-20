@@ -22,7 +22,10 @@ use scythe_lint::{
     register_user_rules,
 };
 
-use super::shared::{ParseSeverities, config_dir, resolve_globs};
+use super::shared::{
+    CatalogLoadRequest, LoadedCatalog, ParseSeverities, SchemaSource, config_dir, load_catalog, resolve_globs,
+    validate_schema_source,
+};
 
 const TOOL_NAME: &str = "scythe-audit";
 const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -432,6 +435,8 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
         queries: Vec<String>,
         #[serde(default)]
         engine: String,
+        #[serde(default)]
+        schema_source: SchemaSource,
     }
 
     if !Path::new(config_path).exists() {
@@ -442,6 +447,10 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
         std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
     let config: ScytheConfig =
         toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
+
+    for sql_config in &config.sql {
+        validate_schema_source("audit", &sql_config.name, &sql_config.engine, sql_config.schema_source)?;
+    }
 
     let mut registry = default_registry();
     if let Some(ref lint_config) = config.lint {
@@ -507,12 +516,18 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
         }
 
         let schema_files = resolve_globs(&sql_config.schema, base_dir, &format!("[{}] schema", sql_config.name))?;
-        let schema_contents: Vec<String> = schema_files
-            .iter()
-            .map(|p| std::fs::read_to_string(p).map_err(|e| format!("failed to read schema file '{}': {}", p, e)))
-            .collect::<Result<_, _>>()?;
-        let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
-        let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &sql_dialect)?;
+        let LoadedCatalog {
+            catalog,
+            schema_contents,
+            ..
+        } = load_catalog(CatalogLoadRequest {
+            command: "audit",
+            config_name: &sql_config.name,
+            engine: engine_label,
+            dialect: sql_dialect,
+            schema_files: &schema_files,
+            source: sql_config.schema_source,
+        })?;
 
         for (path, content) in schema_files.iter().zip(schema_contents.iter()) {
             findings.extend(run_security_rules_over_sql(

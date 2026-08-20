@@ -1,5 +1,130 @@
 use std::borrow::Cow;
+use std::fmt;
 use std::path::{Path, PathBuf};
+
+use scythe_core::catalog::Catalog;
+use scythe_core::dialect::SqlDialect;
+use serde::Deserialize;
+
+const EXECUTABLE_SCHEMA_ENGINES: &[&str] = &["sqlite", "sqlite3", "duckdb"];
+
+/// How a configured schema becomes the catalog used by CLI commands.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SchemaSource {
+    /// Parse DDL without executing it. This preserves the historical behavior.
+    #[default]
+    Parse,
+    /// Execute trusted DDL in a fresh embedded database and introspect it.
+    Execute,
+}
+
+impl SchemaSource {
+    /// Progress label that preserves the existing parse-mode output.
+    pub fn progress_verb(self) -> &'static str {
+        match self {
+            Self::Parse => "Parsing",
+            Self::Execute => "Executing",
+        }
+    }
+}
+
+impl fmt::Display for SchemaSource {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Parse => formatter.write_str("parse"),
+            Self::Execute => formatter.write_str("execute"),
+        }
+    }
+}
+
+/// Inputs shared by generate, check, lint, and configured audit catalog loading.
+pub struct CatalogLoadRequest<'a> {
+    pub command: &'static str,
+    pub config_name: &'a str,
+    pub engine: &'a str,
+    pub dialect: SqlDialect,
+    pub schema_files: &'a [String],
+    pub source: SchemaSource,
+}
+
+/// A catalog and the exact configured schema inputs that produced it.
+pub struct LoadedCatalog {
+    pub catalog: Catalog,
+    pub schema_contents: Vec<String>,
+}
+
+/// Reject an executable source for engines without an embedded execution path.
+pub fn validate_schema_source(
+    command: &str,
+    config_name: &str,
+    engine: &str,
+    source: SchemaSource,
+) -> Result<(), String> {
+    if source == SchemaSource::Parse || EXECUTABLE_SCHEMA_ENGINES.contains(&engine.to_ascii_lowercase().as_str()) {
+        return Ok(());
+    }
+
+    Err(unsupported_schema_source(command, config_name, engine))
+}
+
+fn unsupported_schema_source(command: &str, config_name: &str, engine: &str) -> String {
+    format!(
+        "{command} [{config_name}] schema_source=execute is unsupported for engine `{engine}`; supported engines: {}",
+        EXECUTABLE_SCHEMA_ENGINES.join(", ")
+    )
+}
+
+/// Load one configured schema through the selected parse or execute path.
+pub fn load_catalog(request: CatalogLoadRequest<'_>) -> Result<LoadedCatalog, Box<dyn std::error::Error>> {
+    validate_schema_source(request.command, request.config_name, request.engine, request.source)?;
+
+    let schema_contents = request
+        .schema_files
+        .iter()
+        .map(|path| {
+            std::fs::read_to_string(path).map_err(|error| {
+                format!(
+                    "{} [{}] schema_source={} engine `{}` failed to read schema file `{}`: {}",
+                    request.command, request.config_name, request.source, request.engine, path, error
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let catalog = match request.source {
+        SchemaSource::Parse => {
+            let schema_refs = schema_contents.iter().map(String::as_str).collect::<Vec<_>>();
+            Catalog::from_ddl_with_dialect(&schema_refs, &request.dialect).map_err(|error| {
+                format!(
+                    "{} [{}] schema_source=parse engine `{}` failed to parse configured schema: {}",
+                    request.command, request.config_name, request.engine, error
+                )
+            })?
+        }
+        SchemaSource::Execute => {
+            let paths = request.schema_files.iter().map(PathBuf::from).collect::<Vec<_>>();
+            let result = match request.engine.to_ascii_lowercase().as_str() {
+                "sqlite" | "sqlite3" => scythe_inspect::execute_sqlite_schema_files(&paths),
+                "duckdb" => scythe_inspect::execute_duckdb_schema_files(&paths),
+                _ => {
+                    return Err(unsupported_schema_source(request.command, request.config_name, request.engine).into());
+                }
+            };
+            result.map_err(|error| {
+                format!(
+                    "{} [{}] schema_source=execute engine `{}` failed: {}",
+                    request.command, request.config_name, request.engine, error
+                )
+            })?
+        }
+    };
+
+    Ok(LoadedCatalog {
+        catalog,
+        schema_contents,
+    })
+}
 
 /// Splits a .sql file containing multiple queries separated by `-- name:` or
 /// `-- @name` annotations. Returns one string per query block (annotation +
@@ -413,6 +538,125 @@ impl ParseSeverities {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug, Deserialize)]
+    struct SourceConfig {
+        #[serde(default)]
+        schema_source: SchemaSource,
+    }
+
+    #[test]
+    fn schema_source_defaults_to_parse_and_rejects_unknown_values() {
+        let omitted: SourceConfig = toml::from_str("").unwrap();
+        let explicit: SourceConfig = toml::from_str("schema_source = \"parse\"").unwrap();
+        assert_eq!(omitted.schema_source, SchemaSource::Parse);
+        assert_eq!(explicit.schema_source, SchemaSource::Parse);
+
+        let error = toml::from_str::<SourceConfig>("schema_source = \"compile\"").unwrap_err();
+        let rendered = error.to_string();
+        assert!(rendered.contains("compile"));
+        assert!(rendered.contains("parse"));
+        assert!(rendered.contains("execute"));
+    }
+
+    #[test]
+    fn execute_source_validation_accepts_supported_aliases_only() {
+        for engine in ["sqlite", "sqlite3", "SQLITE", "duckdb", "DuckDB"] {
+            assert_eq!(
+                validate_schema_source("generate", "main", engine, SchemaSource::Execute),
+                Ok(())
+            );
+        }
+        assert_eq!(
+            validate_schema_source("generate", "main", "postgresql", SchemaSource::Parse),
+            Ok(())
+        );
+
+        let error = validate_schema_source("check", "warehouse", "postgresql", SchemaSource::Execute).unwrap_err();
+        assert!(error.contains("check [warehouse]"));
+        assert!(error.contains("postgresql"));
+        assert!(error.contains("sqlite, sqlite3, duckdb"));
+    }
+
+    #[test]
+    fn omitted_source_preserves_parse_catalog() {
+        let directory = tempfile::tempdir().unwrap();
+        let schema_path = directory.path().join("schema.sql");
+        let schema = "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);";
+        std::fs::write(&schema_path, schema).unwrap();
+        let schema_files = vec![schema_path.display().to_string()];
+        let expected = Catalog::from_ddl_with_dialect(&[schema], &SqlDialect::SQLite).unwrap();
+
+        let loaded = load_catalog(CatalogLoadRequest {
+            command: "generate",
+            config_name: "main",
+            engine: "sqlite",
+            dialect: SqlDialect::SQLite,
+            schema_files: &schema_files,
+            source: SchemaSource::default(),
+        })
+        .unwrap();
+
+        assert_eq!(loaded.schema_contents, vec![schema]);
+        assert_eq!(loaded.catalog.fingerprint(), expected.fingerprint());
+    }
+
+    #[test]
+    fn execute_source_loads_sqlite_and_duckdb_catalogs() {
+        let directory = tempfile::tempdir().unwrap();
+        let schema_path = directory.path().join("schema.sql");
+        std::fs::write(
+            &schema_path,
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, name VARCHAR NOT NULL);",
+        )
+        .unwrap();
+        let schema_files = vec![schema_path.display().to_string()];
+
+        for (engine, dialect, expected_table) in [
+            ("sqlite3", SqlDialect::SQLite, "users"),
+            ("duckdb", SqlDialect::PostgreSQL, "main.users"),
+        ] {
+            let loaded = load_catalog(CatalogLoadRequest {
+                command: "lint",
+                config_name: "main",
+                engine,
+                dialect,
+                schema_files: &schema_files,
+                source: SchemaSource::Execute,
+            })
+            .unwrap();
+            assert_eq!(
+                loaded.catalog.tables().cloned().collect::<Vec<_>>(),
+                vec![expected_table.to_string()]
+            );
+        }
+    }
+
+    #[test]
+    fn execute_failure_reports_command_config_engine_source_and_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let schema_path = directory.path().join("broken.sql");
+        std::fs::write(&schema_path, "CREATE TABL broken (id INTEGER);").unwrap();
+        let schema_files = vec![schema_path.display().to_string()];
+
+        let error = load_catalog(CatalogLoadRequest {
+            command: "audit",
+            config_name: "broken-schema",
+            engine: "sqlite",
+            dialect: SqlDialect::SQLite,
+            schema_files: &schema_files,
+            source: SchemaSource::Execute,
+        })
+        .err()
+        .expect("invalid executable DDL must fail")
+        .to_string();
+
+        assert!(error.contains("audit [broken-schema]"));
+        assert!(error.contains("schema_source=execute"));
+        assert!(error.contains("sqlite"));
+        assert!(error.contains(&schema_path.display().to_string()));
+        assert!(error.contains("executing schema DDL"));
+    }
 
     /// Unconfigured, `ParseSeverities` must reflect `parse_registry`'s own
     /// defaults (both `Error`) rather than a second, hand-written copy of

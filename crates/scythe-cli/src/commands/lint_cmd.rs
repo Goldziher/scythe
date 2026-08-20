@@ -9,7 +9,8 @@ use scythe_lint::{SuppressionSet, emit_findings};
 
 use super::inspect::{build_driver_with_config, build_registry};
 use super::shared::{
-    ParseSeverities, config_dir, engine_to_sqruff_dialect, resolve_globs, split_query_file, validate_dialect,
+    CatalogLoadRequest, ParseSeverities, SchemaSource, config_dir, engine_to_sqruff_dialect, load_catalog,
+    resolve_globs, split_query_file, validate_dialect, validate_schema_source,
 };
 
 /// A combined lint violation that can come from either scythe rules, sqruff,
@@ -156,7 +157,6 @@ struct NativeLintContext {
 /// next to `foo.sql`: silently checking far less than a bare `scythe lint`
 /// run against the same project.
 fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContext>, Box<dyn std::error::Error>> {
-    use scythe_core::catalog::Catalog;
     use scythe_lint::{LintEngine, default_registry};
     use serde::Deserialize;
 
@@ -170,8 +170,11 @@ fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContex
 
     #[derive(Deserialize)]
     struct MinSqlConfig {
+        name: String,
         #[serde(default)]
         engine: Option<String>,
+        #[serde(default)]
+        schema_source: SchemaSource,
         #[serde(default)]
         schema: Vec<String>,
     }
@@ -188,21 +191,25 @@ fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContex
         return Ok(None);
     };
 
+    let engine_label = first.engine.as_deref().unwrap_or("");
+    validate_schema_source("lint", &first.name, engine_label, first.schema_source)?;
+
     let base_dir = config_dir(config_path);
     let schema_files = resolve_globs(&first.schema, base_dir, "[native lint] schema")?;
     if schema_files.is_empty() {
         return Ok(None);
     }
 
-    let schema_contents: Vec<String> = schema_files
-        .iter()
-        .map(|p| std::fs::read_to_string(p).map_err(|e| format!("failed to read schema file '{}': {}", p, e)))
-        .collect::<Result<_, _>>()?;
-    let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
-
-    let sql_dialect =
-        resolve_sql_dialect(first.engine.as_deref().unwrap_or("")).map_err(|e| format!("[native lint] {}", e))?;
-    let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &sql_dialect)?;
+    let sql_dialect = resolve_sql_dialect(engine_label).map_err(|e| format!("[native lint] {}", e))?;
+    let catalog = load_catalog(CatalogLoadRequest {
+        command: "lint",
+        config_name: &first.name,
+        engine: engine_label,
+        dialect: sql_dialect,
+        schema_files: &schema_files,
+        source: first.schema_source,
+    })?
+    .catalog;
 
     let mut registry = default_registry();
     if let Some(ref lint_config) = config.lint {
@@ -504,7 +511,6 @@ fn lint_from_config(
     use serde::Deserialize;
 
     use scythe_core::analyzer::analyze;
-    use scythe_core::catalog::Catalog;
     use scythe_core::dialect::SqlDialect;
     use scythe_core::parser::parse_query_with_dialect;
     use scythe_lint::{LintContext, LintEngine, default_registry};
@@ -539,12 +545,18 @@ fn lint_from_config(
         #[allow(dead_code)]
         #[serde(default)]
         engine: String,
+        #[serde(default)]
+        schema_source: SchemaSource,
     }
 
     let config_str =
         std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
     let config: ScytheConfig =
         toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
+
+    for sql_config in &config.sql {
+        validate_schema_source("lint", &sql_config.name, &sql_config.engine, sql_config.schema_source)?;
+    }
 
     // Same `[lint]` table applied to `SC-PARSE01`/`SC-PARSE02`'s own
     // registry below -- see `ParseSeverities` for why these two cannot pick
@@ -615,7 +627,11 @@ fn lint_from_config(
     let base_dir = config_dir(config_path);
 
     for (block_index, sql_config) in config.sql.iter().enumerate() {
-        eprintln!("[{}] Parsing schema...", sql_config.name);
+        eprintln!(
+            "[{}] {} schema...",
+            sql_config.name,
+            sql_config.schema_source.progress_verb()
+        );
 
         let inapplicable = inapplicable_rules_per_block
             .get(block_index)
@@ -671,14 +687,17 @@ fn lint_from_config(
             .map_err(|e| format!("[{}] invalid [lint.sqruff] configuration: {}", sql_config.name, e))?;
 
         let schema_files = resolve_globs(&sql_config.schema, base_dir, &format!("[{}] schema", sql_config.name))?;
-        let schema_contents: Vec<String> = schema_files
-            .iter()
-            .map(|p| std::fs::read_to_string(p).map_err(|e| format!("failed to read schema file '{}': {}", p, e)))
-            .collect::<Result<_, _>>()?;
-        let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
 
         let sql_dialect = block_dialects[block_index];
-        let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &sql_dialect)?;
+        let catalog = load_catalog(CatalogLoadRequest {
+            command: "lint",
+            config_name: &sql_config.name,
+            engine: &sql_config.engine,
+            dialect: sql_dialect,
+            schema_files: &schema_files,
+            source: sql_config.schema_source,
+        })?
+        .catalog;
 
         let query_files = resolve_globs(&sql_config.queries, base_dir, &format!("[{}] queries", sql_config.name))?;
 

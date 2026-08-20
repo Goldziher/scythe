@@ -19,8 +19,8 @@ use scythe_core::parser::{QueryCommand, parse_query_with_dialect};
 use scythe_lint::{QueryViolation, RuleRegistry, Severity};
 
 use super::shared::{
-    ParseSeverities, config_dir, has_unannotated_sql, redact_url_password, resolve_contained_output, resolve_globs,
-    split_query_file,
+    CatalogLoadRequest, ParseSeverities, SchemaSource, config_dir, has_unannotated_sql, load_catalog,
+    redact_url_password, resolve_contained_output, resolve_globs, split_query_file, validate_schema_source,
 };
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +43,7 @@ struct ScytheMeta {
 struct SqlConfig {
     name: String,
     engine: String,
+    schema_source: SchemaSource,
     schema: Vec<String>,
     queries: Vec<String>,
     /// Legacy: output directory, used as the default when no `[[sql.gen]]`
@@ -68,19 +69,21 @@ struct SqlConfig {
 /// `#[serde(deny_unknown_fields)]` is safe here specifically because this
 /// struct's field list is already the complete, documented `[[sql]]` schema
 /// (see the Fields table for `[[sql]]` in `configuration.md`): `name`,
-/// `engine`, `schema`, `queries`, `output`, `gen`, `type_overrides`. It is
-/// deliberately *not* applied to `ScytheConfig` (the enclosing top-level
-/// struct) or to the separate, narrower `SqlConfig` copies in `audit.rs`,
-/// `lint_cmd.rs`, and `fmt.rs`: those are intentionally partial projections
-/// of the same `scythe.toml` (missing e.g. `output`/`gen`/`type_overrides`,
-/// or -- at the top level -- `[inspect]`/`[audit]`), so denying unknown
-/// fields there would reject configs that are valid for other commands
-/// reading the same file.
+/// `engine`, `schema_source`, `schema`, `queries`, `output`, `gen`,
+/// `type_overrides`. It is deliberately *not* applied to `ScytheConfig` (the
+/// enclosing top-level struct) or to the separate, narrower `SqlConfig`
+/// copies in `audit.rs`, `lint_cmd.rs`, and `fmt.rs`: those are intentionally
+/// partial projections of the same `scythe.toml` (missing e.g.
+/// `output`/`gen`/`type_overrides`, or -- at the top level --
+/// `[inspect]`/`[audit]`), so denying unknown fields there would reject
+/// configs that are valid for other commands reading the same file.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawSqlConfig {
     name: String,
     engine: String,
+    #[serde(default)]
+    schema_source: SchemaSource,
     schema: Vec<String>,
     queries: Vec<String>,
     #[serde(default)]
@@ -103,6 +106,7 @@ impl TryFrom<RawSqlConfig> for SqlConfig {
         Ok(SqlConfig {
             name: raw.name,
             engine: raw.engine,
+            schema_source: raw.schema_source,
             schema: raw.schema,
             queries: raw.queries,
             output: raw.output,
@@ -528,21 +532,36 @@ fn run_generate_inner(
     let config: ScytheConfig =
         toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
 
+    for sql_config in &config.sql {
+        validate_schema_source(
+            "generate",
+            &sql_config.name,
+            &sql_config.engine,
+            sql_config.schema_source,
+        )?;
+    }
+
     let base_dir = config_dir(config_path);
 
     for sql_config in &config.sql {
-        eprintln!("[{}] Parsing schema...", sql_config.name);
+        eprintln!(
+            "[{}] {} schema...",
+            sql_config.name,
+            sql_config.schema_source.progress_verb()
+        );
 
         let schema_files = resolve_globs(&sql_config.schema, base_dir, &format!("[{}] schema", sql_config.name))?;
 
-        let schema_contents: Vec<String> = schema_files
-            .iter()
-            .map(|p| std::fs::read_to_string(p).map_err(|e| format!("failed to read schema file '{}': {}", p, e)))
-            .collect::<Result<_, _>>()?;
-        let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
-
         let dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
-        let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &dialect)?;
+        let catalog = load_catalog(CatalogLoadRequest {
+            command: "generate",
+            config_name: &sql_config.name,
+            engine: &sql_config.engine,
+            dialect,
+            schema_files: &schema_files,
+            source: sql_config.schema_source,
+        })?
+        .catalog;
 
         // Computed once per `[[sql]]` block, not per target: every target
         // under one block shares the same schema, and `verify_provenance`
@@ -1852,6 +1871,10 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
     let config: ScytheConfig =
         toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
 
+    for sql_config in &config.sql {
+        validate_schema_source("check", &sql_config.name, &sql_config.engine, sql_config.schema_source)?;
+    }
+
     let mut registry = default_registry();
     if let Some(ref lint_config) = config.lint {
         registry.apply_config(lint_config);
@@ -1900,17 +1923,24 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
     let base_dir = config_dir(config_path);
 
     for sql_config in &config.sql {
-        eprintln!("[{}] Parsing schema...", sql_config.name);
+        eprintln!(
+            "[{}] {} schema...",
+            sql_config.name,
+            sql_config.schema_source.progress_verb()
+        );
 
         let schema_files = resolve_globs(&sql_config.schema, base_dir, &format!("[{}] schema", sql_config.name))?;
-        let schema_contents: Vec<String> = schema_files
-            .iter()
-            .map(|p| std::fs::read_to_string(p).map_err(|e| format!("failed to read schema file '{}': {}", p, e)))
-            .collect::<Result<_, _>>()?;
-        let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
 
         let dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
-        let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &dialect)?;
+        let catalog = load_catalog(CatalogLoadRequest {
+            command: "check",
+            config_name: &sql_config.name,
+            engine: &sql_config.engine,
+            dialect,
+            schema_files: &schema_files,
+            source: sql_config.schema_source,
+        })?
+        .catalog;
 
         // Marks where this block's violations start in `all_violations`, so
         // the "All queries valid." message below can be conditioned on
@@ -4897,6 +4927,7 @@ backend = \"rust-sqlx\"
         SqlConfig {
             name: "main".to_string(),
             engine: "postgresql".to_string(),
+            schema_source: SchemaSource::Parse,
             schema: Vec::new(),
             queries: Vec::new(),
             output: Some(output_dir.to_string_lossy().into_owned()),
@@ -5107,6 +5138,7 @@ backend = \"rust-sqlx\"
         let sql_config = SqlConfig {
             name: "main".to_string(),
             engine: "postgresql".to_string(),
+            schema_source: SchemaSource::Parse,
             schema: Vec::new(),
             queries: Vec::new(),
             output: None,
@@ -5214,6 +5246,7 @@ backend = \"rust-sqlx\"
         let sql_config = SqlConfig {
             name: "main".to_string(),
             engine: "postgresql".to_string(),
+            schema_source: SchemaSource::Parse,
             schema: Vec::new(),
             queries: Vec::new(),
             output: None,
@@ -5425,6 +5458,7 @@ backend = \"rust-sqlx\"
         let sql_config = SqlConfig {
             name: "main".to_string(),
             engine: "postgresql".to_string(),
+            schema_source: SchemaSource::Parse,
             schema: Vec::new(),
             queries: Vec::new(),
             output: None,
@@ -5595,6 +5629,7 @@ backend = \"rust-sqlx\"
         let sql_config = SqlConfig {
             name: "main".to_string(),
             engine: "oracle".to_string(),
+            schema_source: SchemaSource::Parse,
             schema: Vec::new(),
             queries: Vec::new(),
             output: Some(dir.path().to_string_lossy().into_owned()),
@@ -5642,6 +5677,7 @@ backend = \"rust-sqlx\"
         let sql_config = SqlConfig {
             name: "main".to_string(),
             engine: "postgresql".to_string(),
+            schema_source: SchemaSource::Parse,
             schema: Vec::new(),
             queries: Vec::new(),
             output: None,
@@ -5826,6 +5862,7 @@ backend = \"rust-sqlx\"
         let sql_config = SqlConfig {
             name: "main".to_string(),
             engine: "postgresql".to_string(),
+            schema_source: SchemaSource::Parse,
             schema: Vec::new(),
             queries: Vec::new(),
             output: None,
@@ -6218,6 +6255,7 @@ backend = \"rust-sqlx\"
             &SqlConfig {
                 name: "main".to_string(),
                 engine: "postgresql".to_string(),
+                schema_source: SchemaSource::Parse,
                 schema: Vec::new(),
                 queries: Vec::new(),
                 output: None,
@@ -6262,6 +6300,7 @@ backend = \"rust-sqlx\"
             &SqlConfig {
                 name: "main".to_string(),
                 engine: "postgresql".to_string(),
+                schema_source: SchemaSource::Parse,
                 schema: Vec::new(),
                 queries: Vec::new(),
                 output: None,

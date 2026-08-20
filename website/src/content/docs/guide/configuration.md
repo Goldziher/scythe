@@ -26,6 +26,7 @@ version = "1"
 [[sql]]
 name = "main"                          # Block name (used in CLI output)
 engine = "postgresql"                  # Database engine: postgresql, mysql, sqlite
+schema_source = "parse"                # Catalog source: parse (default) or execute
 schema = ["sql/schema/*.sql"]          # Glob patterns for DDL files
 queries = ["sql/queries/*.sql"]        # Glob patterns for annotated query files
 output = "src/generated"               # Output directory for generated code
@@ -75,11 +76,47 @@ performance = "warn"
 |-------|------|----------|-------------|
 | `name` | string | yes | Name for this SQL block. |
 | `engine` | string | yes | Database dialect: `postgresql`, `mysql`, `sqlite`, `duckdb`, `cockroachdb`, `mssql`, `oracle`, `mariadb`, `redshift`, `snowflake`. |
+| `schema_source` | string | no | Build the catalog by parsing DDL (`"parse"`, default) or executing trusted DDL in an embedded database (`"execute"`). Execute mode supports `sqlite`, `sqlite3`, and `duckdb`. |
 | `schema` | string[] | yes | Glob patterns for schema DDL files. Relative patterns resolve against the config file's directory. |
 | `queries` | string[] | yes | Glob patterns for annotated query files. Relative patterns resolve against the config file's directory. |
 | `output` | string | no | **Legacy.** Output directory used only as the default for the legacy `[sql.gen.<lang>]` table form below. Ignored by the `[[sql.gen]]` array form -- each array target needs its own `output` key. Defaults to `"generated"` when `gen` is absent entirely. A relative path resolves against the config file's directory. |
 | `gen` | table | no | Code generation options per language. |
 | `type_overrides` | array | no | Type mapping overrides. |
+
+### Schema source
+
+`schema_source = "parse"` reads the configured DDL without executing it. It remains the default and
+supports every configured engine. Omitting `schema_source` produces the same catalog and generated
+output as previous releases.
+
+Use `schema_source = "execute"` when your schema depends on migrations or engine behavior that static
+DDL parsing cannot resolve. Execute mode runs the configured schema files in a fresh in-memory database,
+then introspects the resulting catalog. It supports the `sqlite` and `sqlite3` aliases through bundled
+SQLite, and `duckdb` through bundled DuckDB. DuckDB external access, extension autoloading, extension
+auto-installation, and community extensions are disabled.
+
+```toml
+[[sql]]
+name = "analytics"
+engine = "duckdb"
+schema_source = "execute"
+schema = [
+  "migrations/001_create_events.sql",
+  "migrations/002_add_event_source.sql",
+]
+queries = ["queries/*.sql"]
+```
+
+`generate`, `check`, `lint`, and configured `audit` use the same selected catalog source. An execution
+error names the command, SQL block, engine, and failing schema file, and stops the command; scythe never
+falls back to parse mode. To migrate an existing block, set `schema_source = "execute"`, list migration
+files in execution order, and run `scythe check` before regenerating code.
+
+:::caution[Execute only trusted schema files]
+Execute mode runs SQL, not just a DDL parser. A fresh in-memory database isolates catalog state between
+commands, but SQL can still consume resources and SQLite statements can access files through supported
+engine features. Keep schema files under the same review and trust boundary as build scripts.
+:::
 
 ### `[[sql.gen]]` (recommended for v0.2.0+)
 
