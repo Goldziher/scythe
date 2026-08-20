@@ -1,10 +1,9 @@
-//! Parity gate for GH #196/#195: `templates/java.java.jinja` and
-//! `templates/kotlin.kt.jinja` each carry one whole duplicated test program per top-level
-//! `{% if %}` / `{% elif %}` branch -- one per SQL engine (`engine == "mariadb"`), plus a few
-//! conditioned on driver or backend instead (`driver == "r2dbc" and engine == "postgresql"`,
-//! `backend == "kotlin-exposed"`). Nothing ever compared what one branch tests against what
-//! another does, so they drifted -- the redshift branches ended up with fewer than half the test
-//! functions the postgresql branch has, in both templates.
+//! Parity gate for GH #196/#195: `templates/java.java.jinja` carries one whole duplicated test
+//! program per top-level branch. Java and Kotlin now route their engine adapters through canonical
+//! lifecycle and parameterized test-program macros; the parity checks read the adapter variants in
+//! those macro libraries. Nothing previously compared what one branch tests against another, so
+//! they drifted -- the redshift branches ended up with fewer than half the test functions the
+//! postgresql branch has.
 //!
 //! This test measures every top-level branch's test-function count against the `postgresql`
 //! (SQL-engine) branch of the same template and fails if a branch is missing a test the
@@ -352,12 +351,150 @@ fn check_template_parity(template_filename: &str, template_key: &str, test_patte
 
 #[test]
 fn java_engine_branches_match_postgresql_test_coverage() {
-    check_template_parity("java.java.jinja", "java", "private static void test");
+    check_template_parity("java_macros.jinja", "java", "private static void test");
 }
 
 #[test]
 fn kotlin_engine_branches_match_postgresql_test_coverage() {
-    check_template_parity("kotlin.kt.jinja", "kotlin", "fun test");
+    check_template_parity("kotlin_macros.jinja", "kotlin", "fun test");
+}
+
+#[test]
+fn kotlin_render_matrix_uses_one_canonical_program() {
+    let template_path = templates_dir().join("kotlin.kt.jinja");
+    let template = fs::read_to_string(&template_path)
+        .unwrap_or_else(|error| panic!("reading {}: {error}", template_path.display()));
+    let lines: Vec<&str> = template.lines().collect();
+    let mut branches = top_level_branch_starts(&lines);
+    branches.push((lines.len(), "__end__".to_string()));
+
+    for window in branches.windows(2) {
+        let (start, branch) = &window[0];
+        let (end, _) = &window[1];
+        let calls = lines[*start..*end]
+            .iter()
+            .filter(|line| line.contains("{% call kotlin.canonical_program() %}"))
+            .count();
+        assert_eq!(
+            calls, 1,
+            "Kotlin render branch `{branch}` must call the canonical program exactly once"
+        );
+        let test_program_calls = lines[*start..*end]
+            .iter()
+            .filter(|line| line.contains("{{ kotlin.test_program("))
+            .count();
+        assert_eq!(
+            test_program_calls, 1,
+            "Kotlin render branch `{branch}` must select one canonical test program"
+        );
+    }
+
+    assert!(
+        !template.contains("fun main()"),
+        "Kotlin engine adapters must not define their own main program"
+    );
+    assert!(
+        !template.contains("Results: $passed passed, $failed failed"),
+        "Kotlin engine adapters must not duplicate canonical result accounting"
+    );
+    assert!(
+        !template.contains("fun test"),
+        "Kotlin engine adapters must not define shared test functions"
+    );
+
+    let macros_path = templates_dir().join("kotlin_macros.jinja");
+    let macros =
+        fs::read_to_string(&macros_path).unwrap_or_else(|error| panic!("reading {}: {error}", macros_path.display()));
+    assert_eq!(
+        macros.matches("fun main()").count(),
+        1,
+        "the Kotlin macro library must define one main program"
+    );
+    assert_eq!(
+        macros.matches("Results: $passed passed, $failed failed").count(),
+        1,
+        "the Kotlin macro library must define result accounting once"
+    );
+    assert!(
+        macros.contains("{{- caller() }}"),
+        "the canonical program must expose the family-adapter hook"
+    );
+    assert_eq!(
+        macros.matches("macro test_program(adapter)").count(),
+        1,
+        "the Kotlin macro library must define one parameterized test program"
+    );
+    assert!(
+        macros.matches("fun test").count() > 1,
+        "the canonical Kotlin test program must own the shared test functions"
+    );
+}
+
+#[test]
+fn java_render_matrix_uses_one_canonical_program() {
+    let template_path = templates_dir().join("java.java.jinja");
+    let template = fs::read_to_string(&template_path)
+        .unwrap_or_else(|error| panic!("reading {}: {error}", template_path.display()));
+    let lines: Vec<&str> = template.lines().collect();
+    let mut branches = top_level_branch_starts(&lines);
+    branches.push((lines.len(), "__end__".to_string()));
+
+    for window in branches.windows(2) {
+        let (start, branch) = &window[0];
+        let (end, _) = &window[1];
+        let lifecycle_calls = lines[*start..*end]
+            .iter()
+            .filter(|line| line.contains("{%- call java.canonical_program() %}"))
+            .count();
+        assert_eq!(
+            lifecycle_calls, 1,
+            "Java render branch `{branch}` must call the canonical program exactly once"
+        );
+        let test_program_calls = lines[*start..*end]
+            .iter()
+            .filter(|line| line.contains("{{- java.test_program("))
+            .count();
+        assert_eq!(
+            test_program_calls, 1,
+            "Java render branch `{branch}` must select one canonical test program"
+        );
+    }
+
+    assert!(
+        !template.contains("public static void main"),
+        "Java engine adapters must not define their own main program"
+    );
+    assert!(
+        !template.contains("Results: \" + passed"),
+        "Java engine adapters must not duplicate canonical result accounting"
+    );
+    assert!(
+        !template.contains("private static void test"),
+        "Java engine adapters must not define shared test functions"
+    );
+
+    let macros_path = templates_dir().join("java_macros.jinja");
+    let macros =
+        fs::read_to_string(&macros_path).unwrap_or_else(|error| panic!("reading {}: {error}", macros_path.display()));
+    assert_eq!(
+        macros.matches("public static void main").count(),
+        1,
+        "the Java macro library must define one main program"
+    );
+    assert_eq!(
+        macros.matches("Results: \" + passed").count(),
+        1,
+        "the Java macro library must define result accounting once"
+    );
+    assert_eq!(
+        macros.matches("macro test_program(adapter)").count(),
+        1,
+        "the Java macro library must define one parameterized test program"
+    );
+    assert!(
+        macros.matches("private static void test").count() > 1,
+        "the canonical Java test program must own the shared test functions"
+    );
 }
 
 #[cfg(test)]

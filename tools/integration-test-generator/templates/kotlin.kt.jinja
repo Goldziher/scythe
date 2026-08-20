@@ -1,3 +1,4 @@
+{%- import "kotlin_macros.jinja" as kotlin -%}
 {%- if backend == "kotlin-exposed" -%}
 import generated.*
 import java.math.BigDecimal
@@ -15,12 +16,12 @@ import org.jetbrains.exposed.sql.transactions.transaction
 // functions with query arguments only -- unlike every kotlin-jdbc branch
 // below, which threads `conn` through every test.
 
-{% include "kotlin_macros.jinja" %}
+{{ kotlin.harness_state() }}
 
 var createdUserId = 0
 var bobId = 0
 
-fun main() {
+{% call kotlin.canonical_program() %}
     val databaseUrl = System.getenv("{{ connection_env }}")
     if (databaseUrl.isNullOrEmpty()) {
         System.err.println("{{ connection_env }} environment variable is required")
@@ -52,13 +53,7 @@ fun main() {
     testDeleteOrdersByUser()
     testDeleteUser()
 
-    println()
-    println("Results: $passed passed, $failed failed")
-    if (failed > 0) {
-        exitProcess(1)
-    }
-    println("ALL TESTS PASSED")
-}
+{%- endcall %}
 
 // The schema file holds several statements; Exposed's `exec` sends one at a
 // time, so it is split the same way every other harness splits it. The
@@ -83,331 +78,7 @@ fun runMigration() {
     }
 }
 
-fun testCreateUser() {
-    val name = "CreateUser"
-    try {
-        val user = createUser("Alice", "alice@example.com", UserStatus.ACTIVE)
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.email != "alice@example.com") {
-            fail(name, "expected email alice@example.com, got ${user.email}")
-            return
-        }
-        if (user.status != UserStatus.ACTIVE) {
-            fail(name, "expected status ACTIVE, got ${user.status}")
-            return
-        }
-        createdUserId = user.id
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetUserById() {
-    val name = "GetUserById"
-    try {
-        val user = getUserById(createdUserId)
-        if (user.id != createdUserId) {
-            fail(name, "expected id $createdUserId, got ${user.id}")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testUpdateUserEmail() {
-    val name = "UpdateUserEmail"
-    try {
-        updateUserEmail("alice-updated@example.com", createdUserId)
-        val user = getUserById(createdUserId)
-        if (user.email != "alice-updated@example.com") {
-            fail(name, "expected updated email, got ${user.email}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testCreateOrder() {
-    val name = "CreateOrder"
-    try {
-        val order = createOrder(createdUserId, BigDecimal("99.99"), "Test order")
-        if (order.user_id != createdUserId) {
-            fail(name, "expected user_id $createdUserId, got ${order.user_id}")
-            return
-        }
-        if (order.total.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total 99.99, got ${order.total}")
-            return
-        }
-        if (order.notes != "Test order") {
-            fail(name, "expected notes 'Test order', got ${order.notes}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrdersByUser() {
-    val name = "GetOrdersByUser"
-    try {
-        val orders = getOrdersByUser(createdUserId)
-        if (orders.size != 1) {
-            fail(name, "expected 1 order, got ${orders.size}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrderTotal() {
-    val name = "GetOrderTotal"
-    try {
-        val result = getOrderTotal(createdUserId)
-        val sum = result.total_sum
-        if (sum == null) {
-            fail(name, "returned null total_sum")
-            return
-        }
-        if (sum.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total_sum 99.99, got $sum")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-// The enum round-trip is the point of this one: the parameter goes out as the
-// enum's SQL spelling and the rows come back decoded through fromValue, so a
-// binding that sent the Kotlin enum object instead would fail here rather
-// than somewhere downstream.
-fun testListActiveUsers() {
-    val name = "ListActiveUsers"
-    try {
-        val users = listActiveUsers(UserStatus.ACTIVE)
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 active user")
-            return
-        }
-        if (users.none { it.name == "Alice" }) {
-            fail(name, "expected Alice among active users")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetUserOrders() {
-    val name = "GetUserOrders"
-    try {
-        val bob = createUser("Bob", "bob@example.com", UserStatus.ACTIVE)
-        bobId = bob.id
-        val rows = getUserOrders(UserStatus.ACTIVE)
-        // Bob has no orders, so his LEFT JOIN row must carry a null total --
-        // the nullable-side column the join widens.
-        val bobRow = rows.firstOrNull { it.id == bobId }
-        if (bobRow == null) {
-            fail(name, "expected a row for Bob from the LEFT JOIN")
-            return
-        }
-        if (bobRow.total != null) {
-            fail(name, "expected null total for a user with no orders, got ${bobRow.total}")
-            return
-        }
-        if (rows.none { it.id == createdUserId && it.total != null }) {
-            fail(name, "expected Alice's row to carry a non-null total")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testCountUsersByStatus() {
-    val name = "CountUsersByStatus"
-    try {
-        val result = countUsersByStatus(UserStatus.ACTIVE)
-        if (result.status != UserStatus.ACTIVE) {
-            fail(name, "expected status ACTIVE, got ${result.status}")
-            return
-        }
-        if (result.user_count < 2) {
-            fail(name, "expected count >= 2, got ${result.user_count}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetUserWithTags() {
-    val name = "GetUserWithTags"
-    try {
-        transaction {
-            exec("INSERT INTO tags (name) VALUES ('vip')")
-            exec("INSERT INTO user_tags (user_id, tag_id) SELECT $createdUserId, id FROM tags WHERE name = 'vip'")
-        }
-        val rows = getUserWithTags(createdUserId)
-        if (rows.size != 1) {
-            fail(name, "expected 1 tagged row, got ${rows.size}")
-            return
-        }
-        if (rows[0].tag_name != "vip") {
-            fail(name, "expected tag_name vip, got ${rows[0].tag_name}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testSearchUsers() {
-    val name = "SearchUsers"
-    try {
-        val users = searchUsers("Ali%")
-        if (users.none { it.name == "Alice" }) {
-            fail(name, "expected Alice among search results")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-// Board #197/#204: a nullable enum and a nullable composite column, each read
-// both present and as SQL NULL, plus a composite field holding a double quote
-// and a comma so the composite text parser's escaping is exercised rather
-// than assumed. Seeded through raw exec because a composite literal is
-// outside this backend's parameter-binding surface; the read path is what is
-// under test and it runs entirely through generated code.
-fun testGetUserProfileNullable() {
-    val name = "GetUserProfile"
-    try {
-        var presentId = 0
-        var absentId = 0
-        var quotedId = 0
-        transaction {
-            exec(
-                "INSERT INTO users (name, email, status, secondary_status, address) VALUES " +
-                    "('Carol', 'carol@example.com', 'active', 'inactive', " +
-                    "ROW('1 Main St', 'Springfield', '12345')) RETURNING id",
-                explicitStatementType = StatementType.SELECT
-            ) { rs -> if (rs.next()) presentId = rs.getInt(1); presentId }
-            exec(
-                "INSERT INTO users (name, email, status, secondary_status, address) VALUES " +
-                    "('Dave', 'dave@example.com', 'active', NULL, NULL) RETURNING id",
-                explicitStatementType = StatementType.SELECT
-            ) { rs -> if (rs.next()) absentId = rs.getInt(1); absentId }
-            exec(
-                "INSERT INTO users (name, email, status, secondary_status, address) VALUES " +
-                    "('Eve', 'eve@example.com', 'active', 'banned', " +
-                    "ROW('12 \"Main\", Apt 3', 'Springfield', '12345')) RETURNING id",
-                explicitStatementType = StatementType.SELECT
-            ) { rs -> if (rs.next()) quotedId = rs.getInt(1); quotedId }
-        }
-
-        val present = getUserProfile(presentId)
-        if (present.secondary_status != UserStatus.INACTIVE) {
-            fail(name, "expected secondary_status INACTIVE, got ${present.secondary_status}")
-            return
-        }
-        val address = present.address
-        if (address == null) {
-            fail(name, "expected address to be present")
-            return
-        }
-        if (address.street != "1 Main St" || address.city != "Springfield" || address.zip != "12345") {
-            fail(name, "unexpected address: $address")
-            return
-        }
-
-        val absent = getUserProfile(absentId)
-        if (absent.secondary_status != null) {
-            fail(name, "expected null secondary_status, got ${absent.secondary_status}")
-            return
-        }
-        if (absent.address != null) {
-            fail(name, "expected null address, got ${absent.address}")
-            return
-        }
-
-        val quoted = getUserProfile(quotedId)
-        val quotedAddress = quoted.address
-        if (quotedAddress == null) {
-            fail(name, "expected an address for the quoted row")
-            return
-        }
-        if (quotedAddress.street != "12 \"Main\", Apt 3") {
-            fail(name, "composite escaping lost the quotes/comma: got ${quotedAddress.street}")
-            return
-        }
-
-        transaction {
-            exec("DELETE FROM users WHERE id IN ($presentId, $absentId, $quotedId)")
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteOrdersByUser() {
-    val name = "DeleteOrdersByUser"
-    try {
-        val count = deleteOrdersByUser(createdUserId)
-        if (count != 1) {
-            fail(name, "expected 1 deleted order, got $count")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteUser() {
-    val name = "DeleteUser"
-    try {
-        transaction {
-            exec("DELETE FROM user_tags WHERE user_id = $createdUserId")
-        }
-        deleteUser(createdUserId)
-        deleteUser(bobId)
-        try {
-            getUserById(createdUserId)
-            fail(name, "expected getUserById to throw after deletion, but it returned a row")
-            return
-        } catch (expected: NoSuchElementException) {
-            // expected: the user was deleted
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
+{{ kotlin.test_program("kotlin-exposed") }}
 {%- elif driver == "r2dbc" and engine == "postgresql" -%}
 import generated.*
 import io.r2dbc.postgresql.PostgresqlConnectionConfiguration
@@ -431,11 +102,11 @@ import kotlin.system.exitProcess
 // below sits inside the `runBlocking` block that produced the value it
 // checks, so a wrong expected value fails the assertion it is paired with --
 // there is no suspend call left dangling without being run.
-{% include "kotlin_macros.jinja" %}
+{{ kotlin.harness_state() }}
 
 var createdUserId = 0
 
-fun main() {
+{% call kotlin.canonical_program() %}
     val databaseUrl = System.getenv("{{ connection_env }}")
     if (databaseUrl.isNullOrEmpty()) {
         System.err.println("{{ connection_env }} environment variable is required")
@@ -483,13 +154,7 @@ fun main() {
         testDeleteUser(cf)
     }
 
-    println()
-    println("Results: $passed passed, $failed failed")
-    if (failed > 0) {
-        exitProcess(1)
-    }
-    println("ALL TESTS PASSED")
-}
+{%- endcall %}
 
 fun runMigration(conn: java.sql.Connection) {
     val schemaPath = Path.of(System.getProperty("user.dir"))
@@ -512,228 +177,7 @@ fun runMigration(conn: java.sql.Connection) {
     }
 }
 
-suspend fun testCreateUser(cf: ConnectionFactory) {
-    val name = "CreateUser"
-    try {
-        // createUser(cf, ...) is a suspend fun; calling it here inside
-        // runBlocking's coroutine is what actually runs the R2DBC statement
-        // and awaits its result -- change ACTIVE, or any check below, and the
-        // assertion sees the real row this call produced.
-        val user = createUser(cf, "Alice", "alice@example.com", UserStatus.ACTIVE)
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.email != "alice@example.com") {
-            fail(name, "expected email alice@example.com, got ${user.email}")
-            return
-        }
-        createdUserId = user.id
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testGetUserById(cf: ConnectionFactory) {
-    val name = "GetUserById"
-    try {
-        val user = getUserById(cf, createdUserId)
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.id != createdUserId) {
-            fail(name, "expected id $createdUserId, got ${user.id}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testUpdateUserEmail(cf: ConnectionFactory) {
-    val name = "UpdateUserEmail"
-    try {
-        updateUserEmail(cf, "alice-updated@example.com", createdUserId)
-        val user = getUserById(cf, createdUserId)
-        if (user.email != "alice-updated@example.com") {
-            fail(name, "expected updated email, got ${user.email}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testCreateOrder(cf: ConnectionFactory) {
-    val name = "CreateOrder"
-    try {
-        val order = createOrder(cf, createdUserId, BigDecimal("99.99"), "Test order")
-        if (order.user_id != createdUserId) {
-            fail(name, "expected user_id $createdUserId, got ${order.user_id}")
-            return
-        }
-        if (order.total.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total 99.99, got ${order.total}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-// ~keep board #229: `notes` is a nullable String param bound through R2DBC's
-// `Statement.bind`/`bindNull` split. `Statement.bind(index, Any)` throws
-// `IllegalArgumentException` for a null value -- only `bindNull(index, Class<*>)` may send SQL
-// NULL -- so a generator that always emits `bind` regardless of nullability throws here, not at
-// the database, the moment a caller passes null. Every other harness call above always passes a
-// non-null literal for every nullable parameter, so none of them can catch that regression; this
-// is the one call in the file that actually exercises the null path.
-suspend fun testCreateOrderWithNullNotes(cf: ConnectionFactory) {
-    val name = "CreateOrderWithNullNotes"
-    try {
-        val order = createOrder(cf, createdUserId, BigDecimal("50.00"), null)
-        if (order.notes != null) {
-            fail(name, "expected notes null, got ${order.notes}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testGetOrdersByUser(cf: ConnectionFactory) {
-    val name = "GetOrdersByUser"
-    try {
-        // getOrdersByUser returns Flow<OrderRow>; toList() is a suspend
-        // terminal operator that collects the flow (i.e. subscribes to the
-        // underlying Flux) before the size check runs.
-        val orders = getOrdersByUser(cf, createdUserId).toList()
-        if (orders.size != 1) {
-            fail(name, "expected 1 order, got ${orders.size}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testGetOrderTotal(cf: ConnectionFactory) {
-    val name = "GetOrderTotal"
-    try {
-        val result = getOrderTotal(cf, createdUserId)
-        if (result.total_sum == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (result.total_sum.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total_sum 99.99, got ${result.total_sum}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testListActiveUsers(cf: ConnectionFactory) {
-    val name = "ListActiveUsers"
-    try {
-        val users = listActiveUsers(cf, UserStatus.ACTIVE).toList()
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 active user")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testGetUserOrders(cf: ConnectionFactory) {
-    val name = "GetUserOrders"
-    try {
-        val results = getUserOrders(cf, UserStatus.ACTIVE).toList()
-        if (results.isEmpty()) {
-            fail(name, "expected at least 1 result")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testCountUsersByStatus(cf: ConnectionFactory) {
-    val name = "CountUsersByStatus"
-    try {
-        val result = countUsersByStatus(cf, UserStatus.ACTIVE)
-        if (result.user_count < 1) {
-            fail(name, "expected count >= 1, got ${result.user_count}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testSearchUsers(cf: ConnectionFactory) {
-    val name = "SearchUsers"
-    try {
-        val users = searchUsers(cf, "%Alice%").toList()
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 user matching Alice")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testDeleteOrdersByUser(cf: ConnectionFactory) {
-    val name = "DeleteOrdersByUser"
-    try {
-        val count = deleteOrdersByUser(cf, createdUserId)
-        // ~keep Two, not one: testCreateOrderWithNullNotes adds a second order just above.
-        // Asserting the exact count is what makes this the cleanup step for both.
-        if (count != 2L) {
-            fail(name, "expected 2 deleted orders, got $count")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testDeleteUser(cf: ConnectionFactory) {
-    val name = "DeleteUser"
-    try {
-        deleteUser(cf, createdUserId)
-        // getUserById is `:one`: a missing row's Mono errors with
-        // NoSuchElementException, and awaitFirst() rethrows that error into
-        // this suspend function, which the catch below turns into the
-        // expected pass.
-        try {
-            getUserById(cf, createdUserId)
-            fail(name, "expected getUserById to throw after deletion, but it returned a row")
-            return
-        } catch (expected: NoSuchElementException) {
-            // expected: the user was deleted
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
+{{ kotlin.test_program("r2dbc-postgresql") }}
 {%- elif driver == "r2dbc" and (engine == "mysql" or engine == "mariadb") -%}
 import generated.*
 import io.asyncer.r2dbc.mysql.MySqlConnectionConfiguration
@@ -749,7 +193,7 @@ import kotlin.system.exitProcess
 
 // See the postgresql branch above for the full reasoning behind
 // `runBlocking { ... }` as the subscription point.
-{% include "kotlin_macros.jinja" %}
+{{ kotlin.harness_state() }}
 
     {%- if engine == "mariadb" %}
 // The mariadb schema's id columns are UUID, and this backend's manifest maps
@@ -763,7 +207,7 @@ lateinit var createdUserId: java.util.UUID
 var createdUserId = 0
     {%- endif %}
 
-fun main() {
+{% call kotlin.canonical_program() %}
     val dbUrl = System.getenv("{{ connection_env }}")
     if (dbUrl.isNullOrEmpty()) {
         System.err.println("{{ connection_env }} environment variable is required")
@@ -802,13 +246,7 @@ fun main() {
         testDeleteUser(cf)
     }
 
-    println()
-    println("Results: $passed passed, $failed failed")
-    if (failed > 0) {
-        exitProcess(1)
-    }
-    println("ALL TESTS PASSED")
-}
+{%- endcall %}
 
 fun splitSqlStatements(sql: String): List<String> {
     val statements = mutableListOf<String>()
@@ -915,163 +353,7 @@ fun runMigration(conn: java.sql.Connection) {
     }
 }
 
-suspend fun testCreateUser(cf: ConnectionFactory) {
-    val name = "CreateUser"
-    try {
-        {%- if engine == "mariadb" %}
-        // createUser is `:one` for mariadb -- there is no GetLastInsertUser
-        // query in integration_tests/sql/mariadb/queries/ (that's mysql's
-        // shape, not mariadb's), so the inserted row comes back directly.
-        val user = createUser(cf, "Alice", "alice@example.com", UsersStatus.ACTIVE)
-        {%- else %}
-        // createUser is `:exec` (a suspend fun returning Unit) for mysql,
-        // mirroring the JDBC branch's "insert then look up via
-        // getLastInsertUser" shape.
-        createUser(cf, "Alice", "alice@example.com", UsersStatus.ACTIVE)
-        val user = getLastInsertUser(cf)
-        {%- endif %}
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.email != "alice@example.com") {
-            fail(name, "expected email alice@example.com, got ${user.email}")
-            return
-        }
-        createdUserId = user.id
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testGetUserById(cf: ConnectionFactory) {
-    val name = "GetUserById"
-    try {
-        val user = getUserById(cf, createdUserId)
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.id != createdUserId) {
-            fail(name, "expected id $createdUserId, got ${user.id}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testListActiveUsers(cf: ConnectionFactory) {
-    val name = "ListActiveUsers"
-    try {
-        val users = listActiveUsers(cf, UsersStatus.ACTIVE).toList()
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 active user")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testCreateOrder(cf: ConnectionFactory) {
-    val name = "CreateOrder"
-    try {
-        {%- if engine == "mariadb" %}
-        // createOrder is `:one` for mariadb -- there is no GetLastInsertOrder
-        // query for this engine (that's mysql's shape, not mariadb's).
-        val order = createOrder(cf, createdUserId, BigDecimal("99.99"), "Test order")
-        {%- else %}
-        createOrder(cf, createdUserId, BigDecimal("99.99"), "Test order")
-        val order = getLastInsertOrder(cf)
-        {%- endif %}
-        if (order == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (order.user_id != createdUserId) {
-            fail(name, "expected user_id $createdUserId, got ${order.user_id}")
-            return
-        }
-        if (order.total.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total 99.99, got ${order.total}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testGetOrdersByUser(cf: ConnectionFactory) {
-    val name = "GetOrdersByUser"
-    try {
-        val orders = getOrdersByUser(cf, createdUserId).toList()
-        if (orders.size != 1) {
-            fail(name, "expected 1 order, got ${orders.size}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testGetOrderTotal(cf: ConnectionFactory) {
-    val name = "GetOrderTotal"
-    try {
-        val result = getOrderTotal(cf, createdUserId)
-        if (result.total_sum == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (result.total_sum.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total_sum 99.99, got ${result.total_sum}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testDeleteOrdersByUser(cf: ConnectionFactory) {
-    val name = "DeleteOrdersByUser"
-    try {
-        val count = deleteOrdersByUser(cf, createdUserId)
-        if (count != 1L) {
-            fail(name, "expected 1 deleted order, got $count")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-suspend fun testDeleteUser(cf: ConnectionFactory) {
-    val name = "DeleteUser"
-    try {
-        deleteUser(cf, createdUserId)
-        try {
-            getUserById(cf, createdUserId)
-            fail(name, "expected getUserById to throw after deletion, but it returned a row")
-            return
-        } catch (expected: NoSuchElementException) {
-            // expected: the user was deleted
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
+{{ kotlin.test_program("r2dbc-mysql-mariadb") }}
 {%- elif engine == "postgresql" -%}
 import generated.*
 import java.math.BigDecimal
@@ -1080,11 +362,11 @@ import java.sql.DriverManager
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-{% include "kotlin_macros.jinja" %}
+{{ kotlin.harness_state() }}
 
 var createdUserId = 0
 
-fun main() {
+{% call kotlin.canonical_program() %}
     val databaseUrl = System.getenv("{{ connection_env }}")
     if (databaseUrl.isNullOrEmpty()) {
         System.err.println("{{ connection_env }} environment variable is required")
@@ -1115,13 +397,7 @@ fun main() {
         testDeleteUser(conn)
     }
 
-    println()
-    println("Results: $passed passed, $failed failed")
-    if (failed > 0) {
-        exitProcess(1)
-    }
-    println("ALL TESTS PASSED")
-}
+{%- endcall %}
 
 fun runMigration(conn: java.sql.Connection) {
     val schemaPath = Path.of(System.getProperty("user.dir"))
@@ -1144,289 +420,7 @@ fun runMigration(conn: java.sql.Connection) {
     }
 }
 
-fun testCreateUser(conn: java.sql.Connection) {
-    val name = "CreateUser"
-    try {
-        val user = createUser(conn, "Alice", "alice@example.com", UserStatus.ACTIVE)
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.email != "alice@example.com") {
-            fail(name, "expected email alice@example.com, got ${user.email}")
-            return
-        }
-        createdUserId = user.id
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetUserById(conn: java.sql.Connection) {
-    val name = "GetUserById"
-    try {
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.id != createdUserId) {
-            fail(name, "expected id $createdUserId, got ${user.id}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testUpdateUserEmail(conn: java.sql.Connection) {
-    val name = "UpdateUserEmail"
-    try {
-        updateUserEmail(conn, "alice-updated@example.com", createdUserId)
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "user not found after update")
-            return
-        }
-        if (user.email != "alice-updated@example.com") {
-            fail(name, "expected updated email, got ${user.email}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testCreateOrder(conn: java.sql.Connection) {
-    val name = "CreateOrder"
-    try {
-        val order = createOrder(conn, createdUserId, BigDecimal("99.99"), "Test order")
-        if (order == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (order.user_id != createdUserId) {
-            fail(name, "expected user_id $createdUserId, got ${order.user_id}")
-            return
-        }
-        if (order.total.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total 99.99, got ${order.total}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrdersByUser(conn: java.sql.Connection) {
-    val name = "GetOrdersByUser"
-    try {
-        val orders = getOrdersByUser(conn, createdUserId)
-        if (orders.size != 1) {
-            fail(name, "expected 1 order, got ${orders.size}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrderTotal(conn: java.sql.Connection) {
-    val name = "GetOrderTotal"
-    try {
-        val result = getOrderTotal(conn, createdUserId)
-        if (result == null || result.total_sum == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (result.total_sum.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total_sum 99.99, got ${result.total_sum}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testListActiveUsers(conn: java.sql.Connection) {
-    val name = "ListActiveUsers"
-    try {
-        val users = listActiveUsers(conn, UserStatus.ACTIVE)
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 active user")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetUserOrders(conn: java.sql.Connection) {
-    val name = "GetUserOrders"
-    try {
-        val results = getUserOrders(conn, UserStatus.ACTIVE)
-        if (results.isEmpty()) {
-            fail(name, "expected at least 1 result")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testCountUsersByStatus(conn: java.sql.Connection) {
-    val name = "CountUsersByStatus"
-    try {
-        val result = countUsersByStatus(conn, UserStatus.ACTIVE)
-        if (result == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (result.user_count < 1) {
-            fail(name, "expected count >= 1, got ${result.user_count}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testSearchUsers(conn: java.sql.Connection) {
-    val name = "SearchUsers"
-    try {
-        val users = searchUsers(conn, "%Alice%")
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 user matching Alice")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-// board #197: a nullable enum and a nullable composite column, each
-// observed both present and as SQL NULL. Seeded via raw SQL because a
-// composite VALUES literal is outside this generator's parameter-binding
-// surface -- the point is the *read* path, which runs through generated
-// code (getUserProfile).
-fun testGetUserProfileNullable(conn: java.sql.Connection) {
-    val name = "GetUserProfile"
-    try {
-        var presentId: Int
-        var absentId: Int
-        conn.createStatement().use { stmt ->
-            stmt.executeQuery(
-                "INSERT INTO users (name, email, status, secondary_status, address) " +
-                    "VALUES ('Carol', 'carol@example.com', 'active', 'inactive', " +
-                    "ROW('1 Main St', 'Springfield', '12345')) RETURNING id"
-            ).use { rs ->
-                rs.next()
-                presentId = rs.getInt(1)
-            }
-        }
-        conn.createStatement().use { stmt ->
-            stmt.executeQuery(
-                "INSERT INTO users (name, email, status, secondary_status, address) " +
-                    "VALUES ('Dave', 'dave@example.com', 'active', NULL, NULL) RETURNING id"
-            ).use { rs ->
-                rs.next()
-                absentId = rs.getInt(1)
-            }
-        }
-
-        val profile = getUserProfile(conn, presentId)
-        // Fails if a nullable enum reader zero-decodes instead of returning the value.
-        if (profile.secondary_status != UserStatus.INACTIVE) {
-            fail(name, "expected secondary_status INACTIVE, got ${profile.secondary_status}")
-            return
-        }
-        // Fails if a nullable composite reader throws or returns null/zero fields on a present value.
-        val address = profile.address
-        if (address == null) {
-            fail(name, "expected address to be present")
-            return
-        }
-        if (address.street != "1 Main St") {
-            fail(name, "expected address.street '1 Main St', got ${address.street}")
-            return
-        }
-        if (address.city != "Springfield") {
-            fail(name, "expected address.city 'Springfield', got ${address.city}")
-            return
-        }
-        if (address.zip != "12345") {
-            fail(name, "expected address.zip '12345', got ${address.zip}")
-            return
-        }
-
-        val nullProfile = getUserProfile(conn, absentId)
-        // Fails if a nullable enum reader decodes SQL NULL as a zero/empty variant instead of null.
-        if (nullProfile.secondary_status != null) {
-            fail(name, "expected secondary_status null, got ${nullProfile.secondary_status}")
-            return
-        }
-        // Fails if a nullable composite reader decodes SQL NULL as a non-null all-default object.
-        if (nullProfile.address != null) {
-            fail(name, "expected address null, got ${nullProfile.address}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-
-fun testDeleteOrdersByUser(conn: java.sql.Connection) {
-    val name = "DeleteOrdersByUser"
-    try {
-        val count = deleteOrdersByUser(conn, createdUserId)
-        if (count != 1) {
-            fail(name, "expected 1 deleted order, got $count")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteUser(conn: java.sql.Connection) {
-    val name = "DeleteUser"
-    try {
-        deleteUser(conn, createdUserId)
-        // GetUserById is `:one`, so a missing row throws
-        // NoSuchElementException rather than returning null.
-        try {
-            getUserById(conn, createdUserId)
-            fail(name, "expected getUserById to throw after deletion, but it returned a row")
-            return
-        } catch (expected: NoSuchElementException) {
-            // expected: the user was deleted
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
+{{ kotlin.test_program("postgresql") }}
 {%- elif engine == "redshift" -%}
 import generated.*
 import java.math.BigDecimal
@@ -1435,11 +429,11 @@ import java.sql.DriverManager
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-{% include "kotlin_macros.jinja" %}
+{{ kotlin.harness_state() }}
 
 var createdUserId = 0
 
-fun main() {
+{% call kotlin.canonical_program() %}
     val databaseUrl = System.getenv("{{ connection_env }}")
     if (databaseUrl.isNullOrEmpty()) {
         System.err.println("{{ connection_env }} environment variable is required")
@@ -1467,13 +461,7 @@ fun main() {
         testDeleteUser(conn)
     }
 
-    println()
-    println("Results: $passed passed, $failed failed")
-    if (failed > 0) {
-        exitProcess(1)
-    }
-    println("ALL TESTS PASSED")
-}
+{%- endcall %}
 
 fun runMigration(conn: java.sql.Connection) {
     val schemaPath = Path.of(System.getProperty("user.dir"))
@@ -1494,188 +482,7 @@ fun runMigration(conn: java.sql.Connection) {
     }
 }
 
-fun testCreateUser(conn: java.sql.Connection) {
-    val name = "CreateUser"
-    try {
-        val user = createUser(conn, "Alice", "alice@example.com", "active")
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.email != "alice@example.com") {
-            fail(name, "expected email alice@example.com, got ${user.email}")
-            return
-        }
-        createdUserId = user.id
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetUserById(conn: java.sql.Connection) {
-    val name = "GetUserById"
-    try {
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.id != createdUserId) {
-            fail(name, "expected id $createdUserId, got ${user.id}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testCreateOrder(conn: java.sql.Connection) {
-    val name = "CreateOrder"
-    try {
-        val order = createOrder(conn, createdUserId, BigDecimal("99.99"), "Test order")
-        if (order == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (order.user_id != createdUserId) {
-            fail(name, "expected user_id $createdUserId, got ${order.user_id}")
-            return
-        }
-        if (order.total.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total 99.99, got ${order.total}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrdersByUser(conn: java.sql.Connection) {
-    val name = "GetOrdersByUser"
-    try {
-        val orders = getOrdersByUser(conn, createdUserId)
-        if (orders.size != 1) {
-            fail(name, "expected 1 order, got ${orders.size}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testUpdateUserEmail(conn: java.sql.Connection) {
-    val name = "UpdateUserEmail"
-    try {
-        updateUserEmail(conn, "alice-updated@example.com", createdUserId)
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "user not found after update")
-            return
-        }
-        if (user.email != "alice-updated@example.com") {
-            fail(name, "expected updated email, got ${user.email}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrderTotal(conn: java.sql.Connection) {
-    val name = "GetOrderTotal"
-    try {
-        val result = getOrderTotal(conn, createdUserId)
-        if (result == null || result.total_sum == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (result.total_sum.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total_sum 99.99, got ${result.total_sum}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testListActiveUsers(conn: java.sql.Connection) {
-    val name = "ListActiveUsers"
-    try {
-        // redshift's `status` column is a plain VARCHAR, not an enum, so
-        // ListActiveUsers takes a status string rather than a UserStatus.
-        val users = listActiveUsers(conn, "active")
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 active user")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testSearchUsers(conn: java.sql.Connection) {
-    val name = "SearchUsers"
-    try {
-        // redshift's SearchUsers filters by status (see queries/users.sql),
-        // not a name LIKE pattern like the other engines' SearchUsers.
-        val users = searchUsers(conn, "active")
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 active user")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteOrdersByUser(conn: java.sql.Connection) {
-    val name = "DeleteOrdersByUser"
-    try {
-        val count = deleteOrdersByUser(conn, createdUserId)
-        if (count != 1) {
-            fail(name, "expected 1 deleted order, got $count")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteUser(conn: java.sql.Connection) {
-    val name = "DeleteUser"
-    try {
-        deleteUser(conn, createdUserId)
-        // GetUserById is `:one`, so a missing row throws
-        // NoSuchElementException rather than returning null.
-        try {
-            getUserById(conn, createdUserId)
-            fail(name, "expected getUserById to throw after deletion, but it returned a row")
-            return
-        } catch (expected: NoSuchElementException) {
-            // expected: the user was deleted
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
+{{ kotlin.test_program("redshift") }}
 {%- elif engine == "mysql" -%}
 import generated.*
 import java.math.BigDecimal
@@ -1684,11 +491,11 @@ import java.sql.DriverManager
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-{% include "kotlin_macros.jinja" %}
+{{ kotlin.harness_state() }}
 
 var createdUserId = 0
 
-fun main() {
+{% call kotlin.canonical_program() %}
     val mysqlUrl = System.getenv("{{ connection_env }}")
     if (mysqlUrl.isNullOrEmpty()) {
         System.err.println("{{ connection_env }} environment variable is required")
@@ -1716,13 +523,7 @@ fun main() {
         testDeleteUser(conn)
     }
 
-    println()
-    println("Results: $passed passed, $failed failed")
-    if (failed > 0) {
-        exitProcess(1)
-    }
-    println("ALL TESTS PASSED")
-}
+{%- endcall %}
 
 // Splits a SQL script into statements on top-level ';' only -- unlike a
 // naive `schema.split(";")`, this tracks single- and double-quoted spans,
@@ -1838,186 +639,7 @@ fun runMigration(conn: java.sql.Connection) {
     }
 }
 
-fun testCreateUser(conn: java.sql.Connection) {
-    val name = "CreateUser"
-    try {
-        createUser(conn, "Alice", "alice@example.com", UsersStatus.ACTIVE)
-        val user = getLastInsertUser(conn)
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.email != "alice@example.com") {
-            fail(name, "expected email alice@example.com, got ${user.email}")
-            return
-        }
-        createdUserId = user.id
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetUserById(conn: java.sql.Connection) {
-    val name = "GetUserById"
-    try {
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.id != createdUserId) {
-            fail(name, "expected id $createdUserId, got ${user.id}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testUpdateUserEmail(conn: java.sql.Connection) {
-    val name = "UpdateUserEmail"
-    try {
-        updateUserEmail(conn, "alice-updated@example.com", createdUserId)
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "user not found after update")
-            return
-        }
-        if (user.email != "alice-updated@example.com") {
-            fail(name, "expected updated email, got ${user.email}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testListActiveUsers(conn: java.sql.Connection) {
-    val name = "ListActiveUsers"
-    try {
-        val users = listActiveUsers(conn, UsersStatus.ACTIVE)
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 active user")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testSearchUsers(conn: java.sql.Connection) {
-    val name = "SearchUsers"
-    try {
-        val users = searchUsers(conn, "%Alice%")
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 user matching Alice")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testCreateOrder(conn: java.sql.Connection) {
-    val name = "CreateOrder"
-    try {
-        createOrder(conn, createdUserId, BigDecimal("99.99"), "Test order")
-        val order = getLastInsertOrder(conn)
-        if (order == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (order.user_id != createdUserId) {
-            fail(name, "expected user_id $createdUserId, got ${order.user_id}")
-            return
-        }
-        if (order.total.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total 99.99, got ${order.total}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrdersByUser(conn: java.sql.Connection) {
-    val name = "GetOrdersByUser"
-    try {
-        val orders = getOrdersByUser(conn, createdUserId)
-        if (orders.size != 1) {
-            fail(name, "expected 1 order, got ${orders.size}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrderTotal(conn: java.sql.Connection) {
-    val name = "GetOrderTotal"
-    try {
-        val result = getOrderTotal(conn, createdUserId)
-        if (result == null || result.total_sum == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (result.total_sum.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total_sum 99.99, got ${result.total_sum}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteOrdersByUser(conn: java.sql.Connection) {
-    val name = "DeleteOrdersByUser"
-    try {
-        val count = deleteOrdersByUser(conn, createdUserId)
-        if (count != 1) {
-            fail(name, "expected 1 deleted order, got $count")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteUser(conn: java.sql.Connection) {
-    val name = "DeleteUser"
-    try {
-        deleteUser(conn, createdUserId)
-        // GetUserById is `:one`, so a missing row throws
-        // NoSuchElementException rather than returning null.
-        try {
-            getUserById(conn, createdUserId)
-            fail(name, "expected getUserById to throw after deletion, but it returned a row")
-            return
-        } catch (expected: NoSuchElementException) {
-            // expected: the user was deleted
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
+{{ kotlin.test_program("mysql") }}
 {%- elif engine == "mariadb" -%}
 import generated.*
 import java.math.BigDecimal
@@ -2026,11 +648,11 @@ import java.sql.DriverManager
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-{% include "kotlin_macros.jinja" %}
+{{ kotlin.harness_state() }}
 
 var createdUserId = ""
 
-fun main() {
+{% call kotlin.canonical_program() %}
     val mariadbUrl = System.getenv("{{ connection_env }}")
     if (mariadbUrl.isNullOrEmpty()) {
         System.err.println("{{ connection_env }} environment variable is required")
@@ -2058,13 +680,7 @@ fun main() {
         testDeleteUser(conn)
     }
 
-    println()
-    println("Results: $passed passed, $failed failed")
-    if (failed > 0) {
-        exitProcess(1)
-    }
-    println("ALL TESTS PASSED")
-}
+{%- endcall %}
 
 // Splits a SQL script into statements on top-level ';' only -- unlike a
 // naive `schema.split(";")`, this tracks single- and double-quoted spans,
@@ -2180,184 +796,7 @@ fun runMigration(conn: java.sql.Connection) {
     }
 }
 
-fun testCreateUser(conn: java.sql.Connection) {
-    val name = "CreateUser"
-    try {
-        val user = createUser(conn, "Alice", "alice@example.com", UsersStatus.ACTIVE)
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.email != "alice@example.com") {
-            fail(name, "expected email alice@example.com, got ${user.email}")
-            return
-        }
-        createdUserId = user.id
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetUserById(conn: java.sql.Connection) {
-    val name = "GetUserById"
-    try {
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.id != createdUserId) {
-            fail(name, "expected id $createdUserId, got ${user.id}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testUpdateUserEmail(conn: java.sql.Connection) {
-    val name = "UpdateUserEmail"
-    try {
-        updateUserEmail(conn, "alice-updated@example.com", createdUserId)
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "user not found after update")
-            return
-        }
-        if (user.email != "alice-updated@example.com") {
-            fail(name, "expected updated email, got ${user.email}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testListActiveUsers(conn: java.sql.Connection) {
-    val name = "ListActiveUsers"
-    try {
-        val users = listActiveUsers(conn, UsersStatus.ACTIVE)
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 active user")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testSearchUsers(conn: java.sql.Connection) {
-    val name = "SearchUsers"
-    try {
-        val users = searchUsers(conn, "%Alice%")
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 user matching Alice")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testCreateOrder(conn: java.sql.Connection) {
-    val name = "CreateOrder"
-    try {
-        val order = createOrder(conn, createdUserId, BigDecimal("99.99"), "Test order")
-        if (order == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (order.user_id != createdUserId) {
-            fail(name, "expected user_id $createdUserId, got ${order.user_id}")
-            return
-        }
-        if (order.total.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total 99.99, got ${order.total}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrdersByUser(conn: java.sql.Connection) {
-    val name = "GetOrdersByUser"
-    try {
-        val orders = getOrdersByUser(conn, createdUserId)
-        if (orders.size != 1) {
-            fail(name, "expected 1 order, got ${orders.size}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrderTotal(conn: java.sql.Connection) {
-    val name = "GetOrderTotal"
-    try {
-        val result = getOrderTotal(conn, createdUserId)
-        if (result == null || result.total_sum == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (result.total_sum.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total_sum 99.99, got ${result.total_sum}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteOrdersByUser(conn: java.sql.Connection) {
-    val name = "DeleteOrdersByUser"
-    try {
-        val count = deleteOrdersByUser(conn, createdUserId)
-        if (count != 1) {
-            fail(name, "expected 1 deleted order, got $count")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteUser(conn: java.sql.Connection) {
-    val name = "DeleteUser"
-    try {
-        deleteUser(conn, createdUserId)
-        // GetUserById is `:one`, so a missing row throws
-        // NoSuchElementException rather than returning null.
-        try {
-            getUserById(conn, createdUserId)
-            fail(name, "expected getUserById to throw after deletion, but it returned a row")
-            return
-        } catch (expected: NoSuchElementException) {
-            // expected: the user was deleted
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
+{{ kotlin.test_program("mariadb") }}
 {%- elif engine == "oracle" -%}
 import generated.*
 import java.math.BigDecimal
@@ -2367,11 +806,11 @@ import java.sql.SQLException
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-{% include "kotlin_macros.jinja" %}
+{{ kotlin.harness_state() }}
 
 var createdUserId: Long = 0
 
-fun main() {
+{% call kotlin.canonical_program() %}
     val oracleUrl = System.getenv("{{ connection_env }}")
     if (oracleUrl.isNullOrEmpty()) {
         System.err.println("{{ connection_env }} environment variable is required")
@@ -2400,13 +839,7 @@ fun main() {
         testDeleteUser(conn)
     }
 
-    println()
-    println("Results: $passed passed, $failed failed")
-    if (failed > 0) {
-        exitProcess(1)
-    }
-    println("ALL TESTS PASSED")
-}
+{%- endcall %}
 
 fun runMigration(conn: java.sql.Connection) {
     // Drop tables and sequences, ignoring errors if they do not exist
@@ -2443,180 +876,7 @@ fun runMigration(conn: java.sql.Connection) {
     }
 }
 
-fun testCreateUser(conn: java.sql.Connection) {
-    val name = "CreateUser"
-    try {
-        val user = createUser(conn, "Alice", "alice@example.com", 1)
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.email != "alice@example.com") {
-            fail(name, "expected email alice@example.com, got ${user.email}")
-            return
-        }
-        createdUserId = user.id
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetUserById(conn: java.sql.Connection) {
-    val name = "GetUserById"
-    try {
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.id != createdUserId) {
-            fail(name, "expected id $createdUserId, got ${user.id}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testUpdateUserEmail(conn: java.sql.Connection) {
-    val name = "UpdateUserEmail"
-    try {
-        updateUserEmail(conn, "alice-updated@example.com", createdUserId)
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "user not found after update")
-            return
-        }
-        if (user.email != "alice-updated@example.com") {
-            fail(name, "expected updated email, got ${user.email}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testListActiveUsers(conn: java.sql.Connection) {
-    val name = "ListActiveUsers"
-    try {
-        val users = listActiveUsers(conn)
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 active user")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testSearchUsers(conn: java.sql.Connection) {
-    val name = "SearchUsers"
-    try {
-        val users = searchUsers(conn, "%Alice%")
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 user matching Alice")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testCreateOrder(conn: java.sql.Connection) {
-    val name = "CreateOrder"
-    try {
-        val order = createOrder(conn, createdUserId, BigDecimal("99.99"), "Test order")
-        if (order == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (order.user_id != createdUserId) {
-            fail(name, "expected user_id $createdUserId, got ${order.user_id}")
-            return
-        }
-        if (order.total.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total 99.99, got ${order.total}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrdersByUser(conn: java.sql.Connection) {
-    val name = "GetOrdersByUser"
-    try {
-        val orders = getOrdersByUser(conn, createdUserId)
-        if (orders.size != 1) {
-            fail(name, "expected 1 order, got ${orders.size}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrderTotal(conn: java.sql.Connection) {
-    val name = "GetOrderTotal"
-    try {
-        val result = getOrderTotal(conn, createdUserId)
-        if (result == null) {
-            fail(name, "returned null")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteOrdersByUser(conn: java.sql.Connection) {
-    val name = "DeleteOrdersByUser"
-    try {
-        val count = deleteOrdersByUser(conn, createdUserId)
-        if (count != 1) {
-            fail(name, "expected 1 deleted order, got $count")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteUser(conn: java.sql.Connection) {
-    val name = "DeleteUser"
-    try {
-        deleteUser(conn, createdUserId)
-        // GetUserById is `:one`, so a missing row throws
-        // NoSuchElementException rather than returning null.
-        try {
-            getUserById(conn, createdUserId)
-            fail(name, "expected getUserById to throw after deletion, but it returned a row")
-            return
-        } catch (expected: NoSuchElementException) {
-            // expected: the user was deleted
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
+{{ kotlin.test_program("oracle") }}
 {%- elif engine == "mssql" -%}
 import generated.*
 import java.math.BigDecimal
@@ -2625,11 +885,11 @@ import java.sql.DriverManager
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-{% include "kotlin_macros.jinja" %}
+{{ kotlin.harness_state() }}
 
 var createdUserId = 0
 
-fun main() {
+{% call kotlin.canonical_program() %}
     val mssqlUrl = System.getenv("{{ connection_env }}")
     if (mssqlUrl.isNullOrEmpty()) {
         System.err.println("{{ connection_env }} environment variable is required")
@@ -2659,13 +919,7 @@ fun main() {
         testDeleteUser(conn)
     }
 
-    println()
-    println("Results: $passed passed, $failed failed")
-    if (failed > 0) {
-        exitProcess(1)
-    }
-    println("ALL TESTS PASSED")
-}
+{%- endcall %}
 
 // Splits a SQL script into statements on top-level ';' only -- unlike a
 // naive `schema.split(";")`, this tracks single- and double-quoted spans,
@@ -2781,184 +1035,7 @@ fun runMigration(conn: java.sql.Connection) {
     }
 }
 
-fun testCreateUser(conn: java.sql.Connection) {
-    val name = "CreateUser"
-    try {
-        val user = createUser(conn, 1, "Alice", "alice@example.com", true)
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.email != "alice@example.com") {
-            fail(name, "expected email alice@example.com, got ${user.email}")
-            return
-        }
-        createdUserId = user.id
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetUserById(conn: java.sql.Connection) {
-    val name = "GetUserById"
-    try {
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.id != createdUserId) {
-            fail(name, "expected id $createdUserId, got ${user.id}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testUpdateUserEmail(conn: java.sql.Connection) {
-    val name = "UpdateUserEmail"
-    try {
-        updateUserEmail(conn, "alice-updated@example.com", createdUserId)
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "user not found after update")
-            return
-        }
-        if (user.email != "alice-updated@example.com") {
-            fail(name, "expected updated email, got ${user.email}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testListActiveUsers(conn: java.sql.Connection) {
-    val name = "ListActiveUsers"
-    try {
-        val users = listActiveUsers(conn)
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 active user")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testSearchUsers(conn: java.sql.Connection) {
-    val name = "SearchUsers"
-    try {
-        val users = searchUsers(conn, "%Alice%")
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 user matching Alice")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testCreateOrder(conn: java.sql.Connection) {
-    val name = "CreateOrder"
-    try {
-        val order = createOrder(conn, 1, createdUserId, BigDecimal("99.95"), "Test order")
-        if (order == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (order.user_id != createdUserId) {
-            fail(name, "expected user_id $createdUserId, got ${order.user_id}")
-            return
-        }
-        if (order.total != BigDecimal("99.95")) {
-            fail(name, "expected total 99.95, got ${order.total}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrdersByUser(conn: java.sql.Connection) {
-    val name = "GetOrdersByUser"
-    try {
-        val orders = getOrdersByUser(conn, createdUserId)
-        if (orders.size != 1) {
-            fail(name, "expected 1 order, got ${orders.size}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrderTotal(conn: java.sql.Connection) {
-    val name = "GetOrderTotal"
-    try {
-        val result = getOrderTotal(conn, createdUserId)
-        if (result == null || result.total_sum == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (result.total_sum != BigDecimal("99.95")) {
-            fail(name, "expected total_sum 99.95, got ${result.total_sum}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteOrdersByUser(conn: java.sql.Connection) {
-    val name = "DeleteOrdersByUser"
-    try {
-        val count = deleteOrdersByUser(conn, createdUserId)
-        if (count != 1) {
-            fail(name, "expected 1 deleted order, got $count")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteUser(conn: java.sql.Connection) {
-    val name = "DeleteUser"
-    try {
-        deleteUser(conn, createdUserId)
-        // GetUserById is `:one`, so a missing row throws
-        // NoSuchElementException rather than returning null.
-        try {
-            getUserById(conn, createdUserId)
-            fail(name, "expected getUserById to throw after deletion, but it returned a row")
-            return
-        } catch (expected: NoSuchElementException) {
-            // expected: the user was deleted
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
+{{ kotlin.test_program("mssql") }}
 {%- elif engine == "sqlite" -%}
 import generated.*
 import java.nio.file.Path
@@ -2966,12 +1043,12 @@ import java.sql.DriverManager
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-{% include "kotlin_macros.jinja" %}
+{{ kotlin.harness_state() }}
 
 // SQLite INTEGER is 8-byte, so generated id columns are Long.
 var createdUserId: Long = 0
 
-fun main() {
+{% call kotlin.canonical_program() %}
     DriverManager.getConnection("jdbc:sqlite::memory:").use { conn ->
         conn.createStatement().use { stmt ->
             stmt.execute("PRAGMA foreign_keys = ON")
@@ -2991,13 +1068,7 @@ fun main() {
         testDeleteUser(conn)
     }
 
-    println()
-    println("Results: $passed passed, $failed failed")
-    if (failed > 0) {
-        exitProcess(1)
-    }
-    println("ALL TESTS PASSED")
-}
+{%- endcall %}
 
 // Splits a SQL script into statements on top-level ';' only -- unlike a
 // naive `schema.split(";")`, this tracks single- and double-quoted spans,
@@ -3112,193 +1183,7 @@ fun runMigration(conn: java.sql.Connection) {
     }
 }
 
-fun testCreateUser(conn: java.sql.Connection) {
-    val name = "CreateUser"
-    try {
-        createUser(conn, "Alice", "alice@example.com", "active")
-        // SQLite: use last_insert_rowid() to get the new user's id
-        val lastId = conn.createStatement().use { stmt ->
-            stmt.executeQuery("SELECT last_insert_rowid()").use { rs ->
-                rs.next()
-                // last_insert_rowid() is a 64-bit rowid, and SQLite INTEGER
-                // columns generate as Long.
-                rs.getLong(1)
-            }
-        }
-        val user = getUserById(conn, lastId)
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.email != "alice@example.com") {
-            fail(name, "expected email alice@example.com, got ${user.email}")
-            return
-        }
-        createdUserId = user.id
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetUserById(conn: java.sql.Connection) {
-    val name = "GetUserById"
-    try {
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.id != createdUserId) {
-            fail(name, "expected id $createdUserId, got ${user.id}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testUpdateUserEmail(conn: java.sql.Connection) {
-    val name = "UpdateUserEmail"
-    try {
-        updateUserEmail(conn, "alice-updated@example.com", createdUserId)
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "user not found after update")
-            return
-        }
-        if (user.email != "alice-updated@example.com") {
-            fail(name, "expected updated email, got ${user.email}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testListActiveUsers(conn: java.sql.Connection) {
-    val name = "ListActiveUsers"
-    try {
-        val users = listActiveUsers(conn, "active")
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 active user")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testSearchUsers(conn: java.sql.Connection) {
-    val name = "SearchUsers"
-    try {
-        val users = searchUsers(conn, "%Alice%")
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 user matching Alice")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testCreateOrder(conn: java.sql.Connection) {
-    val name = "CreateOrder"
-    try {
-        createOrder(conn, createdUserId, 99.99, "Test order")
-        // Verify via GetOrdersByUser
-        val orders = getOrdersByUser(conn, createdUserId)
-        if (orders.isEmpty()) {
-            fail(name, "no orders found after creation")
-            return
-        }
-        val order = orders[0]
-        if (Math.abs(order.total - 99.99) > 0.01) {
-            fail(name, "expected total 99.99, got ${order.total}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrdersByUser(conn: java.sql.Connection) {
-    val name = "GetOrdersByUser"
-    try {
-        val orders = getOrdersByUser(conn, createdUserId)
-        if (orders.size != 1) {
-            fail(name, "expected 1 order, got ${orders.size}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrderTotal(conn: java.sql.Connection) {
-    val name = "GetOrderTotal"
-    try {
-        val result = getOrderTotal(conn, createdUserId)
-        if (result == null || result.total_sum == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (Math.abs(result.total_sum!! - 99.99) > 0.01) {
-            fail(name, "expected total_sum 99.99, got ${result.total_sum}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteOrdersByUser(conn: java.sql.Connection) {
-    val name = "DeleteOrdersByUser"
-    try {
-        val count = deleteOrdersByUser(conn, createdUserId)
-        if (count != 1) {
-            fail(name, "expected 1 deleted order, got $count")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteUser(conn: java.sql.Connection) {
-    val name = "DeleteUser"
-    try {
-        deleteUser(conn, createdUserId)
-        // GetUserById is `:one`, so a missing row throws
-        // NoSuchElementException rather than returning null.
-        try {
-            getUserById(conn, createdUserId)
-            fail(name, "expected getUserById to throw after deletion, but it returned a row")
-            return
-        } catch (expected: NoSuchElementException) {
-            // expected: the user was deleted
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
+{{ kotlin.test_program("sqlite") }}
 {%- elif engine == "duckdb" -%}
 import generated.*
 import java.math.BigDecimal
@@ -3307,13 +1192,13 @@ import java.sql.DriverManager
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-{% include "kotlin_macros.jinja" %}
+{{ kotlin.harness_state() }}
 
 // DuckDB's INTEGER is 4-byte, so generated id columns are Int (see
 // kotlin-jdbc.duckdb.toml's int32 = "Int").
 var createdUserId: Int = 0
 
-fun main() {
+{% call kotlin.canonical_program() %}
     DriverManager.getConnection("jdbc:duckdb:").use { conn ->
         runMigration(conn)
 
@@ -3329,13 +1214,7 @@ fun main() {
         testDeleteUser(conn)
     }
 
-    println()
-    println("Results: $passed passed, $failed failed")
-    if (failed > 0) {
-        exitProcess(1)
-    }
-    println("ALL TESTS PASSED")
-}
+{%- endcall %}
 
 // Splits a SQL script into statements on top-level ';' only -- unlike a
 // naive `schema.split(";")`, this tracks single- and double-quoted spans,
@@ -3446,185 +1325,7 @@ fun runMigration(conn: java.sql.Connection) {
     }
 }
 
-fun testCreateUser(conn: java.sql.Connection) {
-    val name = "CreateUser"
-    try {
-        createUser(conn, "Alice", "alice@example.com", "active")
-        // Fresh in-memory database, sequence-backed id: the first row is 1.
-        val user = getUserById(conn, 1)
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.email != "alice@example.com") {
-            fail(name, "expected email alice@example.com, got ${user.email}")
-            return
-        }
-        createdUserId = user.id
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetUserById(conn: java.sql.Connection) {
-    val name = "GetUserById"
-    try {
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.id != createdUserId) {
-            fail(name, "expected id $createdUserId, got ${user.id}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testUpdateUserEmail(conn: java.sql.Connection) {
-    val name = "UpdateUserEmail"
-    try {
-        updateUserEmail(conn, "alice-updated@example.com", createdUserId)
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "user not found after update")
-            return
-        }
-        if (user.email != "alice-updated@example.com") {
-            fail(name, "expected updated email, got ${user.email}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testListActiveUsers(conn: java.sql.Connection) {
-    val name = "ListActiveUsers"
-    try {
-        val users = listActiveUsers(conn, "active")
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 active user")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testSearchUsers(conn: java.sql.Connection) {
-    val name = "SearchUsers"
-    try {
-        val users = searchUsers(conn, "%Alice%")
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 user matching Alice")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testCreateOrder(conn: java.sql.Connection) {
-    val name = "CreateOrder"
-    try {
-        createOrder(conn, createdUserId, BigDecimal("99.99"), "Test order")
-        // Verify via GetOrdersByUser
-        val orders = getOrdersByUser(conn, createdUserId)
-        if (orders.isEmpty()) {
-            fail(name, "no orders found after creation")
-            return
-        }
-        val order = orders[0]
-        if (order.total.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total 99.99, got ${order.total}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrdersByUser(conn: java.sql.Connection) {
-    val name = "GetOrdersByUser"
-    try {
-        val orders = getOrdersByUser(conn, createdUserId)
-        if (orders.size != 1) {
-            fail(name, "expected 1 order, got ${orders.size}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrderTotal(conn: java.sql.Connection) {
-    val name = "GetOrderTotal"
-    try {
-        val result = getOrderTotal(conn, createdUserId)
-        if (result == null || result.total_sum == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (result.total_sum.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total_sum 99.99, got ${result.total_sum}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteOrdersByUser(conn: java.sql.Connection) {
-    val name = "DeleteOrdersByUser"
-    try {
-        val count = deleteOrdersByUser(conn, createdUserId)
-        if (count != 1) {
-            fail(name, "expected 1 deleted order, got $count")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteUser(conn: java.sql.Connection) {
-    val name = "DeleteUser"
-    try {
-        deleteUser(conn, createdUserId)
-        // GetUserById is `:one`, so a missing row throws
-        // NoSuchElementException rather than returning null.
-        try {
-            getUserById(conn, createdUserId)
-            fail(name, "expected getUserById to throw after deletion, but it returned a row")
-            return
-        } catch (expected: NoSuchElementException) {
-            // expected: the user was deleted
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
+{{ kotlin.test_program("duckdb") }}
 {%- elif engine == "snowflake" -%}
 import generated.*
 import java.math.BigDecimal
@@ -3633,14 +1334,14 @@ import java.sql.DriverManager
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
 
-{% include "kotlin_macros.jinja" %}
+{{ kotlin.harness_state() }}
 
 // Snowflake aliases every integer spelling to NUMBER(38,0), so its id columns
 // are Long. Kotlin does not implicitly widen Int, so an Int here is a
 // compile error at every call site rather than a silent narrowing.
 var createdUserId: Long = 0
 
-fun main() {
+{% call kotlin.canonical_program() %}
     val snowflakeUrl = System.getenv("{{ connection_env }}")
     if (snowflakeUrl.isNullOrEmpty()) {
         System.err.println("{{ connection_env }} environment variable is required")
@@ -3688,13 +1389,7 @@ fun main() {
         testDeleteUser(conn)
     }
 
-    println()
-    println("Results: $passed passed, $failed failed")
-    if (failed > 0) {
-        exitProcess(1)
-    }
-    println("ALL TESTS PASSED")
-}
+{%- endcall %}
 
 // Splits a SQL script into statements on top-level ';' only -- unlike a
 // naive `schema.split(";")`, this tracks single- and double-quoted spans,
@@ -3810,181 +1505,5 @@ fun runMigration(conn: java.sql.Connection) {
     }
 }
 
-fun testCreateUser(conn: java.sql.Connection) {
-    val name = "CreateUser"
-    try {
-        createUser(conn, "Alice", "alice@example.com", true)
-        val user = getUserById(conn, 1)
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.email != "alice@example.com") {
-            fail(name, "expected email alice@example.com, got ${user.email}")
-            return
-        }
-        createdUserId = 1
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetUserById(conn: java.sql.Connection) {
-    val name = "GetUserById"
-    try {
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (user.name != "Alice") {
-            fail(name, "expected name Alice, got ${user.name}")
-            return
-        }
-        if (user.id != createdUserId) {
-            fail(name, "expected id $createdUserId, got ${user.id}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testUpdateUserEmail(conn: java.sql.Connection) {
-    val name = "UpdateUserEmail"
-    try {
-        updateUserEmail(conn, "alice-updated@example.com", createdUserId)
-        val user = getUserById(conn, createdUserId)
-        if (user == null) {
-            fail(name, "user not found after update")
-            return
-        }
-        if (user.email != "alice-updated@example.com") {
-            fail(name, "expected updated email, got ${user.email}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testListActiveUsers(conn: java.sql.Connection) {
-    val name = "ListActiveUsers"
-    try {
-        val users = listActiveUsers(conn)
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 active user")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testSearchUsers(conn: java.sql.Connection) {
-    val name = "SearchUsers"
-    try {
-        val users = searchUsers(conn, "%Alice%")
-        if (users.isEmpty()) {
-            fail(name, "expected at least 1 user matching Alice")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testCreateOrder(conn: java.sql.Connection) {
-    val name = "CreateOrder"
-    try {
-        createOrder(conn, createdUserId, BigDecimal("99.99"), "Test order")
-        val orders = getOrdersByUser(conn, createdUserId)
-        if (orders.isEmpty()) {
-            fail(name, "returned no orders")
-            return
-        }
-        val order = orders[0]
-        if (order.total.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total 99.99, got ${order.total}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrdersByUser(conn: java.sql.Connection) {
-    val name = "GetOrdersByUser"
-    try {
-        val orders = getOrdersByUser(conn, createdUserId)
-        if (orders.size != 1) {
-            fail(name, "expected 1 order, got ${orders.size}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testGetOrderTotal(conn: java.sql.Connection) {
-    val name = "GetOrderTotal"
-    try {
-        val result = getOrderTotal(conn, createdUserId)
-        if (result == null || result.total_sum == null) {
-            fail(name, "returned null")
-            return
-        }
-        if (result.total_sum.compareTo(BigDecimal("99.99")) != 0) {
-            fail(name, "expected total_sum 99.99, got ${result.total_sum}")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteOrdersByUser(conn: java.sql.Connection) {
-    val name = "DeleteOrdersByUser"
-    try {
-        val count = deleteOrdersByUser(conn, createdUserId)
-        if (count != 1) {
-            fail(name, "expected 1 deleted order, got $count")
-            return
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
-
-fun testDeleteUser(conn: java.sql.Connection) {
-    val name = "DeleteUser"
-    try {
-        deleteUser(conn, createdUserId)
-        // GetUserById is `:one`, so a missing row throws
-        // NoSuchElementException rather than returning null.
-        try {
-            getUserById(conn, createdUserId)
-            fail(name, "expected getUserById to throw after deletion, but it returned a row")
-            return
-        } catch (expected: NoSuchElementException) {
-            // expected: the user was deleted
-        }
-        pass(name)
-    } catch (e: Exception) {
-        fail(name, e)
-    }
-}
+{{ kotlin.test_program("snowflake") }}
 {%- endif %}
