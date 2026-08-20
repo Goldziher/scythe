@@ -74,3 +74,27 @@ fn python_psycopg3_encodes_single_composite_batch_items() {
         "batch items must use the same null-safe encoder:\n{query_fn}"
     );
 }
+
+#[test]
+fn python_asyncpg_binds_composites_as_native_records() {
+    let backend = get_backend("python-asyncpg", "postgresql").expect("backend must exist");
+    let composite = backend
+        .generate_composite_def(&address_composite())
+        .expect("composite generation must succeed");
+    let result =
+        generate_with_backend(&composite_query(QueryCommand::Exec), &*backend).expect("query generation must succeed");
+    let query_fn = result.query_fn.expect("exec query must emit a function");
+
+    assert!(
+        query_fn.contains("None if home_address is None else home_address._to_record()"),
+        "asyncpg must receive its native positional composite shape:\n{query_fn}"
+    );
+    assert!(
+        composite.contains("def _to_record(self) -> tuple[Any, ...]:"),
+        "missing native-record conversion:\n{composite}"
+    );
+    assert!(
+        composite.contains("return (self.street, self.city)"),
+        "record conversion must preserve declared field order:\n{composite}"
+    );
+}

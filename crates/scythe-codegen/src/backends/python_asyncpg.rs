@@ -11,6 +11,14 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
+fn asyncpg_param_expr(param: &ResolvedParam, raw: &str) -> String {
+    if param.neutral_type.starts_with("composite::") {
+        format!("None if {raw} is None else {raw}._to_record()")
+    } else {
+        raw.to_string()
+    }
+}
+
 use super::python_common::{PythonRowType, no_rows_exception_def, type_support_imports, write_missing_row_guard};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/python-asyncpg.toml");
@@ -222,7 +230,7 @@ impl CodegenBackend for PythonAsyncpgBackend {
                 let _ = writeln!(out, "    row = await conn.fetchrow(");
                 let _ = writeln!(out, "        \"\"\"{}\"\"\",", sql);
                 if !params.is_empty() {
-                    let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+                    let args: Vec<String> = params.iter().map(|p| asyncpg_param_expr(p, &p.field_name)).collect();
                     let _ = writeln!(out, "        {},", args.join(", "));
                 }
                 let _ = writeln!(out, "    )");
@@ -250,7 +258,7 @@ impl CodegenBackend for PythonAsyncpgBackend {
                 let _ = writeln!(out, "    rows = await conn.fetch(");
                 let _ = writeln!(out, "        \"\"\"{}\"\"\",", sql);
                 if !params.is_empty() {
-                    let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+                    let args: Vec<String> = params.iter().map(|p| asyncpg_param_expr(p, &p.field_name)).collect();
                     let _ = writeln!(out, "        {},", args.join(", "));
                 }
                 let _ = writeln!(out, "    )");
@@ -302,9 +310,16 @@ impl CodegenBackend for PythonAsyncpgBackend {
                     let _ = writeln!(out, "        )");
                 } else {
                     if params.len() == 1 {
-                        let _ = writeln!(out, "    args = [(item,) for item in items]");
+                        let item = asyncpg_param_expr(&params[0], "item");
+                        let _ = writeln!(out, "    args = [({},) for item in items]", item);
                     } else {
-                        let _ = writeln!(out, "    args = items");
+                        let item_fields = params
+                            .iter()
+                            .enumerate()
+                            .map(|(index, param)| asyncpg_param_expr(param, &format!("item[{index}]")))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let _ = writeln!(out, "    args = [({},) for item in items]", item_fields);
                     }
                     let _ = writeln!(out, "    await conn.executemany(");
                     let _ = writeln!(out, "        \"\"\"{}\"\"\",", sql);
@@ -322,7 +337,7 @@ impl CodegenBackend for PythonAsyncpgBackend {
                 let _ = writeln!(out, "    await conn.execute(");
                 let _ = writeln!(out, "        \"\"\"{}\"\"\",", sql);
                 if !params.is_empty() {
-                    let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+                    let args: Vec<String> = params.iter().map(|p| asyncpg_param_expr(p, &p.field_name)).collect();
                     let _ = writeln!(out, "        {},", args.join(", "));
                 }
                 let _ = writeln!(out, "    )");
@@ -337,7 +352,7 @@ impl CodegenBackend for PythonAsyncpgBackend {
                 let _ = writeln!(out, "    result = await conn.execute(");
                 let _ = writeln!(out, "        \"\"\"{}\"\"\",", sql);
                 if !params.is_empty() {
-                    let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+                    let args: Vec<String> = params.iter().map(|p| asyncpg_param_expr(p, &p.field_name)).collect();
                     let _ = writeln!(out, "        {},", args.join(", "));
                 }
                 let _ = writeln!(out, "    )");
@@ -537,6 +552,23 @@ impl CodegenBackend for PythonAsyncpgBackend {
             let _ = writeln!(out, "            {}={value_expr},", to_snake_case(&field.name));
         }
         let _ = writeln!(out, "        )");
+        let encoded_fields = composite
+            .fields
+            .iter()
+            .map(|field| {
+                let field_name = to_snake_case(&field.name);
+                if field.neutral_type.starts_with("composite::") {
+                    format!("None if self.{field_name} is None else self.{field_name}._to_record()")
+                } else {
+                    format!("self.{field_name}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let tuple_suffix = if composite.fields.len() == 1 { "," } else { "" };
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    def _to_record(self) -> tuple[Any, ...]:");
+        let _ = writeln!(out, "        return ({encoded_fields}{tuple_suffix})");
         Ok(out)
     }
 }
