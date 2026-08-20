@@ -68,7 +68,7 @@ fn query_error(operation: &str, source: duckdb::Error) -> InspectError {
 fn build_catalog(connection: &Connection) -> Result<Catalog, InspectError> {
     let mut builder = CatalogBuilder::new(SqlDialect::PostgreSQL).engine(DUCKDB_ENGINE);
     let enums = fetch_enums(connection)?;
-    let enum_types = enum_type_resolutions(&enums)?;
+    let enum_types = enum_type_resolutions(&enums);
     for definition in fetch_relations(connection, &enum_types)? {
         builder = builder.relation(definition);
     }
@@ -280,8 +280,9 @@ fn fetch_enums(connection: &Connection) -> Result<Vec<InspectedEnum>, InspectErr
     Ok(definitions)
 }
 
-fn enum_type_resolutions(enums: &[InspectedEnum]) -> Result<HashMap<EnumResolutionKey, String>, InspectError> {
+fn enum_type_resolutions(enums: &[InspectedEnum]) -> HashMap<EnumResolutionKey, String> {
     let mut resolutions = HashMap::new();
+    let mut ambiguous = std::collections::HashSet::new();
     for definition in enums {
         let key = EnumResolutionKey {
             database_oid: definition.database_oid,
@@ -292,23 +293,18 @@ fn enum_type_resolutions(enums: &[InspectedEnum]) -> Result<HashMap<EnumResoluti
             Some(schema) => format!("{schema}.{}", definition.name.name()),
             None => definition.name.name().to_string(),
         };
-        if let Some((previous_type_oid, previous_name)) =
-            resolutions.insert(key, (definition.type_oid, qualified_name.clone()))
+        if let Some((previous_type_oid, _)) =
+            resolutions.insert(key.clone(), (definition.type_oid, qualified_name.clone()))
             && previous_type_oid != definition.type_oid
         {
-            let mut types = vec![previous_name, qualified_name];
-            types.sort();
-            types.dedup();
-            return Err(InspectError::AmbiguousEnumIdentity {
-                schema: definition.name.schema().unwrap_or("main").to_string(),
-                types,
-            });
+            ambiguous.insert(key);
         }
     }
-    Ok(resolutions
+    resolutions
         .into_iter()
+        .filter(|(key, _)| !ambiguous.contains(key))
         .map(|(key, (_, qualified_name))| (key, qualified_name))
-        .collect())
+        .collect()
 }
 
 fn resolve_enum_sql_type(

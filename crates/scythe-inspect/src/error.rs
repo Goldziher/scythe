@@ -68,17 +68,6 @@ pub enum InspectError {
         category: SchemaExecutionErrorCategory,
     },
 
-    /// DuckDB metadata cannot identify a column's enum when multiple same-schema types share labels.
-    #[error(
-        "duckdb catalog construction cannot resolve enum identity [AMBIGUOUS_ENUM_IDENTITY] in schema `{schema}`: types {types:?} share the same labels"
-    )]
-    AmbiguousEnumIdentity {
-        /// Schema containing the colliding enum types.
-        schema: String,
-        /// Qualified enum type names, sorted for deterministic diagnostics.
-        types: Vec<String>,
-    },
-
     /// Engine introspection produced definitions rejected by the catalog boundary.
     #[error("{engine} catalog construction failed while {operation}: {source}")]
     CatalogConstruction {

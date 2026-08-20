@@ -97,9 +97,9 @@ auto-installation, and community extensions are disabled.
 
 DuckDB exposes a column's enum labels but not its registered type identifier. Scythe resolves equal-label
 enums across different schemas with DuckDB's database and schema catalog identifiers, including enum arrays.
-If two enum types in the same schema have identical labels and either can describe a column, execute mode
-stops with an enum-identity error instead of assigning a type name by guesswork. Use distinct label sets or
-move one type to another schema until DuckDB exposes a column-to-user-type identifier.
+If two enum types in the same schema have identical labels, DuckDB does not expose enough metadata to identify
+which registered name belongs to a column. Execute mode keeps the valid schema and preserves the anonymous
+`ENUM(...)` column type instead of assigning a named type by guesswork.
 
 ```toml
 [[sql]]

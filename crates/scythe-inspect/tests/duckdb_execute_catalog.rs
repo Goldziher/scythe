@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use scythe_core::catalog::{CatalogObjectName, RelationKind};
+use scythe_core::catalog::{Catalog, CatalogObjectName, Column, GeneratedColumnKind, RelationKind};
 use scythe_inspect::execute_duckdb_schema_files;
 
 const SECRET_SENTINEL: &str = "SCYTHE_SECRET_SENTINEL";
@@ -9,6 +9,72 @@ fn write_schema(directory: &Path, name: &str, sql: &str) -> PathBuf {
     let path = directory.join(name);
     std::fs::write(&path, sql).expect("write schema file");
     path
+}
+
+struct ExpectedColumnMetadata<'a> {
+    name: &'a str,
+    resolved_type: &'a str,
+    raw_type: &'a str,
+    default: Option<&'a str>,
+    nullable: bool,
+    primary_key: bool,
+    generated: Option<GeneratedColumnKind>,
+}
+
+struct ExpectedRelationMetadata<'a> {
+    lookup_name: &'a str,
+    qualified_name: CatalogObjectName,
+    raw_name: &'a str,
+    kind: RelationKind,
+    columns: &'a [ExpectedColumnMetadata<'a>],
+}
+
+fn assert_catalog_relations(catalog: &Catalog, expected_relations: &[ExpectedRelationMetadata<'_>]) {
+    assert_eq!(catalog.tables().count(), expected_relations.len());
+    for expected_relation in expected_relations {
+        assert_relation(catalog, expected_relation);
+    }
+}
+
+fn assert_relation(catalog: &Catalog, expected: &ExpectedRelationMetadata<'_>) {
+    let relation = catalog
+        .get_table(expected.lookup_name)
+        .unwrap_or_else(|| panic!("missing relation {}", expected.lookup_name));
+    assert_eq!(
+        catalog.relation_name(expected.lookup_name),
+        Some(&expected.qualified_name)
+    );
+    assert_eq!(relation.raw_name, expected.raw_name);
+    assert_eq!(catalog.relation_kind(expected.lookup_name), Some(expected.kind));
+    assert_eq!(relation.columns.len(), expected.columns.len());
+    for (column, expected_column) in relation.columns.iter().zip(expected.columns) {
+        assert_column(catalog, expected.lookup_name, column, expected_column);
+    }
+}
+
+fn assert_column(catalog: &Catalog, relation_name: &str, column: &Column, expected: &ExpectedColumnMetadata<'_>) {
+    let column_path = format!("{relation_name}.{}", expected.name);
+    assert_eq!(column.name, expected.name, "name for {column_path}");
+    assert_eq!(
+        column.sql_type, expected.resolved_type,
+        "resolved type for {column_path}"
+    );
+    assert_eq!(
+        catalog.column_raw_sql_type(relation_name, expected.name),
+        Some(expected.raw_type),
+        "raw type for {column_path}"
+    );
+    assert_eq!(column.default.as_deref(), expected.default, "default for {column_path}");
+    assert_eq!(column.nullable, expected.nullable, "nullability for {column_path}");
+    assert_eq!(
+        column.primary_key, expected.primary_key,
+        "primary-key flag for {column_path}"
+    );
+    assert_eq!(
+        catalog.column_generated_kind(relation_name, expected.name),
+        expected.generated,
+        "generated kind for {column_path}"
+    );
 }
 
 #[test]
@@ -35,30 +101,99 @@ fn should_execute_files_in_order_and_preserve_duckdb_catalog_metadata() {
     );
 
     let catalog = execute_duckdb_schema_files(&[first, second]).expect("execute schema");
-    let tasks = catalog.get_table("app.tasks").expect("tasks table");
-    assert_eq!(tasks.columns.len(), 5);
-    assert!(tasks.columns[0].primary_key);
-    assert!(tasks.columns[1].primary_key);
-    assert_eq!(tasks.columns[2].sql_type, "app.status");
-    assert!(
-        tasks.columns[2]
-            .default
-            .as_deref()
-            .is_some_and(|default| default.contains("open"))
+    assert_catalog_relations(
+        &catalog,
+        &[
+            ExpectedRelationMetadata {
+                lookup_name: "app.tasks",
+                qualified_name: CatalogObjectName::qualified("app", "tasks"),
+                raw_name: "tasks",
+                kind: RelationKind::Table,
+                columns: &[
+                    ExpectedColumnMetadata {
+                        name: "tenant_id",
+                        resolved_type: "bigint",
+                        raw_type: "BIGINT",
+                        default: None,
+                        nullable: false,
+                        primary_key: true,
+                        generated: None,
+                    },
+                    ExpectedColumnMetadata {
+                        name: "task_id",
+                        resolved_type: "bigint",
+                        raw_type: "BIGINT",
+                        default: None,
+                        nullable: false,
+                        primary_key: true,
+                        generated: None,
+                    },
+                    ExpectedColumnMetadata {
+                        name: "status",
+                        resolved_type: "app.status",
+                        raw_type: "ENUM('open', 'closed')",
+                        default: Some("'open'"),
+                        nullable: false,
+                        primary_key: false,
+                        generated: None,
+                    },
+                    ExpectedColumnMetadata {
+                        name: "note",
+                        resolved_type: "varchar",
+                        raw_type: "VARCHAR",
+                        default: None,
+                        nullable: true,
+                        primary_key: false,
+                        generated: None,
+                    },
+                    ExpectedColumnMetadata {
+                        name: "active",
+                        resolved_type: "boolean",
+                        raw_type: "BOOLEAN",
+                        default: Some("CAST('t' AS BOOLEAN)"),
+                        nullable: false,
+                        primary_key: false,
+                        generated: None,
+                    },
+                ],
+            },
+            ExpectedRelationMetadata {
+                lookup_name: "app.open_tasks",
+                qualified_name: CatalogObjectName::qualified("app", "open_tasks"),
+                raw_name: "open_tasks",
+                kind: RelationKind::View,
+                columns: &[
+                    ExpectedColumnMetadata {
+                        name: "tenant_id",
+                        resolved_type: "bigint",
+                        raw_type: "BIGINT",
+                        default: None,
+                        nullable: true,
+                        primary_key: false,
+                        generated: None,
+                    },
+                    ExpectedColumnMetadata {
+                        name: "task_id",
+                        resolved_type: "bigint",
+                        raw_type: "BIGINT",
+                        default: None,
+                        nullable: true,
+                        primary_key: false,
+                        generated: None,
+                    },
+                    ExpectedColumnMetadata {
+                        name: "status",
+                        resolved_type: "app.status",
+                        raw_type: "ENUM('open', 'closed')",
+                        default: None,
+                        nullable: true,
+                        primary_key: false,
+                        generated: None,
+                    },
+                ],
+            },
+        ],
     );
-    assert!(
-        tasks.columns[4]
-            .default
-            .as_deref()
-            .is_some_and(|default| default.contains("BOOLEAN"))
-    );
-    assert_eq!(catalog.relation_kind("app.tasks"), Some(RelationKind::Table));
-    assert_eq!(catalog.relation_kind("app.open_tasks"), Some(RelationKind::View));
-    assert_eq!(
-        catalog.relation_name("app.tasks"),
-        Some(&CatalogObjectName::qualified("app", "tasks"))
-    );
-    assert_eq!(catalog.column_raw_sql_type("app.tasks", "note"), Some("VARCHAR"));
     assert_eq!(
         catalog.get_enum("app.status").expect("status enum").values,
         ["open", "closed"]
@@ -117,7 +252,7 @@ fn should_resolve_identical_label_enums_by_catalog_schema_and_support_arrays() {
 }
 
 #[test]
-fn should_reject_same_schema_enum_identity_ambiguity_without_guessing() {
+fn should_preserve_valid_schema_when_enum_identity_is_ambiguous() {
     let directory = tempfile::tempdir().expect("temp directory");
     let schema = write_schema(
         directory.path(),
@@ -127,12 +262,18 @@ fn should_reject_same_schema_enum_identity_ambiguity_without_guessing() {
          CREATE TABLE items (first status_a, second status_b);",
     );
 
-    let error = execute_duckdb_schema_files(&[schema]).expect_err("ambiguous enum identity must fail");
-    let rendered = error.to_string();
-    assert!(rendered.contains("AMBIGUOUS_ENUM_IDENTITY"), "{rendered}");
-    assert!(rendered.contains("main.status_a"), "{rendered}");
-    assert!(rendered.contains("main.status_b"), "{rendered}");
-    assert!(!rendered.contains("CREATE TYPE"), "{rendered}");
+    let catalog = execute_duckdb_schema_files(&[schema]).expect("valid DuckDB schema");
+    let table = catalog.get_table("main.items").expect("main.items");
+    assert_eq!(table.columns[0].sql_type, "enum('open', 'closed')");
+    assert_eq!(table.columns[1].sql_type, "enum('open', 'closed')");
+    assert_eq!(
+        catalog.column_raw_sql_type("main.items", "first"),
+        Some("ENUM('open', 'closed')")
+    );
+    assert_eq!(
+        catalog.column_raw_sql_type("main.items", "second"),
+        Some("ENUM('open', 'closed')")
+    );
 }
 
 #[test]
