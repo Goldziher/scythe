@@ -255,6 +255,15 @@ def test_get_user_profile(conn)
   puts "PASS: GetUserProfile"
 end
 
+def test_round_trip_user_address(conn)
+  address = Queries::UserAddress.new(street: '12 "Main", Apt \\3', city: "", zip: "10115")
+  present = Queries.round_trip_user_address(conn, address)
+  assert_equal(address, present.address, "round_trip_user_address escaped composite")
+  absent = Queries.round_trip_user_address(conn, nil)
+  assert_true(absent.address.nil?, "round_trip_user_address whole-composite NULL")
+  puts "PASS: RoundTripUserAddress"
+end
+
 def test_delete_user(conn, user_id)
   # Delete orders first due to FK constraint
   deleted_count = Queries.delete_orders_by_user(conn, user_id)
@@ -287,6 +296,7 @@ begin
   test_search_users(conn)
   test_count_users_by_status(conn)
   test_get_user_profile(conn)
+  test_round_trip_user_address(conn)
   test_delete_user(conn, user_id)
 
   puts "\nALL TESTS PASSED"

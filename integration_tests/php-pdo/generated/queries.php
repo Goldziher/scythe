@@ -1,5 +1,5 @@
 <?php
-// scythe:provenance v=0.16.1 backend=php-pdo engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b206899baa777046 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.16.1 backend=php-pdo engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325
 
 declare(strict_types=1);
 
@@ -347,6 +347,29 @@ readonly class UserAddress {
         );
     }
 
+    public function toPgText(): string {
+        return '(' . implode(',', [self::encodeCompositeField($this->street), self::encodeCompositeField($this->city), self::encodeCompositeField($this->zip)]) . ')';
+    }
+
+    private static function encodeCompositeField(mixed $value): string {
+        if ($value === null) {
+            return '';
+        }
+        if (is_object($value) && method_exists($value, 'toPgText')) {
+            $raw = $value->toPgText();
+        } elseif ($value instanceof \BackedEnum) {
+            $raw = (string) $value->value;
+        } elseif ($value instanceof \DateTimeInterface) {
+            $raw = $value->format('Y-m-d H:i:sP');
+        } else {
+            $raw = (string) $value;
+        }
+        if ($raw !== '' && strpbrk($raw, ',()"\\') === false && $raw === trim($raw)) {
+            return $raw;
+        }
+        return '"' . str_replace(['\\', '"'], ['\\\\', '""'], $raw) . '"';
+    }
+
     public static function fromJson(array $value): self {
         return new self(
             (string) $value['street'],
@@ -367,6 +390,18 @@ readonly class GetUserProfileRow {
         return new self(
             id: (int) $row['id'],
             secondary_status: $row['secondary_status'] !== null ? UserStatus::from($row['secondary_status']) : null,
+            address: UserAddress::fromText($row['address']),
+        );
+    }
+}
+
+readonly class RoundTripUserAddressRow {
+    public function __construct(
+        public ?UserAddress $address,
+    ) {}
+
+    public static function fromRow(array $row): self {
+        return new self(
             address: UserAddress::fromText($row['address']),
         );
     }
@@ -623,6 +658,22 @@ final class Queries {
             throw new RecordNotFoundException('getUserProfile: no row found');
         }
         return GetUserProfileRow::fromRow($row);
+    }
+
+    /**
+     * @param \PDO $pdo
+     * @param ?UserAddress $address
+     * @return RoundTripUserAddressRow
+     * @throws RecordNotFoundException
+     */
+    public static function roundTripUserAddress(\PDO $pdo, ?UserAddress $address): RoundTripUserAddressRow {
+        $stmt = $pdo->prepare('INSERT INTO users (name, status, address) VALUES (\'Composite Parameter Round Trip\', \'active\', :p1::text::user_address) RETURNING address');
+        $stmt->execute(["p1" => $address?->toPgText()]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false) {
+            throw new RecordNotFoundException('roundTripUserAddress: no row found');
+        }
+        return RoundTripUserAddressRow::fromRow($row);
     }
 
     /**

@@ -1,4 +1,4 @@
-# scythe:provenance v=0.16.1 backend=python-asyncpg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325  # noqa: E501
+# scythe:provenance v=0.16.1 backend=python-asyncpg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325  # noqa: E501
 import datetime  # noqa: F401
 import decimal  # noqa: F401
 import uuid  # noqa: F401
@@ -338,6 +338,9 @@ class UserAddress:
             zip=record["zip"],
         )
 
+    def _to_record(self) -> tuple[Any, ...]:
+        return (self.street, self.city, self.zip)
+
 
 @dataclass(frozen=True, slots=True)
 class GetUserProfileRow:
@@ -361,4 +364,81 @@ async def get_user_profile(conn: Connection, *, id: int) -> GetUserProfileRow:
         secondary_status=None if row["secondary_status"] is None else UserStatus(row["secondary_status"]),
         address=UserAddress._from_record(row["address"]),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class RoundTripUserAddressRow:
+    """Row type for RoundTripUserAddress query."""
+
+    address: UserAddress | None
+
+
+async def round_trip_user_address(conn: Connection, *, address: UserAddress | None) -> RoundTripUserAddressRow:
+    """Execute RoundTripUserAddress query."""
+    row = await conn.fetchrow(
+        """INSERT INTO users (name, status, address)
+VALUES ('Composite Parameter Round Trip', 'active', $1)
+RETURNING address""",
+        None if address is None else address._to_record(),
+    )
+    if row is None:
+        raise ScytheNoRowsError("RoundTripUserAddress: no rows returned")
+    return RoundTripUserAddressRow(address=UserAddress._from_record(row["address"]))
+
+
+@dataclass(frozen=True, slots=True)
+class GetUserAsJsonRow:
+    """Row type for GetUserAsJson query."""
+
+    payload: dict[str, Any] | None
+
+
+async def get_user_as_json(conn: Connection, *, id: int) -> GetUserAsJsonRow:
+    """Execute GetUserAsJson query."""
+    row = await conn.fetchrow(
+        """SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = $1""",
+        id,
+    )
+    if row is None:
+        raise ScytheNoRowsError("GetUserAsJson: no rows returned")
+    return GetUserAsJsonRow(payload=row["payload"])
+
+
+@dataclass(frozen=True, slots=True)
+class GetUsersAsJsonRow:
+    """Row type for GetUsersAsJson query."""
+
+    payload: list[dict[str, Any]] | None
+
+
+async def get_users_as_json(conn: Connection) -> GetUsersAsJsonRow:
+    """Execute GetUsersAsJson query."""
+    row = await conn.fetchrow(
+        """SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u""",
+    )
+    if row is None:
+        raise ScytheNoRowsError("GetUsersAsJson: no rows returned")
+    return GetUsersAsJsonRow(payload=row["payload"])
+
+
+@dataclass(frozen=True, slots=True)
+class GetUserOrdersAsJsonRow:
+    """Row type for GetUserOrdersAsJson query."""
+
+    payload: list[dict[str, Any]] | None
+
+
+async def get_user_orders_as_json(conn: Connection, *, id: int) -> GetUserOrdersAsJsonRow:
+    """Execute GetUserOrdersAsJson query."""
+    row = await conn.fetchrow(
+        """SELECT json_agg(o.* ORDER BY o.id) AS payload
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+WHERE u.id = $1
+GROUP BY u.id""",
+        id,
+    )
+    if row is None:
+        raise ScytheNoRowsError("GetUserOrdersAsJson: no rows returned")
+    return GetUserOrdersAsJsonRow(payload=row["payload"])
 

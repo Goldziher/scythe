@@ -85,6 +85,7 @@ public class IntegrationTest {
         testGetUserOrders(cf);
         testCountUsersByStatus(cf);
         testSearchUsers(cf);
+        testRoundTripUserAddress(cf);
         // ~keep Runs after every order-counting assertion and immediately before the delete that
         // cleans both orders up: it adds a second order, and `orders.user_id` has no ON DELETE
         // CASCADE, so it cannot run any later than this without stranding a row that DeleteUser
@@ -373,6 +374,26 @@ public class IntegrationTest {
                     throw expected;
                 }
                 // expected: the user was deleted
+            }
+            pass(name);
+        } catch (Exception e) {
+            fail(name, e);
+        }
+    }
+
+    private static void testRoundTripUserAddress(ConnectionFactory cf) {
+        String name = "RoundTripUserAddress";
+        try {
+            var address = new Queries.UserAddress("12 \"Main\", Apt \\3", "", "10115");
+            var present = Queries.roundTripUserAddress(cf, address).block();
+            if (present == null || !address.equals(present.address())) {
+                fail(name, "escaped composite did not round-trip: " + present);
+                return;
+            }
+            var absent = Queries.roundTripUserAddress(cf, null).block();
+            if (absent == null || absent.address() != null) {
+                fail(name, "whole-composite NULL did not round-trip: " + absent);
+                return;
             }
             pass(name);
         } catch (Exception e) {

@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=kotlin-exposed engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.16.1 backend=kotlin-exposed engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325
 package generated
 
 import org.jetbrains.exposed.dao.id.IntIdTable
@@ -184,7 +184,7 @@ data class ListActiveUsersRow(
 fun listActiveUsers(status: UserStatus): List<ListActiveUsersRow> =
     transaction {
         val result = mutableListOf<ListActiveUsersRow>()
-        exec("SELECT id, name, email FROM users WHERE status = ?::user_status", listOf<Pair<IColumnType<*>, Any?>>(TextColumnType() to status.value), explicitStatementType = StatementType.SELECT) { rs ->
+        exec("SELECT id, name, email FROM users WHERE status = ?::user_status", listOf<Pair<IColumnType<*>, Any?>>(TextColumnType() to status?.value), explicitStatementType = StatementType.SELECT) { rs ->
             while (rs.next()) {
                 val emailValue = rs.getString("email")
                 val email = if (rs.wasNull()) null else emailValue
@@ -212,7 +212,7 @@ data class CreateUserRow(
 
 fun createUser(name: String, email: String?, status: UserStatus): CreateUserRow =
     transaction {
-        exec("INSERT INTO users (name, email, status) VALUES (?, ?, ?::user_status) RETURNING id, name, email, status, created_at", listOf<Pair<IColumnType<*>, Any?>>(TextColumnType() to name, TextColumnType() to email, TextColumnType() to status.value), explicitStatementType = StatementType.SELECT) { rs ->
+        exec("INSERT INTO users (name, email, status) VALUES (?, ?, ?::user_status) RETURNING id, name, email, status, created_at", listOf<Pair<IColumnType<*>, Any?>>(TextColumnType() to name, TextColumnType() to email, TextColumnType() to status?.value), explicitStatementType = StatementType.SELECT) { rs ->
             if (rs.next()) {
                 val emailValue = rs.getString("email")
                 val email = if (rs.wasNull()) null else emailValue
@@ -253,7 +253,7 @@ data class GetUserOrdersRow(
 fun getUserOrders(status: UserStatus): List<GetUserOrdersRow> =
     transaction {
         val result = mutableListOf<GetUserOrdersRow>()
-        exec("SELECT u.id, u.name, o.total, o.notes FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE u.status = ?::user_status", listOf<Pair<IColumnType<*>, Any?>>(TextColumnType() to status.value), explicitStatementType = StatementType.SELECT) { rs ->
+        exec("SELECT u.id, u.name, o.total, o.notes FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE u.status = ?::user_status", listOf<Pair<IColumnType<*>, Any?>>(TextColumnType() to status?.value), explicitStatementType = StatementType.SELECT) { rs ->
             while (rs.next()) {
                 val totalValue = rs.getBigDecimal("total")
                 val total = if (rs.wasNull()) null else totalValue
@@ -281,7 +281,7 @@ data class CountUsersByStatusRow(
 
 fun countUsersByStatus(status: UserStatus): CountUsersByStatusRow =
     transaction {
-        exec("SELECT status, COUNT(*) AS user_count FROM users GROUP BY status HAVING status = ?::user_status", listOf<Pair<IColumnType<*>, Any?>>(TextColumnType() to status.value), explicitStatementType = StatementType.SELECT) { rs ->
+        exec("SELECT status, COUNT(*) AS user_count FROM users GROUP BY status HAVING status = ?::user_status", listOf<Pair<IColumnType<*>, Any?>>(TextColumnType() to status?.value), explicitStatementType = StatementType.SELECT) { rs ->
             if (rs.next()) {
                 CountUsersByStatusRow(
                     status = UserStatus.fromValue(rs.getString("status")),
@@ -351,7 +351,17 @@ data class UserAddress(
     val city: String,
     val zip: String,
 ) {
+    fun toPgText(): String = listOf(street, city, zip).joinToString(",", "(", ")") { encodeCompositeField(it) }
+
     companion object {
+        private fun encodeCompositeField(value: Any?): String {
+            if (value == null) return ""
+            val raw = value.toString()
+            val quote = raw.isEmpty() || raw.any { it in charArrayOf('(', ')', ',', '"', '\\') } || raw != raw.trim()
+            if (!quote) return raw
+            return "\"" + raw.replace("\\", "\\\\").replace("\"", "\"\"") + "\""
+        }
+
         /**
          * ~keep board #196: pgjdbc registers no `getObject(col, UserAddress::class.java)`
          * type map for this composite -- it throws `PSQLException: conversion to
@@ -447,5 +457,87 @@ fun getUserProfile(id: Int): GetUserProfileRow =
                 null
             }
         } ?: throw NoSuchElementException("getUserProfile: no rows returned")
+    }
+
+
+data class RoundTripUserAddressRow(
+    val address: UserAddress?,
+)
+
+
+fun roundTripUserAddress(address: UserAddress?): RoundTripUserAddressRow =
+    transaction {
+        exec("INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', ?::text::user_address) RETURNING address", listOf<Pair<IColumnType<*>, Any?>>(TextColumnType() to address?.toPgText()), explicitStatementType = StatementType.SELECT) { rs ->
+            if (rs.next()) {
+                RoundTripUserAddressRow(
+                    address = UserAddress.fromText(rs.getString("address")),
+                )
+            } else {
+                null
+            }
+        } ?: throw NoSuchElementException("roundTripUserAddress: no rows returned")
+    }
+
+
+data class GetUserAsJsonRow(
+    val payload: String?,
+)
+
+
+fun getUserAsJson(id: Int): GetUserAsJsonRow =
+    transaction {
+        exec("SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = ?", listOf<Pair<IColumnType<*>, Any?>>(IntegerColumnType() to id), explicitStatementType = StatementType.SELECT) { rs ->
+            if (rs.next()) {
+                val payloadValue = rs.getString("payload")
+                val payload = if (rs.wasNull()) null else payloadValue
+                GetUserAsJsonRow(
+                    payload = payload,
+                )
+            } else {
+                null
+            }
+        } ?: throw NoSuchElementException("getUserAsJson: no rows returned")
+    }
+
+
+data class GetUsersAsJsonRow(
+    val payload: String?,
+)
+
+
+fun getUsersAsJson(): GetUsersAsJsonRow =
+    transaction {
+        exec("SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u", explicitStatementType = StatementType.SELECT) { rs ->
+            if (rs.next()) {
+                val payloadValue = rs.getString("payload")
+                val payload = if (rs.wasNull()) null else payloadValue
+                GetUsersAsJsonRow(
+                    payload = payload,
+                )
+            } else {
+                null
+            }
+        } ?: throw NoSuchElementException("getUsersAsJson: no rows returned")
+    }
+
+
+data class GetUserOrdersAsJsonRow(
+    val payload: String?,
+)
+
+
+fun getUserOrdersAsJson(id: Int): GetUserOrdersAsJsonRow =
+    transaction {
+        exec("SELECT json_agg(o.* ORDER BY o.id) AS payload FROM users u LEFT JOIN orders o ON o.user_id = u.id WHERE u.id = ? GROUP BY u.id", listOf<Pair<IColumnType<*>, Any?>>(IntegerColumnType() to id), explicitStatementType = StatementType.SELECT) { rs ->
+            if (rs.next()) {
+                val payloadValue = rs.getString("payload")
+                val payload = if (rs.wasNull()) null else payloadValue
+                GetUserOrdersAsJsonRow(
+                    payload = payload,
+                )
+            } else {
+                null
+            }
+        } ?: throw NoSuchElementException("getUserOrdersAsJson: no rows returned")
     }
 

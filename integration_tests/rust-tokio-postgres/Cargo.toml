@@ -10,6 +10,7 @@ tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_j
 tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = { version = "1", features = ["db-tokio-postgres"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = "1"
 # postgres-types is already a transitive dependency of tokio-postgres, but

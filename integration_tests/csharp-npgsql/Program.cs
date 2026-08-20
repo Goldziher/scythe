@@ -169,6 +169,13 @@ Assert(quotedProfile.Address.City == "Berlin", "GetUserProfile", $"expected addr
 Assert(quotedProfile.Address.Zip == "10115", "GetUserProfile", $"expected address.Zip '10115', got {quotedProfile.Address.Zip}");
 Pass("GetUserProfile");
 
+var compositeAddress = new Queries.UserAddress("12 \"Main\", Apt \\3", "", "10115");
+var roundTrippedAddress = await Queries.RoundTripUserAddress(conn, compositeAddress);
+Assert(roundTrippedAddress.Address == compositeAddress, "RoundTripUserAddress", $"expected {compositeAddress}, got {roundTrippedAddress.Address}");
+var roundTrippedNull = await Queries.RoundTripUserAddress(conn, null);
+Assert(roundTrippedNull.Address == null, "RoundTripUserAddress", $"expected null, got {roundTrippedNull.Address}");
+Pass("RoundTripUserAddress");
+
 await Queries.DeleteUser(conn, presentId);
 await Queries.DeleteUser(conn, absentId);
 await Queries.DeleteUser(conn, quotedId);

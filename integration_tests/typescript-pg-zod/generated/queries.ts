@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=typescript-pg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:9545f1b3c5f904fe
+// scythe:provenance v=0.16.1 backend=typescript-pg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:9545f1b3c5f904fe
 import type { PoolClient } from "pg";
 import { z } from "zod";
 
@@ -387,6 +387,18 @@ function parseUserAddressFields(text: string): (string | null)[] {
 	return fields;
 }
 
+function encodeUserAddress(value: UserAddress | null): string | null {
+	if (value === null) return null;
+	const encode = (field: unknown): string => {
+		const text = String(field);
+		if (text === "" || /[(),\"\\\s]/.test(text)) {
+			return `"${text.replaceAll("\\", "\\\\").replaceAll('\"', '\"\"')}"`;
+		}
+		return text;
+	};
+	return `(encode(value.street), encode(value.city), encode(value.zip))`;
+}
+
 /** Row type for GetUserProfile queries. */
 export const GetUserProfileRowSchema = z.object({
 	id: z.number(),
@@ -413,4 +425,103 @@ export async function getUserProfile(
 		...row,
 		address: parseUserAddress(row.address) as UserAddress | null,
 	};
+}
+
+/** Row type for RoundTripUserAddress queries. */
+export const RoundTripUserAddressRowSchema = z.object({
+	address: z.custom<UserAddress>().nullable(),
+});
+
+export type RoundTripUserAddressRow = z.infer<typeof RoundTripUserAddressRowSchema>;
+
+/** Fetch a single RoundTripUserAddressRow. */
+export async function roundTripUserAddress(
+	client: PoolClient,
+	address: UserAddress | null,
+): Promise<RoundTripUserAddressRow> {
+	const { rows } = await client.query<RoundTripUserAddressRow>(
+		`INSERT INTO users (name, status, address)
+VALUES ('Composite Parameter Round Trip', 'active', $1)
+RETURNING address`,
+		[encodeUserAddress(address)],
+	);
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: RoundTripUserAddress");
+	}
+	return {
+		...row,
+		address: parseUserAddress(row.address) as UserAddress | null,
+	};
+}
+
+/** Row type for GetUserAsJson queries. */
+export const GetUserAsJsonRowSchema = z.object({
+	payload: z.record(z.string(), z.unknown()).nullable(),
+});
+
+export type GetUserAsJsonRow = z.infer<typeof GetUserAsJsonRowSchema>;
+
+/** Fetch a single GetUserAsJsonRow. */
+export async function getUserAsJson(
+	client: PoolClient,
+	id: number,
+): Promise<GetUserAsJsonRow> {
+	const { rows } = await client.query<GetUserAsJsonRow>(
+		`SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = $1`,
+		[id],
+	);
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUserAsJson");
+	}
+	return row;
+}
+
+/** Row type for GetUsersAsJson queries. */
+export const GetUsersAsJsonRowSchema = z.object({
+	payload: z.array(z.record(z.string(), z.unknown())).nullable(),
+});
+
+export type GetUsersAsJsonRow = z.infer<typeof GetUsersAsJsonRowSchema>;
+
+/** Fetch a single GetUsersAsJsonRow. */
+export async function getUsersAsJson(
+	client: PoolClient,
+): Promise<GetUsersAsJsonRow> {
+	const { rows } = await client.query<GetUsersAsJsonRow>(
+		`SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u`,
+	);
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUsersAsJson");
+	}
+	return row;
+}
+
+/** Row type for GetUserOrdersAsJson queries. */
+export const GetUserOrdersAsJsonRowSchema = z.object({
+	payload: z.array(z.record(z.string(), z.unknown())).nullable(),
+});
+
+export type GetUserOrdersAsJsonRow = z.infer<typeof GetUserOrdersAsJsonRowSchema>;
+
+/** Fetch a single GetUserOrdersAsJsonRow. */
+export async function getUserOrdersAsJson(
+	client: PoolClient,
+	id: number,
+): Promise<GetUserOrdersAsJsonRow> {
+	const { rows } = await client.query<GetUserOrdersAsJsonRow>(
+		`SELECT json_agg(o.* ORDER BY o.id) AS payload
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+WHERE u.id = $1
+GROUP BY u.id`,
+		[id],
+	);
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUserOrdersAsJson");
+	}
+	return row;
 }

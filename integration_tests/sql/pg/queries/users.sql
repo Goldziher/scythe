@@ -48,6 +48,12 @@ SELECT id, name, email FROM users WHERE name LIKE $1;
 -- composite VALUES literal is not part of this generator's fixture surface.
 SELECT id, secondary_status, address FROM users WHERE id = $1;
 
+-- @name RoundTripUserAddress
+-- @returns :one
+INSERT INTO users (name, status, address)
+VALUES ('Composite Parameter Round Trip', 'active', $1)
+RETURNING address;
+
 -- @name GetUserAsJson
 -- @returns :one
 SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = $1;

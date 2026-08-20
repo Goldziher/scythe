@@ -52,6 +52,7 @@ fun main() {
         testCountUsersByStatus(conn)
         testSearchUsers(conn)
         testGetUserProfileNullable(conn)
+        testRoundTripUserAddress(conn)
         testDeleteOrdersByUser(conn)
         testDeleteUser(conn)
     }
@@ -327,6 +328,26 @@ fun testGetUserProfileNullable(conn: java.sql.Connection) {
         // Fails if a nullable composite reader decodes SQL NULL as a non-null all-default object.
         if (nullProfile.address != null) {
             fail(name, "expected address null, got ${nullProfile.address}")
+            return
+        }
+        pass(name)
+    } catch (e: Exception) {
+        fail(name, e)
+    }
+}
+
+fun testRoundTripUserAddress(conn: java.sql.Connection) {
+    val name = "RoundTripUserAddress"
+    try {
+        val address = UserAddress("12 \"Main\", Apt \\3", "", "10115")
+        val present = roundTripUserAddress(conn, address)
+        if (present.address != address) {
+            fail(name, "escaped composite did not round-trip: ${present.address}")
+            return
+        }
+        val absent = roundTripUserAddress(conn, null)
+        if (absent.address != null) {
+            fail(name, "whole-composite NULL did not round-trip: ${absent.address}")
             return
         }
         pass(name)

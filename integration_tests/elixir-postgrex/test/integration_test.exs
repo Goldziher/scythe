@@ -180,6 +180,13 @@ assert.(quoted_profile.address.zip == "10115", "GetUserProfile", "expected addre
 :ok = Queries.delete_user(conn, quoted_id)
 pass.("GetUserProfile", "GetUserProfile")
 
+address = %UserAddress{street: ~S(12 "Main", Apt \3), city: "", zip: "10115"}
+{:ok, round_tripped_address} = Queries.round_trip_user_address(conn, address)
+assert.(round_tripped_address.address == address, "RoundTripUserAddress", "escaped composite did not round-trip")
+{:ok, round_tripped_null} = Queries.round_trip_user_address(conn, nil)
+assert.(round_tripped_null.address == nil, "RoundTripUserAddress", "whole-composite NULL did not round-trip")
+pass.("RoundTripUserAddress", "RoundTripUserAddress")
+
 # Test: DeleteUser (delete orders first due to FK)
 {:ok, deleted_orders} = Queries.delete_orders_by_user(conn, user_id)
 assert.(deleted_orders == 1, "DeleteUser", "expected 1 deleted order, got #{deleted_orders}")

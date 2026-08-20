@@ -300,6 +300,19 @@ function test_get_user_profile(PDO $pdo): void
     echo "PASS: GetUserProfile\n";
 }
 
+function test_round_trip_user_address(PDO $pdo): void
+{
+    $address = new UserAddress('12 "Main", Apt \\3', '', '10115');
+    $present = Queries::roundTripUserAddress($pdo, $address);
+    assert_not_null($present->address, "RoundTripUserAddress escaped composite");
+    assert_equal($address->street, $present->address->street, "RoundTripUserAddress street");
+    assert_equal($address->city, $present->address->city, "RoundTripUserAddress empty city");
+    assert_equal($address->zip, $present->address->zip, "RoundTripUserAddress zip");
+    $absent = Queries::roundTripUserAddress($pdo, null);
+    assert_true($absent->address === null, "RoundTripUserAddress whole-composite NULL");
+    echo "PASS: RoundTripUserAddress\n";
+}
+
 function test_nested_json(PDO $pdo): void
 {
     $user_id = seed_user_profile_row($pdo,
@@ -355,6 +368,7 @@ try {
     $order_id = test_create_order($pdo, $user_id);
     test_get_orders_by_user($pdo, $user_id, $order_id);
     test_get_user_profile($pdo);
+    test_round_trip_user_address($pdo);
     test_nested_json($pdo);
     test_delete_user($pdo, $user_id);
 

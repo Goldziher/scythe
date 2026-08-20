@@ -1,4 +1,4 @@
-# scythe:provenance v=0.16.1 backend=python-psycopg3 engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:7b646550486abf0d  # noqa: E501
+# scythe:provenance v=0.16.1 backend=python-psycopg3 engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:7b646550486abf0d  # noqa: E501
 import datetime  # noqa: F401
 import decimal  # noqa: F401
 import uuid  # noqa: F401
@@ -20,6 +20,79 @@ class UserStatus(str, Enum):
     ACTIVE = "active"
     INACTIVE = "inactive"
     BANNED = "banned"
+
+
+class GetUserAsJsonRowPayload(BaseModel):
+    """Nested struct for get_user_as_json_row_payload."""
+
+    id: int
+    name: str
+    email: str | None
+    status: UserStatus
+    secondary_status: UserStatus | None
+    address: UserAddress | None
+    created_at: datetime.datetime
+
+    @classmethod
+    def _from_json(cls, obj: dict[str, Any]) -> "GetUserAsJsonRowPayload":
+        """Build from one decoded JSON object."""
+        return cls(
+            id=obj["id"],
+            name=obj["name"],
+            email=obj["email"],
+            status=obj["status"],
+            secondary_status=obj["secondary_status"],
+            address=obj["address"],
+            created_at=obj["created_at"],
+        )
+
+
+class GetUsersAsJsonRowPayload(BaseModel):
+    """Nested struct for get_users_as_json_row_payload."""
+
+    id: int
+    name: str
+    email: str | None
+    status: UserStatus
+    secondary_status: UserStatus | None
+    address: UserAddress | None
+    created_at: datetime.datetime
+
+    @classmethod
+    def _from_json(cls, obj: dict[str, Any]) -> "GetUsersAsJsonRowPayload":
+        """Build from one decoded JSON object."""
+        return cls(
+            id=obj["id"],
+            name=obj["name"],
+            email=obj["email"],
+            status=obj["status"],
+            secondary_status=obj["secondary_status"],
+            address=obj["address"],
+            created_at=obj["created_at"],
+        )
+
+
+class GetUserOrdersAsJsonRowPayload(BaseModel):
+    """Nested struct for get_user_orders_as_json_row_payload."""
+
+    id: int
+    user_id: int
+    total: decimal.Decimal
+    weight_kg: float | None
+    notes: str | None
+    created_at: datetime.datetime
+
+    @classmethod
+    def _from_json(cls, obj: dict[str, Any]) -> "GetUserOrdersAsJsonRowPayload":
+        """Build from one decoded JSON object."""
+        return cls(
+            id=obj["id"],
+            user_id=obj["user_id"],
+            total=obj["total"],
+            weight_kg=obj["weight_kg"],
+            notes=obj["notes"],
+            created_at=obj["created_at"],
+        )
 
 
 class CreateOrderRow(BaseModel):
@@ -314,6 +387,24 @@ class UserAddress(BaseModel):
             zip=cls._require_composite_field(f[2], "zip"),
         )
 
+    def _to_pg_text(self) -> str:
+        return "(" + ",".join([self._encode_composite_field(self.street), self._encode_composite_field(self.city), self._encode_composite_field(self.zip)]) + ")"
+
+    @staticmethod
+    def _encode_composite_field(value: Any) -> str:
+        if value is None:
+            return ""
+        if hasattr(value, "_to_pg_text"):
+            raw = value._to_pg_text()
+        elif isinstance(value, Enum):
+            raw = str(value.value)
+        else:
+            raw = str(value)
+        if raw and not any(char in raw for char in ',()\"\\') and raw == raw.strip():
+            return raw
+        escaped = raw.replace("\\", "\\\\").replace('\"', '\"\"')
+        return f'\"{escaped}\"'
+
     @staticmethod
     def _parse_composite_fields(text: str) -> list[str | None]:
         """~keep Splits a PostgreSQL composite's text form ("(a,b,c)") into its raw field
@@ -398,5 +489,88 @@ async def get_user_profile(conn: AsyncConnection, *, id: int) -> GetUserProfileR
         id=row[0],
         secondary_status=None if row[1] is None else UserStatus(row[1]),
         address=UserAddress._from_text(row[2]),
+    )
+
+
+class RoundTripUserAddressRow(BaseModel):
+    """Row type for RoundTripUserAddress query."""
+
+    address: UserAddress | None
+
+
+async def round_trip_user_address(conn: AsyncConnection, *, address: UserAddress | None) -> RoundTripUserAddressRow:
+    """Execute RoundTripUserAddress query."""
+    cur = await conn.execute(
+        """INSERT INTO users (name, status, address)
+VALUES ('Composite Parameter Round Trip', 'active', %(address)s::text::user_address)
+RETURNING address""",
+        {"address": None if address is None else address._to_pg_text()},
+    )
+    row = await cur.fetchone()
+    if row is None:
+        raise ScytheNoRowsError("RoundTripUserAddress: no rows returned")
+    return RoundTripUserAddressRow(address=UserAddress._from_text(row[0]))
+
+
+class GetUserAsJsonRow(BaseModel):
+    """Row type for GetUserAsJson query."""
+
+    payload: GetUserAsJsonRowPayload | None
+
+
+async def get_user_as_json(conn: AsyncConnection, *, id: int) -> GetUserAsJsonRow:
+    """Execute GetUserAsJson query."""
+    cur = await conn.execute(
+        """SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = %(id)s""",
+        {"id": id},
+    )
+    row = await cur.fetchone()
+    if row is None:
+        raise ScytheNoRowsError("GetUserAsJson: no rows returned")
+    return GetUserAsJsonRow(
+        payload=None if row[0] is None else GetUserAsJsonRowPayload._from_json(row[0]),
+    )
+
+
+class GetUsersAsJsonRow(BaseModel):
+    """Row type for GetUsersAsJson query."""
+
+    payload: list[GetUsersAsJsonRowPayload] | None
+
+
+async def get_users_as_json(conn: AsyncConnection) -> GetUsersAsJsonRow:
+    """Execute GetUsersAsJson query."""
+    cur = await conn.execute(
+        """SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u""",
+    )
+    row = await cur.fetchone()
+    if row is None:
+        raise ScytheNoRowsError("GetUsersAsJson: no rows returned")
+    return GetUsersAsJsonRow(
+        payload=None if row[0] is None else [GetUsersAsJsonRowPayload._from_json(item) for item in row[0]],
+    )
+
+
+class GetUserOrdersAsJsonRow(BaseModel):
+    """Row type for GetUserOrdersAsJson query."""
+
+    payload: list[GetUserOrdersAsJsonRowPayload | None] | None
+
+
+async def get_user_orders_as_json(conn: AsyncConnection, *, id: int) -> GetUserOrdersAsJsonRow:
+    """Execute GetUserOrdersAsJson query."""
+    cur = await conn.execute(
+        """SELECT json_agg(o.* ORDER BY o.id) AS payload
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+WHERE u.id = %(id)s
+GROUP BY u.id""",
+        {"id": id},
+    )
+    row = await cur.fetchone()
+    if row is None:
+        raise ScytheNoRowsError("GetUserOrdersAsJson: no rows returned")
+    return GetUserOrdersAsJsonRow(
+        payload=None if row[0] is None else [None if item is None else GetUserOrdersAsJsonRowPayload._from_json(item) for item in row[0]],
     )
 

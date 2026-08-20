@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=typescript-postgres engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.16.1 backend=typescript-postgres engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325
 type PostgresJsonValue = null | string | number | boolean | Date | readonly PostgresJsonValue[] | { readonly [key: string]: undefined | PostgresJsonValue };
 import type { Sql } from "postgres";
 
@@ -370,4 +370,90 @@ export async function getUserProfile(
 		...row,
 		address: parseUserAddress(row['address']) as UserAddress | null,
 	};
+}
+
+/** Row type for RoundTripUserAddress queries. */
+export interface RoundTripUserAddressRow {
+	address: UserAddress | null;
+}
+
+/** Fetch a single RoundTripUserAddressRow. */
+export async function roundTripUserAddress(
+	sql: Sql,
+	address: UserAddress | null,
+): Promise<RoundTripUserAddressRow> {
+	const rows = await sql<RoundTripUserAddressRow[]>`
+    INSERT INTO users (name, status, address)
+VALUES ('Composite Parameter Round Trip', 'active', ${address === null ? sql`NULL::user_address` : sql`ROW(${address.street}, ${address.city}, ${address.zip})::user_address`})
+RETURNING address
+  `;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: RoundTripUserAddress");
+	}
+	return {
+		...row,
+		address: parseUserAddress(row['address']) as UserAddress | null,
+	};
+}
+
+/** Row type for GetUserAsJson queries. */
+export interface GetUserAsJsonRow {
+	payload: PostgresJsonValue | null;
+}
+
+/** Fetch a single GetUserAsJsonRow. */
+export async function getUserAsJson(
+	sql: Sql,
+	id: number,
+): Promise<GetUserAsJsonRow> {
+	const rows = await sql<GetUserAsJsonRow[]>`
+    SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = ${id}
+  `;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUserAsJson");
+	}
+	return row;
+}
+
+/** Row type for GetUsersAsJson queries. */
+export interface GetUsersAsJsonRow {
+	payload: Record<string, unknown>[] | null;
+}
+
+/** Fetch a single GetUsersAsJsonRow. */
+export async function getUsersAsJson(sql: Sql): Promise<GetUsersAsJsonRow> {
+	const rows = await sql<GetUsersAsJsonRow[]>`
+    SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u
+  `;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUsersAsJson");
+	}
+	return row;
+}
+
+/** Row type for GetUserOrdersAsJson queries. */
+export interface GetUserOrdersAsJsonRow {
+	payload: Record<string, unknown>[] | null;
+}
+
+/** Fetch a single GetUserOrdersAsJsonRow. */
+export async function getUserOrdersAsJson(
+	sql: Sql,
+	id: number,
+): Promise<GetUserOrdersAsJsonRow> {
+	const rows = await sql<GetUserOrdersAsJsonRow[]>`
+    SELECT json_agg(o.* ORDER BY o.id) AS payload
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+WHERE u.id = ${id}
+GROUP BY u.id
+  `;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUserOrdersAsJson");
+	}
+	return row;
 }

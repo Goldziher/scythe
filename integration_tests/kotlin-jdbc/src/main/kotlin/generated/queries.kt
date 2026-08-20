@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=kotlin-jdbc engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.16.1 backend=kotlin-jdbc engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325
 package generated
 
 import java.math.BigDecimal
@@ -416,7 +416,17 @@ data class UserAddress(
     val city: String,
     val zip: String,
 ) {
+    fun toPgText(): String = listOf(street, city, zip).joinToString(",", "(", ")") { encodeCompositeField(it) }
+
     companion object {
+        private fun encodeCompositeField(value: Any?): String {
+            if (value == null) return ""
+            val raw = value.toString()
+            val quote = raw.isEmpty() || raw.any { it in charArrayOf('(', ')', ',', '"', '\\') } || raw != raw.trim()
+            if (!quote) return raw
+            return "\"" + raw.replace("\\", "\\\\").replace("\"", "\"\"") + "\""
+        }
+
         /**
          * ~keep board #196: pgjdbc registers no `getObject(col, UserAddress::class.java)`
          * type map for this composite -- it throws `PSQLException: conversion to
@@ -514,6 +524,104 @@ fun getUserProfile(
                 )
             } else {
                 throw NoSuchElementException("getUserProfile: no rows returned")
+            }
+        }
+    }
+}
+
+
+data class RoundTripUserAddressRow(
+    val address: UserAddress?,
+)
+
+
+fun roundTripUserAddress(
+    conn: Connection,
+    address: UserAddress?,
+): RoundTripUserAddressRow {
+    conn.prepareStatement("INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', ?::text::user_address) RETURNING address").use { ps ->
+        ps.setString(1, address?.toPgText())
+        ps.executeQuery().use { rs ->
+            return if (rs.next()) {
+                RoundTripUserAddressRow(
+                    address = UserAddress.fromText(rs.getString("address")),
+                )
+            } else {
+                throw NoSuchElementException("roundTripUserAddress: no rows returned")
+            }
+        }
+    }
+}
+
+
+data class GetUserAsJsonRow(
+    val payload: String?,
+)
+
+
+fun getUserAsJson(
+    conn: Connection,
+    id: Int,
+): GetUserAsJsonRow {
+    conn.prepareStatement("SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = ?").use { ps ->
+        ps.setInt(1, id)
+        ps.executeQuery().use { rs ->
+            return if (rs.next()) {
+                val payloadValue = rs.getString("payload")
+                val payload = if (rs.wasNull()) null else payloadValue
+                GetUserAsJsonRow(
+                    payload = payload,
+                )
+            } else {
+                throw NoSuchElementException("getUserAsJson: no rows returned")
+            }
+        }
+    }
+}
+
+
+data class GetUsersAsJsonRow(
+    val payload: String?,
+)
+
+
+fun getUsersAsJson(conn: Connection): GetUsersAsJsonRow {
+    conn.prepareStatement("SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u").use { ps ->
+        ps.executeQuery().use { rs ->
+            return if (rs.next()) {
+                val payloadValue = rs.getString("payload")
+                val payload = if (rs.wasNull()) null else payloadValue
+                GetUsersAsJsonRow(
+                    payload = payload,
+                )
+            } else {
+                throw NoSuchElementException("getUsersAsJson: no rows returned")
+            }
+        }
+    }
+}
+
+
+data class GetUserOrdersAsJsonRow(
+    val payload: String?,
+)
+
+
+fun getUserOrdersAsJson(
+    conn: Connection,
+    id: Int,
+): GetUserOrdersAsJsonRow {
+    conn.prepareStatement("SELECT json_agg(o.* ORDER BY o.id) AS payload FROM users u LEFT JOIN orders o ON o.user_id = u.id WHERE u.id = ? GROUP BY u.id").use { ps ->
+        ps.setInt(1, id)
+        ps.executeQuery().use { rs ->
+            return if (rs.next()) {
+                val payloadValue = rs.getString("payload")
+                val payload = if (rs.wasNull()) null else payloadValue
+                GetUserOrdersAsJsonRow(
+                    payload = payload,
+                )
+            } else {
+                throw NoSuchElementException("getUserOrdersAsJson: no rows returned")
             }
         }
     }

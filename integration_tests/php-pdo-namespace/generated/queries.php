@@ -1,5 +1,5 @@
 <?php
-// scythe:provenance v=0.16.1 backend=php-pdo engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:1058eb3707db2fb2
+// scythe:provenance v=0.16.1 backend=php-pdo engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:1058eb3707db2fb2
 
 declare(strict_types=1);
 
@@ -74,6 +74,76 @@ enum UserStatus: string {
     case ACTIVE = "active";
     case INACTIVE = "inactive";
     case BANNED = "banned";
+}
+
+readonly class GetUserAsJsonRowPayload {
+    public function __construct(
+        public int $id,
+        public string $name,
+        public ?string $email,
+        public UserStatus $status,
+        public ?UserStatus $secondary_status,
+        public ?UserAddress $address,
+        public \DateTimeImmutable $created_at,
+    ) {}
+
+    public static function fromJson(array $value): self {
+        return new self(
+            id: (int) $value['id'],
+            name: (string) $value['name'],
+            email: $value['email'] !== null ? (string) $value['email'] : null,
+            status: UserStatus::from($value['status']),
+            secondary_status: $value['secondary_status'] !== null ? UserStatus::from($value['secondary_status']) : null,
+            address: $value['address'] !== null ? UserAddress::fromJson($value['address']) : null,
+            created_at: new \DateTimeImmutable($value['created_at']),
+        );
+    }
+}
+
+readonly class GetUsersAsJsonRowPayload {
+    public function __construct(
+        public int $id,
+        public string $name,
+        public ?string $email,
+        public UserStatus $status,
+        public ?UserStatus $secondary_status,
+        public ?UserAddress $address,
+        public \DateTimeImmutable $created_at,
+    ) {}
+
+    public static function fromJson(array $value): self {
+        return new self(
+            id: (int) $value['id'],
+            name: (string) $value['name'],
+            email: $value['email'] !== null ? (string) $value['email'] : null,
+            status: UserStatus::from($value['status']),
+            secondary_status: $value['secondary_status'] !== null ? UserStatus::from($value['secondary_status']) : null,
+            address: $value['address'] !== null ? UserAddress::fromJson($value['address']) : null,
+            created_at: new \DateTimeImmutable($value['created_at']),
+        );
+    }
+}
+
+readonly class GetUserOrdersAsJsonRowPayload {
+    public function __construct(
+        public int $id,
+        public int $user_id,
+        public string $total,
+        public ?float $weight_kg,
+        public ?string $notes,
+        public \DateTimeImmutable $created_at,
+    ) {}
+
+    public static function fromJson(array $value): self {
+        return new self(
+            id: (int) $value['id'],
+            user_id: (int) $value['user_id'],
+            total: (string) $value['total'],
+            weight_kg: $value['weight_kg'] !== null ? (float) $value['weight_kg'] : null,
+            notes: $value['notes'] !== null ? (string) $value['notes'] : null,
+            created_at: new \DateTimeImmutable($value['created_at']),
+        );
+    }
 }
 
 readonly class CreateOrderRow {
@@ -276,6 +346,37 @@ readonly class UserAddress {
             (string) $f[2],
         );
     }
+
+    public function toPgText(): string {
+        return '(' . implode(',', [self::encodeCompositeField($this->street), self::encodeCompositeField($this->city), self::encodeCompositeField($this->zip)]) . ')';
+    }
+
+    private static function encodeCompositeField(mixed $value): string {
+        if ($value === null) {
+            return '';
+        }
+        if (is_object($value) && method_exists($value, 'toPgText')) {
+            $raw = $value->toPgText();
+        } elseif ($value instanceof \BackedEnum) {
+            $raw = (string) $value->value;
+        } elseif ($value instanceof \DateTimeInterface) {
+            $raw = $value->format('Y-m-d H:i:sP');
+        } else {
+            $raw = (string) $value;
+        }
+        if ($raw !== '' && strpbrk($raw, ',()"\\') === false && $raw === trim($raw)) {
+            return $raw;
+        }
+        return '"' . str_replace(['\\', '"'], ['\\\\', '""'], $raw) . '"';
+    }
+
+    public static function fromJson(array $value): self {
+        return new self(
+            (string) $value['street'],
+            (string) $value['city'],
+            (string) $value['zip'],
+        );
+    }
 }
 
 readonly class GetUserProfileRow {
@@ -290,6 +391,56 @@ readonly class GetUserProfileRow {
             id: (int) $row['id'],
             secondary_status: $row['secondary_status'] !== null ? UserStatus::from($row['secondary_status']) : null,
             address: UserAddress::fromText($row['address']),
+        );
+    }
+}
+
+readonly class RoundTripUserAddressRow {
+    public function __construct(
+        public ?UserAddress $address,
+    ) {}
+
+    public static function fromRow(array $row): self {
+        return new self(
+            address: UserAddress::fromText($row['address']),
+        );
+    }
+}
+
+readonly class GetUserAsJsonRow {
+    public function __construct(
+        public ?GetUserAsJsonRowPayload $payload,
+    ) {}
+
+    public static function fromRow(array $row): self {
+        return new self(
+            payload: $row['payload'] !== null ? GetUserAsJsonRowPayload::fromJson(json_decode($row['payload'], true, 512, \JSON_THROW_ON_ERROR)) : null,
+        );
+    }
+}
+
+readonly class GetUsersAsJsonRow {
+    public function __construct(
+        /** @var ?array<GetUsersAsJsonRowPayload> */
+        public ?array $payload,
+    ) {}
+
+    public static function fromRow(array $row): self {
+        return new self(
+            payload: $row['payload'] !== null ? array_map(static fn (array $item): GetUsersAsJsonRowPayload => GetUsersAsJsonRowPayload::fromJson($item), json_decode($row['payload'], true, 512, \JSON_THROW_ON_ERROR)) : null,
+        );
+    }
+}
+
+readonly class GetUserOrdersAsJsonRow {
+    public function __construct(
+        /** @var ?array<?GetUserOrdersAsJsonRowPayload> */
+        public ?array $payload,
+    ) {}
+
+    public static function fromRow(array $row): self {
+        return new self(
+            payload: $row['payload'] !== null ? array_map(static fn (?array $item): ?GetUserOrdersAsJsonRowPayload => $item === null ? null : GetUserOrdersAsJsonRowPayload::fromJson($item), json_decode($row['payload'], true, 512, \JSON_THROW_ON_ERROR)) : null,
         );
     }
 }
@@ -507,6 +658,69 @@ final class Queries {
             throw new RecordNotFoundException('getUserProfile: no row found');
         }
         return GetUserProfileRow::fromRow($row);
+    }
+
+    /**
+     * @param \PDO $pdo
+     * @param ?UserAddress $address
+     * @return RoundTripUserAddressRow
+     * @throws RecordNotFoundException
+     */
+    public static function roundTripUserAddress(\PDO $pdo, ?UserAddress $address): RoundTripUserAddressRow {
+        $stmt = $pdo->prepare('INSERT INTO users (name, status, address) VALUES (\'Composite Parameter Round Trip\', \'active\', :p1::text::user_address) RETURNING address');
+        $stmt->execute(["p1" => $address?->toPgText()]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false) {
+            throw new RecordNotFoundException('roundTripUserAddress: no row found');
+        }
+        return RoundTripUserAddressRow::fromRow($row);
+    }
+
+    /**
+     * @param \PDO $pdo
+     * @param int $id
+     * @return GetUserAsJsonRow
+     * @throws RecordNotFoundException
+     */
+    public static function getUserAsJson(\PDO $pdo, int $id): GetUserAsJsonRow {
+        $stmt = $pdo->prepare('SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = :p1');
+        $stmt->execute(["p1" => $id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false) {
+            throw new RecordNotFoundException('getUserAsJson: no row found');
+        }
+        return GetUserAsJsonRow::fromRow($row);
+    }
+
+    /**
+     * @param \PDO $pdo
+     * @return GetUsersAsJsonRow
+     * @throws RecordNotFoundException
+     */
+    public static function getUsersAsJson(\PDO $pdo): GetUsersAsJsonRow {
+        $stmt = $pdo->prepare('SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u');
+        $stmt->execute();
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false) {
+            throw new RecordNotFoundException('getUsersAsJson: no row found');
+        }
+        return GetUsersAsJsonRow::fromRow($row);
+    }
+
+    /**
+     * @param \PDO $pdo
+     * @param int $id
+     * @return GetUserOrdersAsJsonRow
+     * @throws RecordNotFoundException
+     */
+    public static function getUserOrdersAsJson(\PDO $pdo, int $id): GetUserOrdersAsJsonRow {
+        $stmt = $pdo->prepare('SELECT json_agg(o.* ORDER BY o.id) AS payload FROM users u LEFT JOIN orders o ON o.user_id = u.id WHERE u.id = :p1 GROUP BY u.id');
+        $stmt->execute(["p1" => $id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false) {
+            throw new RecordNotFoundException('getUserOrdersAsJson: no row found');
+        }
+        return GetUserOrdersAsJsonRow::fromRow($row);
     }
 
 }

@@ -56,6 +56,7 @@ public class IntegrationTest {
             testCountUsersByStatus(conn);
             testSearchUsers(conn);
             testGetUserProfileNullable(conn);
+            testRoundTripUserAddress(conn);
             testDeleteOrdersByUser(conn);
             testDeleteUser(conn);
         }
@@ -328,6 +329,26 @@ public class IntegrationTest {
             // Fails if a nullable composite reader decodes SQL NULL as a non-null all-default record.
             if (nullProfile.address() != null) {
                 fail(name, "expected address null, got " + nullProfile.address());
+                return;
+            }
+            pass(name);
+        } catch (Exception e) {
+            fail(name, e);
+        }
+    }
+
+    private static void testRoundTripUserAddress(Connection conn) {
+        String name = "RoundTripUserAddress";
+        try {
+            var address = new Queries.UserAddress("12 \"Main\", Apt \\3", "", "10115");
+            var present = Queries.roundTripUserAddress(conn, address);
+            if (!address.equals(present.address())) {
+                fail(name, "escaped composite did not round-trip: " + present.address());
+                return;
+            }
+            var absent = Queries.roundTripUserAddress(conn, null);
+            if (absent.address() != null) {
+                fail(name, "whole-composite NULL did not round-trip: " + absent.address());
                 return;
             }
             pass(name);

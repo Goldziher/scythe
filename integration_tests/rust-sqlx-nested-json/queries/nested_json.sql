@@ -23,3 +23,9 @@ GROUP BY u.id;
 -- @name GetUserAsJson
 -- @returns :many
 SELECT row_to_json(u.*) AS payload FROM users u;
+
+-- @name RoundTripUserAddress
+-- @returns :one
+INSERT INTO users (name, status, address)
+VALUES ('Composite Parameter Round Trip', 'active', $1)
+RETURNING address;

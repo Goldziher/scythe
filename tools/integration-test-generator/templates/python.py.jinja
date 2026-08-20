@@ -58,6 +58,7 @@ from generated.queries import (
 {%- endif %}
     ScytheNoRowsError,
 {%- if engine == "postgresql" and engine != "redshift" %}
+    UserAddress,
     UserStatus,
 {%- elif engine == "mysql" or engine == "mariadb" %}
     UsersStatus,
@@ -73,6 +74,9 @@ from generated.queries import (
     get_orders_by_user,
     get_user_by_id,
     list_active_users,
+{%- if engine == "postgresql" and engine != "redshift" %}
+    round_trip_user_address,
+{%- endif %}
 )
 
 
@@ -557,18 +561,19 @@ async def test_get_orders_by_user(conn, user_id: int, order_id: int) -> None:
     assert orders[0].notes == "Test order", f"Expected notes 'Test order', got '{orders[0].notes}'"
     assert any(o.id == order_id for o in orders), f"Expected order {order_id} in results, got {[o.id for o in orders]}"
     print("PASS: GetOrdersByUser")
-
-
-{#- board #204: neither psycopg3 nor asyncpg emits a composite parser for a
-   nullable composite column -- get_user_profile's generated row type
-   declares `address` as the UserAddress model, but psycopg3 hands back a
-   raw str and asyncpg hands back a raw asyncpg.Record, so the annotation
-   is wrong. The GetUserProfile test is left out of this harness until
-   that's fixed. When psycopg3/asyncpg codegen starts emitting a composite
-   parser for nullable composite columns, restore test_get_user_profile_nullable
-   here (see the rust template for the shape of the assertions), one
-   function per driver as before. #}
-
+{% if engine == "postgresql" and engine != "redshift" %}
+async def test_round_trip_user_address(conn) -> None:
+    """Round-trip a nullable PostgreSQL composite through generated bindings."""
+    address = UserAddress(street='12 "Main", Apt \\3', city="", zip="10115")
+    present = await round_trip_user_address(conn, address=address)
+    assert present.address == address, f"Expected {address!r}, got {present.address!r}"
+    absent = await round_trip_user_address(conn, address=None)
+    assert absent.address is None, f"Expected None, got {absent.address!r}"
+{%- if driver == "psycopg3" %}
+    await conn.commit()
+{%- endif %}
+    print("PASS: RoundTripUserAddress")
+{% endif %}
 
 {% if driver == "psycopg3" -%}
 async def test_delete_user(conn: psycopg.AsyncConnection, user_id: int) -> None:
@@ -639,6 +644,9 @@ def run_tests() -> None:
         await test_list_active_users(conn)
         order_id = await test_create_order(conn, user_id)
         await test_get_orders_by_user(conn, user_id, order_id)
+{%- if engine == "postgresql" %}
+        await test_round_trip_user_address(conn)
+{%- endif %}
         await test_delete_user(conn, user_id)
 {%- elif driver == "asyncpg" %}
     conn = await asyncpg.connect(database_url)
@@ -650,6 +658,9 @@ def run_tests() -> None:
         await test_list_active_users(conn)
         order_id = await test_create_order(conn, user_id)
         await test_get_orders_by_user(conn, user_id, order_id)
+{%- if engine == "postgresql" %}
+        await test_round_trip_user_address(conn)
+{%- endif %}
         await test_delete_user(conn, user_id)
     finally:
         await conn.close()

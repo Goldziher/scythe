@@ -64,6 +64,7 @@ fun main() {
     testGetUserWithTags()
     testSearchUsers()
     testGetUserProfileNullable()
+    testRoundTripUserAddress()
     testDeleteOrdersByUser()
     testDeleteUser()
 
@@ -417,6 +418,26 @@ fun testDeleteUser() {
             return
         } catch (expected: NoSuchElementException) {
             // expected: the user was deleted
+        }
+        pass(name)
+    } catch (e: Exception) {
+        fail(name, e)
+    }
+}
+
+fun testRoundTripUserAddress() {
+    val name = "RoundTripUserAddress"
+    try {
+        val address = UserAddress("12 \"Main\", Apt \\3", "", "10115")
+        val present = roundTripUserAddress(address)
+        if (present.address != address) {
+            fail(name, "escaped composite did not round-trip: ${present.address}")
+            return
+        }
+        val absent = roundTripUserAddress(null)
+        if (absent.address != null) {
+            fail(name, "whole-composite NULL did not round-trip: ${absent.address}")
+            return
         }
         pass(name)
     } catch (e: Exception) {

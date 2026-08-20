@@ -17,6 +17,7 @@ from generated.queries import (
     GetUserByIdRow,
     ListActiveUsersRow,
     ScytheNoRowsError,
+    UserAddress,
     UserStatus,
     create_order,
     create_user,
@@ -25,6 +26,7 @@ from generated.queries import (
     get_orders_by_user,
     get_user_by_id,
     list_active_users,
+    round_trip_user_address,
 )
 
 
@@ -203,6 +205,16 @@ async def test_get_orders_by_user(conn: psycopg.AsyncConnection, user_id: int, o
     assert any(o.id == order_id for o in orders), f"Expected order {order_id} in results, got {[o.id for o in orders]}"
     print("PASS: GetOrdersByUser")
 
+async def test_round_trip_user_address(conn) -> None:
+    """Round-trip a nullable PostgreSQL composite through generated bindings."""
+    address = UserAddress(street='12 "Main", Apt \\3', city="", zip="10115")
+    present = await round_trip_user_address(conn, address=address)
+    assert present.address == address, f"Expected {address!r}, got {present.address!r}"
+    absent = await round_trip_user_address(conn, address=None)
+    assert absent.address is None, f"Expected None, got {absent.address!r}"
+    await conn.commit()
+    print("PASS: RoundTripUserAddress")
+
 
 async def test_delete_user(conn: psycopg.AsyncConnection, user_id: int) -> None:
     """Test DeleteUser query."""
@@ -231,6 +243,7 @@ async def run_tests() -> None:
         await test_list_active_users(conn)
         order_id = await test_create_order(conn, user_id)
         await test_get_orders_by_user(conn, user_id, order_id)
+        await test_round_trip_user_address(conn)
         await test_delete_user(conn, user_id)
 
     print("\nALL TESTS PASSED")

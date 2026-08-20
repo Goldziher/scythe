@@ -119,3 +119,22 @@ kotlin|snowflake|testGetUserProfileNullable : exercises a nullable composite-col
 kotlin|sqlite|testCountUsersByStatus : no equivalent query exists in sqlite's queries/*.sql fixture -- CountUsersByStatus takes a UserStatus enum parameter that only pg/queries/users.sql defines
 kotlin|sqlite|testGetUserOrders : no equivalent query exists in sqlite's queries/*.sql fixture -- GetUserOrders takes a UserStatus enum parameter that only pg/queries/users.sql defines
 kotlin|sqlite|testGetUserProfileNullable : exercises a nullable composite-column read (board #197) unique to the postgresql schema; sqlite has no equivalent column or query
+
+java|duckdb|testRoundTripUserAddress : PostgreSQL user-defined composite parameters have no equivalent query or type in duckdb's fixture
+java|mariadb|testRoundTripUserAddress : PostgreSQL user-defined composite parameters have no equivalent query or type in mariadb's fixture
+java|mssql|testRoundTripUserAddress : PostgreSQL user-defined composite parameters have no equivalent query or type in mssql's fixture
+java|mysql|testRoundTripUserAddress : PostgreSQL user-defined composite parameters have no equivalent query or type in mysql's fixture
+java|oracle|testRoundTripUserAddress : PostgreSQL user-defined composite parameters have no equivalent query or type in oracle's fixture
+java|r2dbc-mysql-mariadb|testRoundTripUserAddress : no generated project wires this branch and MySQL/MariaDB have no PostgreSQL composite type
+java|redshift|testRoundTripUserAddress : the Redshift compatibility fixture does not define PostgreSQL user-defined composites
+java|snowflake|testRoundTripUserAddress : PostgreSQL user-defined composite parameters have no equivalent query or type in snowflake's fixture
+java|sqlite|testRoundTripUserAddress : PostgreSQL user-defined composite parameters have no equivalent query or type in sqlite's fixture
+kotlin|duckdb|testRoundTripUserAddress : PostgreSQL user-defined composite parameters have no equivalent query or type in duckdb's fixture
+kotlin|mariadb|testRoundTripUserAddress : PostgreSQL user-defined composite parameters have no equivalent query or type in mariadb's fixture
+kotlin|mssql|testRoundTripUserAddress : PostgreSQL user-defined composite parameters have no equivalent query or type in mssql's fixture
+kotlin|mysql|testRoundTripUserAddress : PostgreSQL user-defined composite parameters have no equivalent query or type in mysql's fixture
+kotlin|oracle|testRoundTripUserAddress : PostgreSQL user-defined composite parameters have no equivalent query or type in oracle's fixture
+kotlin|r2dbc-mysql-mariadb|testRoundTripUserAddress : no generated project wires this branch and MySQL/MariaDB have no PostgreSQL composite type
+kotlin|redshift|testRoundTripUserAddress : the Redshift compatibility fixture does not define PostgreSQL user-defined composites
+kotlin|snowflake|testRoundTripUserAddress : PostgreSQL user-defined composite parameters have no equivalent query or type in snowflake's fixture
+kotlin|sqlite|testRoundTripUserAddress : PostgreSQL user-defined composite parameters have no equivalent query or type in sqlite's fixture

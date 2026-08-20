@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=java-jdbc engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.16.1 backend=java-jdbc engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325
 package generated;
 
 import java.math.BigDecimal;
@@ -374,6 +374,18 @@ public record UserAddress(String street, String city, String zip) {
         );
     }
 
+    public String toPgText() {
+        return java.util.stream.Stream.of(street, city, zip).map(UserAddress::encodeCompositeField).collect(java.util.stream.Collectors.joining(",", "(", ")"));
+    }
+
+    private static String encodeCompositeField(Object value) {
+        if (value == null) return "";
+        String raw = String.valueOf(value);
+        boolean quote = raw.isEmpty() || raw.indexOf('(') >= 0 || raw.indexOf(')') >= 0 || raw.indexOf(',') >= 0 || raw.indexOf('"') >= 0 || raw.indexOf('\\') >= 0 || !raw.equals(raw.strip());
+        if (!quote) return raw;
+        return "\"" + raw.replace("\\", "\\\\").replace("\"", "\"\"") + "\"";
+    }
+
     /**
      * ~keep Splits a PostgreSQL composite's text form ("(a,b,c)") into its raw field tokens,
      * honoring its escaping rules: an empty unquoted field is SQL NULL (returned as `null`); a
@@ -457,6 +469,93 @@ public static GetUserProfileRow getUserProfile(Connection conn, int id) throws S
                 return GetUserProfileRow.fromResultSet(rs);
             }
             throw new java.util.NoSuchElementException("getUserProfile: no rows returned");
+        }
+    }
+}
+
+public record RoundTripUserAddressRow(
+    @Nullable UserAddress address
+) {
+    public static RoundTripUserAddressRow fromResultSet(ResultSet rs) throws SQLException {
+        return new RoundTripUserAddressRow(
+            UserAddress.fromText(rs.getString("address"))
+        );
+    }
+}
+
+public static RoundTripUserAddressRow roundTripUserAddress(Connection conn, @Nullable UserAddress address) throws SQLException {
+    try (var ps = conn.prepareStatement("INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', ?::text::user_address) RETURNING address")) {
+        ps.setString(1, address == null ? null : address.toPgText());
+        try (ResultSet rs = ps.executeQuery()) {
+            if (rs.next()) {
+                return RoundTripUserAddressRow.fromResultSet(rs);
+            }
+            throw new java.util.NoSuchElementException("roundTripUserAddress: no rows returned");
+        }
+    }
+}
+
+public record GetUserAsJsonRow(
+    @Nullable String payload
+) {
+    public static GetUserAsJsonRow fromResultSet(ResultSet rs) throws SQLException {
+        return new GetUserAsJsonRow(
+            rs.getString("payload")
+        );
+    }
+}
+
+public static GetUserAsJsonRow getUserAsJson(Connection conn, int id) throws SQLException {
+    try (var ps = conn.prepareStatement("SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = ?")) {
+        ps.setInt(1, id);
+        try (ResultSet rs = ps.executeQuery()) {
+            if (rs.next()) {
+                return GetUserAsJsonRow.fromResultSet(rs);
+            }
+            throw new java.util.NoSuchElementException("getUserAsJson: no rows returned");
+        }
+    }
+}
+
+public record GetUsersAsJsonRow(
+    @Nullable String payload
+) {
+    public static GetUsersAsJsonRow fromResultSet(ResultSet rs) throws SQLException {
+        return new GetUsersAsJsonRow(
+            rs.getString("payload")
+        );
+    }
+}
+
+public static GetUsersAsJsonRow getUsersAsJson(Connection conn) throws SQLException {
+    try (var ps = conn.prepareStatement("SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u")) {
+        try (ResultSet rs = ps.executeQuery()) {
+            if (rs.next()) {
+                return GetUsersAsJsonRow.fromResultSet(rs);
+            }
+            throw new java.util.NoSuchElementException("getUsersAsJson: no rows returned");
+        }
+    }
+}
+
+public record GetUserOrdersAsJsonRow(
+    @Nullable String payload
+) {
+    public static GetUserOrdersAsJsonRow fromResultSet(ResultSet rs) throws SQLException {
+        return new GetUserOrdersAsJsonRow(
+            rs.getString("payload")
+        );
+    }
+}
+
+public static GetUserOrdersAsJsonRow getUserOrdersAsJson(Connection conn, int id) throws SQLException {
+    try (var ps = conn.prepareStatement("SELECT json_agg(o.* ORDER BY o.id) AS payload FROM users u LEFT JOIN orders o ON o.user_id = u.id WHERE u.id = ? GROUP BY u.id")) {
+        ps.setInt(1, id);
+        try (ResultSet rs = ps.executeQuery()) {
+            if (rs.next()) {
+                return GetUserOrdersAsJsonRow.fromResultSet(rs);
+            }
+            throw new java.util.NoSuchElementException("getUserOrdersAsJson: no rows returned");
         }
     }
 }

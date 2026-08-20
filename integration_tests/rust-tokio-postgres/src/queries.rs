@@ -1,10 +1,13 @@
-// scythe:provenance v=0.16.1 backend=rust-tokio-postgres engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.16.1 backend=rust-tokio-postgres engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325
 #![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum UserStatus {
+    #[serde(rename = "active")]
     Active,
+    #[serde(rename = "inactive")]
     Inactive,
+    #[serde(rename = "banned")]
     Banned,
 }
 
@@ -58,6 +61,38 @@ impl tokio_postgres::types::ToSql for UserStatus {
     }
 
     tokio_postgres::types::to_sql_checked!();
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GetUserAsJsonRowPayload {
+    pub id: i32,
+    pub name: String,
+    pub email: Option<String>,
+    pub status: UserStatus,
+    pub secondary_status: Option<UserStatus>,
+    pub address: Option<UserAddress>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GetUsersAsJsonRowPayload {
+    pub id: i32,
+    pub name: String,
+    pub email: Option<String>,
+    pub status: UserStatus,
+    pub secondary_status: Option<UserStatus>,
+    pub address: Option<UserAddress>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GetUserOrdersAsJsonRowPayload {
+    pub id: i32,
+    pub user_id: i32,
+    pub total: rust_decimal::Decimal,
+    pub weight_kg: Option<f64>,
+    pub notes: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Clone)]
@@ -420,7 +455,7 @@ pub async fn search_users(
     Ok(rows.iter().map(SearchUsersRow::from_row).collect())
 }
 
-#[derive(Debug, Clone, postgres_types::ToSql, postgres_types::FromSql)]
+#[derive(Debug, Clone, postgres_types::ToSql, postgres_types::FromSql, serde::Serialize, serde::Deserialize)]
 #[postgres(name = "user_address")]
 pub struct UserAddress {
     pub street: String,
@@ -456,4 +491,110 @@ pub async fn get_user_profile(
         )
         .await?;
     Ok(GetUserProfileRow::from_row(&row))
+}
+
+#[derive(Debug, Clone)]
+pub struct RoundTripUserAddressRow {
+    pub address: Option<UserAddress>,
+}
+
+impl RoundTripUserAddressRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
+        Self {
+            address: row.get("address"),
+        }
+    }
+}
+
+pub async fn round_trip_user_address(
+    client: &(impl tokio_postgres::GenericClient + Sync),
+    address: Option<&UserAddress>,
+) -> Result<RoundTripUserAddressRow, tokio_postgres::Error> {
+    let row = client
+        .query_one(
+            r#"INSERT INTO users (name, status, address)
+VALUES ('Composite Parameter Round Trip', 'active', $1)
+RETURNING address"#,
+            &[&address],
+        )
+        .await?;
+    Ok(RoundTripUserAddressRow::from_row(&row))
+}
+
+#[derive(Debug, Clone)]
+pub struct GetUserAsJsonRow {
+    pub payload: Option<postgres_types::Json<GetUserAsJsonRowPayload>>,
+}
+
+impl GetUserAsJsonRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
+        Self {
+            payload: row.get("payload"),
+        }
+    }
+}
+
+pub async fn get_user_as_json(
+    client: &(impl tokio_postgres::GenericClient + Sync),
+    id: i32,
+) -> Result<GetUserAsJsonRow, tokio_postgres::Error> {
+    let row = client
+        .query_one(
+            r#"SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = $1"#,
+            &[&id],
+        )
+        .await?;
+    Ok(GetUserAsJsonRow::from_row(&row))
+}
+
+#[derive(Debug, Clone)]
+pub struct GetUsersAsJsonRow {
+    pub payload: Option<postgres_types::Json<Vec<GetUsersAsJsonRowPayload>>>,
+}
+
+impl GetUsersAsJsonRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
+        Self {
+            payload: row.get("payload"),
+        }
+    }
+}
+
+pub async fn get_users_as_json(
+    client: &(impl tokio_postgres::GenericClient + Sync),
+) -> Result<GetUsersAsJsonRow, tokio_postgres::Error> {
+    let row = client
+        .query_one(r#"SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u"#, &[])
+        .await?;
+    Ok(GetUsersAsJsonRow::from_row(&row))
+}
+
+#[derive(Debug, Clone)]
+pub struct GetUserOrdersAsJsonRow {
+    pub payload: Option<postgres_types::Json<Vec<Option<GetUserOrdersAsJsonRowPayload>>>>,
+}
+
+impl GetUserOrdersAsJsonRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
+        Self {
+            payload: row.get("payload"),
+        }
+    }
+}
+
+pub async fn get_user_orders_as_json(
+    client: &(impl tokio_postgres::GenericClient + Sync),
+    id: i32,
+) -> Result<GetUserOrdersAsJsonRow, tokio_postgres::Error> {
+    let row = client
+        .query_one(
+            r#"SELECT json_agg(o.* ORDER BY o.id) AS payload
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+WHERE u.id = $1
+GROUP BY u.id"#,
+            &[&id],
+        )
+        .await?;
+    Ok(GetUserOrdersAsJsonRow::from_row(&row))
 }

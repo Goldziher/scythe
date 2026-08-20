@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=typescript-pg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:304531517b9a94ef
+// scythe:provenance v=0.16.1 backend=typescript-pg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:304531517b9a94ef
 import type { PoolClient } from "pg";
 
 
@@ -409,6 +409,18 @@ function parseUserAddressFields(text: string): (string | null)[] {
 	return fields;
 }
 
+function encodeUserAddress(value: UserAddress | null): string | null {
+	if (value === null) return null;
+	const encode = (field: unknown): string => {
+		const text = String(field);
+		if (text === "" || /[(),\"\\\s]/.test(text)) {
+			return `"${text.replaceAll("\\", "\\\\").replaceAll('\"', '\"\"')}"`;
+		}
+		return text;
+	};
+	return `(encode(value.street), encode(value.city), encode(value.zip))`;
+}
+
 /** Row type for GetUserProfile queries. */
 export interface GetUserProfileRow {
 	id: number;
@@ -433,5 +445,101 @@ export async function getUserProfile(
 		id: row.id as number,
 		secondaryStatus: row.secondary_status as UserStatus | null,
 		address: parseUserAddress(row.address) as UserAddress | null,
+	};
+}
+
+/** Row type for RoundTripUserAddress queries. */
+export interface RoundTripUserAddressRow {
+	address: UserAddress | null;
+}
+
+/** Fetch a single RoundTripUserAddressRow. */
+export async function roundTripUserAddress(
+	client: PoolClient,
+	address: UserAddress | null,
+): Promise<RoundTripUserAddressRow> {
+	const { rows } = await client.query<Record<string, unknown>>(
+		`INSERT INTO users (name, status, address)
+VALUES ('Composite Parameter Round Trip', 'active', $1)
+RETURNING address`,
+		[encodeUserAddress(address)],
+	);
+	const row = rows[0];
+	if (!row) {
+		throw new Error("no row found for query: RoundTripUserAddress");
+	}
+	return {
+		address: parseUserAddress(row.address) as UserAddress | null,
+	};
+}
+
+/** Row type for GetUserAsJson queries. */
+export interface GetUserAsJsonRow {
+	payload: Record<string, unknown> | null;
+}
+
+/** Fetch a single GetUserAsJsonRow. */
+export async function getUserAsJson(
+	client: PoolClient,
+	id: number,
+): Promise<GetUserAsJsonRow> {
+	const { rows } = await client.query<Record<string, unknown>>(
+		`SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = $1`,
+		[id],
+	);
+	const row = rows[0];
+	if (!row) {
+		throw new Error("no row found for query: GetUserAsJson");
+	}
+	return {
+		payload: row.payload as Record<string, unknown> | null,
+	};
+}
+
+/** Row type for GetUsersAsJson queries. */
+export interface GetUsersAsJsonRow {
+	payload: Record<string, unknown>[] | null;
+}
+
+/** Fetch a single GetUsersAsJsonRow. */
+export async function getUsersAsJson(
+	client: PoolClient,
+): Promise<GetUsersAsJsonRow> {
+	const { rows } = await client.query<Record<string, unknown>>(
+		`SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u`,
+	);
+	const row = rows[0];
+	if (!row) {
+		throw new Error("no row found for query: GetUsersAsJson");
+	}
+	return {
+		payload: row.payload as Record<string, unknown>[] | null,
+	};
+}
+
+/** Row type for GetUserOrdersAsJson queries. */
+export interface GetUserOrdersAsJsonRow {
+	payload: Record<string, unknown>[] | null;
+}
+
+/** Fetch a single GetUserOrdersAsJsonRow. */
+export async function getUserOrdersAsJson(
+	client: PoolClient,
+	id: number,
+): Promise<GetUserOrdersAsJsonRow> {
+	const { rows } = await client.query<Record<string, unknown>>(
+		`SELECT json_agg(o.* ORDER BY o.id) AS payload
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+WHERE u.id = $1
+GROUP BY u.id`,
+		[id],
+	);
+	const row = rows[0];
+	if (!row) {
+		throw new Error("no row found for query: GetUserOrdersAsJson");
+	}
+	return {
+		payload: row.payload as Record<string, unknown>[] | null,
 	};
 }

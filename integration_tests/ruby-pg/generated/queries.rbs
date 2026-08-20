@@ -1,4 +1,4 @@
-# scythe:provenance v=0.16.1 backend=ruby-pg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
+# scythe:provenance v=0.16.1 backend=ruby-pg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325
 module Queries
   module UserStatus
     ACTIVE: String
@@ -123,5 +123,33 @@ module Queries
   end
 
   def self.get_user_profile: (PG::Connection, Integer) -> GetUserProfileRow
+
+  class RoundTripUserAddressRow
+    attr_reader address: untyped?
+    def self.new: (address: untyped?) -> RoundTripUserAddressRow
+  end
+
+  def self.round_trip_user_address: (PG::Connection, untyped?) -> RoundTripUserAddressRow
+
+  class GetUserAsJsonRow
+    attr_reader payload: Hash[String, untyped]?
+    def self.new: (payload: Hash[String, untyped]?) -> GetUserAsJsonRow
+  end
+
+  def self.get_user_as_json: (PG::Connection, Integer) -> GetUserAsJsonRow
+
+  class GetUsersAsJsonRow
+    attr_reader payload: Array[untyped]?
+    def self.new: (payload: Array[untyped]?) -> GetUsersAsJsonRow
+  end
+
+  def self.get_users_as_json: (PG::Connection) -> GetUsersAsJsonRow
+
+  class GetUserOrdersAsJsonRow
+    attr_reader payload: Array[untyped]?
+    def self.new: (payload: Array[untyped]?) -> GetUserOrdersAsJsonRow
+  end
+
+  def self.get_user_orders_as_json: (PG::Connection, Integer) -> GetUserOrdersAsJsonRow
 
 end

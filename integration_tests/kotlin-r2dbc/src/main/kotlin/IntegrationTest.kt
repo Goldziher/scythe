@@ -79,6 +79,7 @@ fun main() {
         testGetUserOrders(cf)
         testCountUsersByStatus(cf)
         testSearchUsers(cf)
+        testRoundTripUserAddress(cf)
         // ~keep Runs after every order-counting assertion and immediately before the delete that
         // cleans both orders up: it adds a second order, and `orders.user_id` has no ON DELETE
         // CASCADE, so it cannot run any later than this without stranding a row that DeleteUser
@@ -333,6 +334,26 @@ suspend fun testDeleteUser(cf: ConnectionFactory) {
             return
         } catch (expected: NoSuchElementException) {
             // expected: the user was deleted
+        }
+        pass(name)
+    } catch (e: Exception) {
+        fail(name, e)
+    }
+}
+
+suspend fun testRoundTripUserAddress(cf: ConnectionFactory) {
+    val name = "RoundTripUserAddress"
+    try {
+        val address = UserAddress("12 \"Main\", Apt \\3", "", "10115")
+        val present = roundTripUserAddress(cf, address)
+        if (present.address != address) {
+            fail(name, "escaped composite did not round-trip: ${present.address}")
+            return
+        }
+        val absent = roundTripUserAddress(cf, null)
+        if (absent.address != null) {
+            fail(name, "whole-composite NULL did not round-trip: ${absent.address}")
+            return
         }
         pass(name)
     } catch (e: Exception) {

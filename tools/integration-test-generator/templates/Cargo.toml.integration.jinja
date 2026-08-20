@@ -35,6 +35,9 @@ rust_decimal = "1"
 {%- elif driver != "sibyl" %}
 rust_decimal = "1"
 {%- endif %}
+{%- if engine == "postgresql" and (driver == "sqlx" or driver == "tokio-postgres") %}
+serde = { version = "1", features = ["derive"] }
+{%- endif %}
 {%- if driver == "sqlx" or driver == "tokio-postgres" %}
 serde_json = "1"
 uuid = "1"

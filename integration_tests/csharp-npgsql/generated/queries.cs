@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=csharp-npgsql engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.16.1 backend=csharp-npgsql engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325
 #nullable enable
 
 using Npgsql;
@@ -278,6 +278,21 @@ public record UserAddress(
         );
     }
 
+    public string ToPgText()
+    {
+        return "(" + string.Join(",", new[] { EncodeCompositeField(Street), EncodeCompositeField(City), EncodeCompositeField(Zip) }) + ")";
+    }
+
+    private static string EncodeCompositeField(object? value)
+    {
+        if (value is null) return string.Empty;
+        var raw = value is IFormattable formattable
+            ? formattable.ToString(null, System.Globalization.CultureInfo.InvariantCulture)
+            : value.ToString()!;
+        if (raw.Length > 0 && raw.IndexOfAny([',', '(', ')', '"', '\\']) < 0 && raw == raw.Trim()) return raw;
+        return "\"" + raw.Replace("\\", "\\\\").Replace("\"", "\"\"") + "\"";
+    }
+
     /// <summary>
     /// ~keep Splits a PostgreSQL composite's text form ("(a,b,c)") into its raw field tokens,
     /// honoring its escaping rules: an empty unquoted field is SQL NULL (returned as null); a
@@ -369,6 +384,62 @@ public static async Task<GetUserProfileRow> GetUserProfile(NpgsqlConnection conn
         reader.GetInt32(0),
         reader.IsDBNull(1) ? null : (Enum.TryParse<UserStatus>(reader.GetString(1), true, out var enumVal1) ? enumVal1 : throw new InvalidOperationException($"Invalid enum value '{reader.GetString(1)}' for UserStatus")),
         reader.IsDBNull(2) ? null : UserAddress.FromText(reader.GetFieldValue<string>(2))!
+    );
+}
+
+public record RoundTripUserAddressRow(
+    UserAddress? Address
+);
+
+public static async Task<RoundTripUserAddressRow> RoundTripUserAddress(NpgsqlConnection conn, UserAddress? address) {
+    await using var cmd = new NpgsqlCommand(@"INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', @p1::text::user_address) RETURNING address", conn);
+    cmd.Parameters.AddWithValue("p1", (object?)address?.ToPgText() ?? DBNull.Value);
+    cmd.UnknownResultTypeList = new[] { true };
+    await using var reader = await cmd.ExecuteReaderAsync();
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("RoundTripUserAddress expected exactly one row but found none");
+    return new RoundTripUserAddressRow(
+        reader.IsDBNull(0) ? null : UserAddress.FromText(reader.GetFieldValue<string>(0))!
+    );
+}
+
+public record GetUserAsJsonRow(
+    string? Payload
+);
+
+public static async Task<GetUserAsJsonRow> GetUserAsJson(NpgsqlConnection conn, int id) {
+    await using var cmd = new NpgsqlCommand(@"SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = @p1", conn);
+    cmd.Parameters.AddWithValue("p1", id);
+    await using var reader = await cmd.ExecuteReaderAsync();
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetUserAsJson expected exactly one row but found none");
+    return new GetUserAsJsonRow(
+        reader.IsDBNull(0) ? null : reader.GetString(0)
+    );
+}
+
+public record GetUsersAsJsonRow(
+    string? Payload
+);
+
+public static async Task<GetUsersAsJsonRow> GetUsersAsJson(NpgsqlConnection conn) {
+    await using var cmd = new NpgsqlCommand(@"SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u", conn);
+    await using var reader = await cmd.ExecuteReaderAsync();
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetUsersAsJson expected exactly one row but found none");
+    return new GetUsersAsJsonRow(
+        reader.IsDBNull(0) ? null : reader.GetString(0)
+    );
+}
+
+public record GetUserOrdersAsJsonRow(
+    string? Payload
+);
+
+public static async Task<GetUserOrdersAsJsonRow> GetUserOrdersAsJson(NpgsqlConnection conn, int id) {
+    await using var cmd = new NpgsqlCommand(@"SELECT json_agg(o.* ORDER BY o.id) AS payload FROM users u LEFT JOIN orders o ON o.user_id = u.id WHERE u.id = @p1 GROUP BY u.id", conn);
+    cmd.Parameters.AddWithValue("p1", id);
+    await using var reader = await cmd.ExecuteReaderAsync();
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetUserOrdersAsJson expected exactly one row but found none");
+    return new GetUserOrdersAsJsonRow(
+        reader.IsDBNull(0) ? null : reader.GetString(0)
     );
 }
 

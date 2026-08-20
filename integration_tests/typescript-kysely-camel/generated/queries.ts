@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=typescript-kysely engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:69a697520b95203b options=opt1:304531517b9a94ef
+// scythe:provenance v=0.16.1 backend=typescript-kysely engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:c38f3563d5a318ce options=opt1:304531517b9a94ef
 // scythe: this file was generated with field_case = "camelCase".
 // Kysely does not remap rows -- register CamelCasePlugin on your Kysely
 // instance or every field below reads back undefined at runtime:
@@ -327,6 +327,18 @@ function parseUserAddressFields(text: string): (string | null)[] {
 	return fields;
 }
 
+function encodeUserAddress(value: UserAddress | null): string | null {
+	if (value === null) return null;
+	const encode = (field: unknown): string => {
+		const text = String(field);
+		if (text === "" || /[(),\"\\\s]/.test(text)) {
+			return `"${text.replaceAll("\\", "\\\\").replaceAll('\"', '\"\"')}"`;
+		}
+		return text;
+	};
+	return `(encode(value.street), encode(value.city), encode(value.zip))`;
+}
+
 /** Row type for GetUserProfile queries. */
 export interface GetUserProfileRow {
 	id: number;
@@ -343,6 +355,29 @@ export async function getUserProfile(
 	const row = result.rows[0];
 	if (row === undefined) {
 		throw new Error("no row found for query: GetUserProfile");
+	}
+	return {
+		...row,
+		address: parseUserAddress(row.address) as UserAddress | null,
+	};
+}
+
+/** Row type for RoundTripUserAddress queries. */
+export interface RoundTripUserAddressRow {
+	address: UserAddress | null;
+}
+
+/** Fetch a single RoundTripUserAddressRow. */
+export async function roundTripUserAddress(
+	db: QueryExecutorProvider,
+	address: UserAddress | null,
+): Promise<RoundTripUserAddressRow> {
+	const result = await sql<RoundTripUserAddressRow>`INSERT INTO users (name, status, address)
+VALUES ('Composite Parameter Round Trip', 'active', ${encodeUserAddress(address)})
+RETURNING address`.execute(db);
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: RoundTripUserAddress");
 	}
 	return {
 		...row,

@@ -51,6 +51,7 @@ fun main() {
         testGetUserOrders(conn)
         testCountUsersByStatus(conn)
         testSearchUsers(conn)
+        testRoundTripUserAddress(conn)
         testDeleteOrdersByUser(conn)
         testDeleteUser(conn)
     }
@@ -101,6 +102,26 @@ fun testCreateUser(conn: java.sql.Connection) {
             return
         }
         createdUserId = user.id
+        pass(name)
+    } catch (e: Exception) {
+        fail(name, e)
+    }
+}
+
+fun testRoundTripUserAddress(conn: java.sql.Connection) {
+    val name = "RoundTripUserAddress"
+    try {
+        val address = UserAddress("12 \"Main\", Apt \\3", "", "10115")
+        val present = conn.roundTripUserAddress(address)
+        if (present.address != address) {
+            fail(name, "escaped composite did not round-trip: ${present.address}")
+            return
+        }
+        val absent = conn.roundTripUserAddress(null)
+        if (absent.address != null) {
+            fail(name, "whole-composite NULL did not round-trip: ${absent.address}")
+            return
+        }
         pass(name)
     } catch (e: Exception) {
         fail(name, e)

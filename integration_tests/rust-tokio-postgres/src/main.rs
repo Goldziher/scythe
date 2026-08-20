@@ -5,7 +5,7 @@ use queries::{
     CreateOrderRow, CreateUserRow,
     GetOrdersByUserRow, GetUserByIdRow, ListActiveUsersRow,
     UserStatus,
-    GetUserProfileRow,
+    GetUserProfileRow, UserAddress,
 };
 use rust_decimal::Decimal;
 use tokio_postgres::NoTls;
@@ -146,6 +146,20 @@ let rows = client
     // via raw SQL because a composite VALUES literal is outside this
     // generator's parameter-binding surface; the point is the *read* path,
     // which runs through the generated `GetUserProfileRow`.
+    let composite_address = UserAddress {
+        street: r#"12 "Main", Apt \3"#.to_string(),
+        city: String::new(),
+        zip: "10115".to_string(),
+    };
+    let round_tripped_address = queries::round_trip_user_address(&client, Some(&composite_address)).await?;
+    let returned_address = round_tripped_address.address.expect("RoundTripUserAddress address present");
+    assert_test!(returned_address.street == composite_address.street, "RoundTripUserAddress street");
+    assert_test!(returned_address.city == composite_address.city, "RoundTripUserAddress empty city");
+    assert_test!(returned_address.zip == composite_address.zip, "RoundTripUserAddress zip");
+    let round_tripped_null = queries::round_trip_user_address(&client, None).await?;
+    assert_test!(round_tripped_null.address.is_none(), "RoundTripUserAddress null");
+    pass!("RoundTripUserAddress");
+
     let present_row = client
         .query_one(
             "INSERT INTO users (name, email, status, secondary_status, address) \

@@ -291,6 +291,26 @@
             fail(name, e);
         }
     }
+
+    private static void testRoundTripUserAddress(ConnectionFactory cf) {
+        String name = "RoundTripUserAddress";
+        try {
+            var address = new Queries.UserAddress("12 \"Main\", Apt \\3", "", "10115");
+            var present = Queries.roundTripUserAddress(cf, address).block();
+            if (present == null || !address.equals(present.address())) {
+                fail(name, "escaped composite did not round-trip: " + present);
+                return;
+            }
+            var absent = Queries.roundTripUserAddress(cf, null).block();
+            if (absent == null || absent.address() != null) {
+                fail(name, "whole-composite NULL did not round-trip: " + absent);
+                return;
+            }
+            pass(name);
+        } catch (Exception e) {
+            fail(name, e);
+        }
+    }
 {%- elif adapter == "r2dbc-mysql-mariadb" %}
 
     private static void testCreateUser(ConnectionFactory cf) {
@@ -468,6 +488,7 @@
             fail(name, e);
         }
     }
+
 {%- elif adapter == "postgresql" %}
 
     private static void testCreateUser(Connection conn) {
@@ -707,6 +728,26 @@
             // Fails if a nullable composite reader decodes SQL NULL as a non-null all-default record.
             if (nullProfile.address() != null) {
                 fail(name, "expected address null, got " + nullProfile.address());
+                return;
+            }
+            pass(name);
+        } catch (Exception e) {
+            fail(name, e);
+        }
+    }
+
+    private static void testRoundTripUserAddress(Connection conn) {
+        String name = "RoundTripUserAddress";
+        try {
+            var address = new Queries.UserAddress("12 \"Main\", Apt \\3", "", "10115");
+            var present = Queries.roundTripUserAddress(conn, address);
+            if (!address.equals(present.address())) {
+                fail(name, "escaped composite did not round-trip: " + present.address());
+                return;
+            }
+            var absent = Queries.roundTripUserAddress(conn, null);
+            if (absent.address() != null) {
+                fail(name, "whole-composite NULL did not round-trip: " + absent.address());
                 return;
             }
             pass(name);

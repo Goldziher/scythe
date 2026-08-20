@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=java-r2dbc engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.16.1 backend=java-r2dbc engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325
 package generated;
 
 import io.r2dbc.spi.ConnectionFactory;
@@ -124,6 +124,18 @@ public record UserAddress(String street, String city, String zip) {
         );
     }
 
+    public String toPgText() {
+        return java.util.stream.Stream.of(street, city, zip).map(UserAddress::encodeCompositeField).collect(java.util.stream.Collectors.joining(",", "(", ")"));
+    }
+
+    private static String encodeCompositeField(Object value) {
+        if (value == null) return "";
+        String raw = String.valueOf(value);
+        boolean quote = raw.isEmpty() || raw.indexOf('(') >= 0 || raw.indexOf(')') >= 0 || raw.indexOf(',') >= 0 || raw.indexOf('"') >= 0 || raw.indexOf('\\') >= 0 || !raw.equals(raw.strip());
+        if (!quote) return raw;
+        return "\"" + raw.replace("\\", "\\\\").replace("\"", "\"\"") + "\"";
+    }
+
     /**
      * ~keep Splits a PostgreSQL composite's text form ("(a,b,c)") into its raw field tokens,
      * honoring its escaping rules: an empty unquoted field is SQL NULL (returned as `null`); a
@@ -182,6 +194,22 @@ public record GetUserProfileRow(
     int id,
     @Nullable UserStatus secondary_status,
     @Nullable UserAddress address
+) {}
+
+public record RoundTripUserAddressRow(
+    @Nullable UserAddress address
+) {}
+
+public record GetUserAsJsonRow(
+    @Nullable String payload
+) {}
+
+public record GetUsersAsJsonRow(
+    @Nullable String payload
+) {}
+
+public record GetUserOrdersAsJsonRow(
+    @Nullable String payload
 ) {}
 
     private static void bindNullable(Statement stmt, int index, Object value, Class<?> type) {
@@ -459,6 +487,77 @@ public static Mono<GetUserProfileRow> getUserProfile(ConnectionFactory cf, int i
                         UserAddress.fromText(row.get("address", String.class))
                     ))))
                 .switchIfEmpty(Mono.error(new java.util.NoSuchElementException("getUserProfile: no rows returned")));
+        },
+        conn -> Mono.from(conn.close())
+    );
+}
+
+public static Mono<RoundTripUserAddressRow> roundTripUserAddress(ConnectionFactory cf, @Nullable UserAddress address) {
+    return Mono.usingWhen(
+        Mono.from(cf.create()),
+        conn -> {
+            var stmt = conn.createStatement("INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', $1::text::user_address) RETURNING address");
+            if (address == null) {
+                stmt.bindNull(0, String.class);
+            } else {
+                stmt.bind(0, address.toPgText());
+            }
+            return Mono.from(stmt.execute())
+                .flatMap(result -> Mono.from(result.map((row, meta) ->
+                    new RoundTripUserAddressRow(
+                        UserAddress.fromText(row.get("address", String.class))
+                    ))))
+                .switchIfEmpty(Mono.error(new java.util.NoSuchElementException("roundTripUserAddress: no rows returned")));
+        },
+        conn -> Mono.from(conn.close())
+    );
+}
+
+public static Mono<GetUserAsJsonRow> getUserAsJson(ConnectionFactory cf, int id) {
+    return Mono.usingWhen(
+        Mono.from(cf.create()),
+        conn -> {
+            var stmt = conn.createStatement("SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = $1");
+            stmt.bind(0, id);
+            return Mono.from(stmt.execute())
+                .flatMap(result -> Mono.from(result.map((row, meta) ->
+                    new GetUserAsJsonRow(
+                        row.get("payload", String.class)
+                    ))))
+                .switchIfEmpty(Mono.error(new java.util.NoSuchElementException("getUserAsJson: no rows returned")));
+        },
+        conn -> Mono.from(conn.close())
+    );
+}
+
+public static Mono<GetUsersAsJsonRow> getUsersAsJson(ConnectionFactory cf) {
+    return Mono.usingWhen(
+        Mono.from(cf.create()),
+        conn -> {
+            var stmt = conn.createStatement("SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u");
+            return Mono.from(stmt.execute())
+                .flatMap(result -> Mono.from(result.map((row, meta) ->
+                    new GetUsersAsJsonRow(
+                        row.get("payload", String.class)
+                    ))))
+                .switchIfEmpty(Mono.error(new java.util.NoSuchElementException("getUsersAsJson: no rows returned")));
+        },
+        conn -> Mono.from(conn.close())
+    );
+}
+
+public static Mono<GetUserOrdersAsJsonRow> getUserOrdersAsJson(ConnectionFactory cf, int id) {
+    return Mono.usingWhen(
+        Mono.from(cf.create()),
+        conn -> {
+            var stmt = conn.createStatement("SELECT json_agg(o.* ORDER BY o.id) AS payload FROM users u LEFT JOIN orders o ON o.user_id = u.id WHERE u.id = $1 GROUP BY u.id");
+            stmt.bind(0, id);
+            return Mono.from(stmt.execute())
+                .flatMap(result -> Mono.from(result.map((row, meta) ->
+                    new GetUserOrdersAsJsonRow(
+                        row.get("payload", String.class)
+                    ))))
+                .switchIfEmpty(Mono.error(new java.util.NoSuchElementException("getUserOrdersAsJson: no rows returned")));
         },
         conn -> Mono.from(conn.close())
     );

@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=typescript-pg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:57af1d7acc85e6c7
+// scythe:provenance v=0.16.1 backend=typescript-pg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:57af1d7acc85e6c7
 export const UserStatusValues = {
 	Active: "active",
 	Inactive: "inactive",
@@ -188,11 +188,51 @@ function parseUserAddressFields(text: string): (string | null)[] {
 	return fields;
 }
 
+function encodeUserAddress(value: UserAddress | null): string | null {
+	if (value === null) return null;
+	const encode = (field: unknown): string => {
+		const text = String(field);
+		if (text === "" || /[(),\"\\\s]/.test(text)) {
+			return `"${text.replaceAll("\\", "\\\\").replaceAll('\"', '\"\"')}"`;
+		}
+		return text;
+	};
+	return `(encode(value.street), encode(value.city), encode(value.zip))`;
+}
+
 /** Row type for GetUserProfile queries. */
 export interface GetUserProfileRow {
 	id: number;
 	secondary_status: UserStatus | null;
 	address: UserAddress | null;
+}
+
+
+
+/** Row type for RoundTripUserAddress queries. */
+export interface RoundTripUserAddressRow {
+	address: UserAddress | null;
+}
+
+
+
+/** Row type for GetUserAsJson queries. */
+export interface GetUserAsJsonRow {
+	payload: Record<string, unknown> | null;
+}
+
+
+
+/** Row type for GetUsersAsJson queries. */
+export interface GetUsersAsJsonRow {
+	payload: Record<string, unknown>[] | null;
+}
+
+
+
+/** Row type for GetUserOrdersAsJson queries. */
+export interface GetUserOrdersAsJsonRow {
+	payload: Record<string, unknown>[] | null;
 }
 
 

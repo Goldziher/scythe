@@ -67,6 +67,7 @@ func main() {
 	testSearchUsers(ctx, pool)
 	testDeleteOrdersByUser(ctx, pool)
 	testGetUserProfile(ctx, pool)
+	testRoundTripUserAddress(ctx, pool)
 	testDeleteUser(ctx, pool)
 
 	fmt.Printf("\nResults: %d passed, %d failed\n", passed, failed)
@@ -371,6 +372,28 @@ func testGetUserProfile(ctx context.Context, pool *pgxpool.Pool) {
 		return
 	}
 
+	pass(name)
+}
+
+func testRoundTripUserAddress(ctx context.Context, pool *pgxpool.Pool) {
+	name := "RoundTripUserAddress"
+	address := &queries.UserAddress{Street: `12 "Main", Apt \3`, City: "", Zip: "10115"}
+	present, err := queries.RoundTripUserAddress(ctx, pool, address)
+	if err != nil {
+		fail(name, err)
+		return
+	}
+	if !assertf(name, present.Address != nil && *present.Address == *address, "expected %#v, got %#v", address, present.Address) {
+		return
+	}
+	absent, err := queries.RoundTripUserAddress(ctx, pool, nil)
+	if err != nil {
+		fail(name, err)
+		return
+	}
+	if !assertf(name, absent.Address == nil, "expected nil, got %#v", absent.Address) {
+		return
+	}
 	pass(name)
 }
 

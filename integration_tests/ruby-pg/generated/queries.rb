@@ -1,7 +1,8 @@
 # frozen_string_literal: true
-# scythe:provenance v=0.16.1 backend=ruby-pg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
+# scythe:provenance v=0.16.1 backend=ruby-pg engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325
 
 require "bigdecimal/util"
+require "json"
 
 module Queries
   class RecordNotFound < StandardError; end
@@ -159,6 +160,23 @@ WHERE u.id = $1", [id])
       )
     end
 
+    def to_pg_text
+      "(" + [self.class._encode_composite_field(street), self.class._encode_composite_field(city), self.class._encode_composite_field(zip)].join(",") + ")"
+    end
+
+    def self._encode_composite_field(value)
+      return "" if value.nil?
+      raw = if value.respond_to?(:to_pg_text)
+        value.to_pg_text
+      elsif value.respond_to?(:value)
+        value.value.to_s
+      else
+        value.to_s
+      end
+      return raw unless raw.empty? || raw.match?(/[(),\"\\]/) || raw != raw.strip
+      '"' + raw.gsub('\\', '\\\\').gsub('"', '""') + '"'
+    end
+
     def self._parse_composite_fields(text)
       fields = []
       inner = text[1..-2]
@@ -211,6 +229,52 @@ WHERE u.id = $1", [id])
     raise RecordNotFound, "get_user_profile: no row found" if result.ntuples.zero?
     row = result[0]
     GetUserProfileRow.new(id: row["id"].to_i, secondary_status: row["secondary_status"]&.then { |v| v }, address: UserAddress.from_text(row["address"]))
+  end
+
+  RoundTripUserAddressRow = Data.define(:address)
+
+
+  def self.round_trip_user_address(conn, address)
+    result = conn.exec_params("INSERT INTO users (name, status, address)
+VALUES ('Composite Parameter Round Trip', 'active', $1::text::user_address)
+RETURNING address", [address&.to_pg_text])
+    raise RecordNotFound, "round_trip_user_address: no row found" if result.ntuples.zero?
+    row = result[0]
+    RoundTripUserAddressRow.new(address: UserAddress.from_text(row["address"]))
+  end
+
+  GetUserAsJsonRow = Data.define(:payload)
+
+
+  def self.get_user_as_json(conn, id)
+    result = conn.exec_params("SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = $1", [id])
+    raise RecordNotFound, "get_user_as_json: no row found" if result.ntuples.zero?
+    row = result[0]
+    GetUserAsJsonRow.new(payload: row["payload"]&.then { |v| JSON.parse(v) })
+  end
+
+  GetUsersAsJsonRow = Data.define(:payload)
+
+
+  def self.get_users_as_json(conn)
+    result = conn.exec_params("SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u", [])
+    raise RecordNotFound, "get_users_as_json: no row found" if result.ntuples.zero?
+    row = result[0]
+    GetUsersAsJsonRow.new(payload: row["payload"]&.then { |v| JSON.parse(v) })
+  end
+
+  GetUserOrdersAsJsonRow = Data.define(:payload)
+
+
+  def self.get_user_orders_as_json(conn, id)
+    result = conn.exec_params("SELECT json_agg(o.* ORDER BY o.id) AS payload
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+WHERE u.id = $1
+GROUP BY u.id", [id])
+    raise RecordNotFound, "get_user_orders_as_json: no row found" if result.ntuples.zero?
+    row = result[0]
+    GetUserOrdersAsJsonRow.new(payload: row["payload"]&.then { |v| JSON.parse(v) })
   end
 
 end

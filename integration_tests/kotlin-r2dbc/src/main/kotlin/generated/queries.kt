@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=kotlin-r2dbc engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.16.1 backend=kotlin-r2dbc engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325
 package generated
 
 import io.r2dbc.spi.ConnectionFactory
@@ -116,7 +116,17 @@ data class UserAddress(
     val city: String,
     val zip: String,
 ) {
+    fun toPgText(): String = listOf(street, city, zip).joinToString(",", "(", ")") { encodeCompositeField(it) }
+
     companion object {
+        private fun encodeCompositeField(value: Any?): String {
+            if (value == null) return ""
+            val raw = value.toString()
+            val quote = raw.isEmpty() || raw.any { it in charArrayOf('(', ')', ',', '"', '\\') } || raw != raw.trim()
+            if (!quote) return raw
+            return "\"" + raw.replace("\\", "\\\\").replace("\"", "\"\"") + "\""
+        }
+
         /**
          * ~keep board #196: r2dbc-postgresql has no codec for this composite -- an
          * unregistered `row.get(col, UserAddress::class.java)` is driver-codec-dependent and
@@ -194,6 +204,26 @@ data class GetUserProfileRow(
     val id: Int,
     val secondary_status: UserStatus?,
     val address: UserAddress?,
+)
+
+
+data class RoundTripUserAddressRow(
+    val address: UserAddress?,
+)
+
+
+data class GetUserAsJsonRow(
+    val payload: String?,
+)
+
+
+data class GetUsersAsJsonRow(
+    val payload: String?,
+)
+
+
+data class GetUserOrdersAsJsonRow(
+    val payload: String?,
 )
 
 
@@ -592,6 +622,114 @@ suspend fun getUserProfile(
                 )
             }
             .switchIfEmpty(Mono.error(java.util.NoSuchElementException("getUserProfile: no rows returned")))
+            .awaitFirst()
+    } finally {
+        Mono.from(conn.close()).awaitFirstOrNull()
+    }
+}
+
+
+suspend fun roundTripUserAddress(
+    cf: ConnectionFactory,
+    address: UserAddress?,
+): RoundTripUserAddressRow {
+    val conn = Mono.from(cf.create()).awaitFirst()
+    try {
+        val stmt = conn.createStatement("INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', \$1::text::user_address) RETURNING address")
+        if (address == null) {
+            stmt.bindNull(0, String::class.java)
+        } else {
+            stmt.bind(0, address.toPgText())
+        }
+        return Mono
+            .from(stmt.execute())
+            .flatMap { result ->
+                Mono.from(
+                    result.map { row, _ ->
+                        RoundTripUserAddressRow(
+                            address = UserAddress.fromText(row.get("address", String::class.java)),
+                        )
+                    },
+                )
+            }
+            .switchIfEmpty(Mono.error(java.util.NoSuchElementException("roundTripUserAddress: no rows returned")))
+            .awaitFirst()
+    } finally {
+        Mono.from(conn.close()).awaitFirstOrNull()
+    }
+}
+
+
+suspend fun getUserAsJson(
+    cf: ConnectionFactory,
+    id: Int,
+): GetUserAsJsonRow {
+    val conn = Mono.from(cf.create()).awaitFirst()
+    try {
+        val stmt = conn.createStatement("SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = \$1")
+        stmt.bind(0, id)
+        return Mono
+            .from(stmt.execute())
+            .flatMap { result ->
+                Mono.from(
+                    result.map { row, _ ->
+                        GetUserAsJsonRow(
+                            payload = row.get("payload", String::class.java),
+                        )
+                    },
+                )
+            }
+            .switchIfEmpty(Mono.error(java.util.NoSuchElementException("getUserAsJson: no rows returned")))
+            .awaitFirst()
+    } finally {
+        Mono.from(conn.close()).awaitFirstOrNull()
+    }
+}
+
+
+suspend fun getUsersAsJson(cf: ConnectionFactory): GetUsersAsJsonRow {
+    val conn = Mono.from(cf.create()).awaitFirst()
+    try {
+        val stmt = conn.createStatement("SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u")
+        return Mono
+            .from(stmt.execute())
+            .flatMap { result ->
+                Mono.from(
+                    result.map { row, _ ->
+                        GetUsersAsJsonRow(
+                            payload = row.get("payload", String::class.java),
+                        )
+                    },
+                )
+            }
+            .switchIfEmpty(Mono.error(java.util.NoSuchElementException("getUsersAsJson: no rows returned")))
+            .awaitFirst()
+    } finally {
+        Mono.from(conn.close()).awaitFirstOrNull()
+    }
+}
+
+
+suspend fun getUserOrdersAsJson(
+    cf: ConnectionFactory,
+    id: Int,
+): GetUserOrdersAsJsonRow {
+    val conn = Mono.from(cf.create()).awaitFirst()
+    try {
+        val stmt = conn.createStatement("SELECT json_agg(o.* ORDER BY o.id) AS payload FROM users u LEFT JOIN orders o ON o.user_id = u.id WHERE u.id = \$1 GROUP BY u.id")
+        stmt.bind(0, id)
+        return Mono
+            .from(stmt.execute())
+            .flatMap { result ->
+                Mono.from(
+                    result.map { row, _ ->
+                        GetUserOrdersAsJsonRow(
+                            payload = row.get("payload", String::class.java),
+                        )
+                    },
+                )
+            }
+            .switchIfEmpty(Mono.error(java.util.NoSuchElementException("getUserOrdersAsJson: no rows returned")))
             .awaitFirst()
     } finally {
         Mono.from(conn.close()).awaitFirstOrNull()

@@ -71,6 +71,7 @@ public class IntegrationTest {
         testGetUserOrders(cf);
         testCountUsersByStatus(cf);
         testSearchUsers(cf);
+        testRoundTripUserAddress(cf);
         // ~keep Runs after every order-counting assertion and immediately before the delete that
         // cleans both orders up: it adds a second order, and `orders.user_id` has no ON DELETE
         // CASCADE, so it cannot run any later than this without stranding a row that DeleteUser
@@ -328,6 +329,7 @@ public class IntegrationTest {
             testCountUsersByStatus(conn);
             testSearchUsers(conn);
             testGetUserProfileNullable(conn);
+            testRoundTripUserAddress(conn);
             testDeleteOrdersByUser(conn);
             testDeleteUser(conn);
         }

@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=typescript-kysely engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.16.1 backend=typescript-kysely engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325
 import { type QueryExecutorProvider, sql } from "kysely";
 
 
@@ -323,6 +323,18 @@ function parseUserAddressFields(text: string): (string | null)[] {
 	return fields;
 }
 
+function encodeUserAddress(value: UserAddress | null): string | null {
+	if (value === null) return null;
+	const encode = (field: unknown): string => {
+		const text = String(field);
+		if (text === "" || /[(),\"\\\s]/.test(text)) {
+			return `"${text.replaceAll("\\", "\\\\").replaceAll('\"', '\"\"')}"`;
+		}
+		return text;
+	};
+	return `(encode(value.street), encode(value.city), encode(value.zip))`;
+}
+
 /** Row type for GetUserProfile queries. */
 export interface GetUserProfileRow {
 	id: number;
@@ -344,4 +356,84 @@ export async function getUserProfile(
 		...row,
 		address: parseUserAddress(row.address) as UserAddress | null,
 	};
+}
+
+/** Row type for RoundTripUserAddress queries. */
+export interface RoundTripUserAddressRow {
+	address: UserAddress | null;
+}
+
+/** Fetch a single RoundTripUserAddressRow. */
+export async function roundTripUserAddress(
+	db: QueryExecutorProvider,
+	address: UserAddress | null,
+): Promise<RoundTripUserAddressRow> {
+	const result = await sql<RoundTripUserAddressRow>`INSERT INTO users (name, status, address)
+VALUES ('Composite Parameter Round Trip', 'active', ${encodeUserAddress(address)})
+RETURNING address`.execute(db);
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: RoundTripUserAddress");
+	}
+	return {
+		...row,
+		address: parseUserAddress(row.address) as UserAddress | null,
+	};
+}
+
+/** Row type for GetUserAsJson queries. */
+export interface GetUserAsJsonRow {
+	payload: Record<string, unknown> | null;
+}
+
+/** Fetch a single GetUserAsJsonRow. */
+export async function getUserAsJson(
+	db: QueryExecutorProvider,
+	id: number,
+): Promise<GetUserAsJsonRow> {
+	const result = await sql<GetUserAsJsonRow>`SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = ${id}`.execute(db);
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUserAsJson");
+	}
+	return row;
+}
+
+/** Row type for GetUsersAsJson queries. */
+export interface GetUsersAsJsonRow {
+	payload: Record<string, unknown>[] | null;
+}
+
+/** Fetch a single GetUsersAsJsonRow. */
+export async function getUsersAsJson(
+	db: QueryExecutorProvider,
+): Promise<GetUsersAsJsonRow> {
+	const result = await sql<GetUsersAsJsonRow>`SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u`.execute(db);
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUsersAsJson");
+	}
+	return row;
+}
+
+/** Row type for GetUserOrdersAsJson queries. */
+export interface GetUserOrdersAsJsonRow {
+	payload: Record<string, unknown>[] | null;
+}
+
+/** Fetch a single GetUserOrdersAsJsonRow. */
+export async function getUserOrdersAsJson(
+	db: QueryExecutorProvider,
+	id: number,
+): Promise<GetUserOrdersAsJsonRow> {
+	const result = await sql<GetUserOrdersAsJsonRow>`SELECT json_agg(o.* ORDER BY o.id) AS payload
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+WHERE u.id = ${id}
+GROUP BY u.id`.execute(db);
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUserOrdersAsJson");
+	}
+	return row;
 }

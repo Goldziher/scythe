@@ -137,6 +137,8 @@ import {
 	deleteUser,
 {%- if engine == "postgresql" and (driver == "pg" or driver == "kysely-pg" or driver == "postgres") %}
 	getUserProfile,
+	roundTripUserAddress,
+	type UserAddress,
 {%- endif %}
 {%- if engine == "postgresql" %}
 {%- if (driver == "pg" or driver == "kysely-pg") and options.row_type != "zod" %}
@@ -632,6 +634,21 @@ async function main(): Promise<void> {
 		);
 		pass("GetUserProfile", "GetUserProfile (nullable enum + composite)");
 
+		const compositeAddress: UserAddress = {
+			street: '12 "Main", Apt \\3',
+			city: "",
+			zip: "10115",
+		};
+		const roundTrippedAddress = await roundTripUserAddress(client, compositeAddress);
+		assert(
+			JSON.stringify(roundTrippedAddress.address) === JSON.stringify(compositeAddress),
+			"RoundTripUserAddress",
+			`expected ${JSON.stringify(compositeAddress)}, got ${JSON.stringify(roundTrippedAddress.address)}`,
+		);
+		const roundTrippedNull = await roundTripUserAddress(client, null);
+		assert(roundTrippedNull.address === null, "RoundTripUserAddress", "expected null composite");
+		pass("RoundTripUserAddress", "RoundTripUserAddress (escaped fields + null)");
+
 		await deleteUser(client, presentId);
 		await deleteUser(client, absentId);
 		await deleteUser(client, quotedId);
@@ -987,6 +1004,21 @@ async function main(): Promise<void> {
 		);
 		pass("GetUserProfile", "GetUserProfile (nullable enum + composite)");
 
+		const compositeAddress: UserAddress = {
+			street: '12 "Main", Apt \\3',
+			city: "",
+			zip: "10115",
+		};
+		const roundTrippedAddress = await roundTripUserAddress(db, compositeAddress);
+		assert(
+			JSON.stringify(roundTrippedAddress.address) === JSON.stringify(compositeAddress),
+			"RoundTripUserAddress",
+			`expected ${JSON.stringify(compositeAddress)}, got ${JSON.stringify(roundTrippedAddress.address)}`,
+		);
+		const roundTrippedNull = await roundTripUserAddress(db, null);
+		assert(roundTrippedNull.address === null, "RoundTripUserAddress", "expected null composite");
+		pass("RoundTripUserAddress", "RoundTripUserAddress (escaped fields + null)");
+
 		await deleteUser(db, presentId);
 		await deleteUser(db, absentId);
 		await deleteUser(db, quotedId);
@@ -1193,6 +1225,21 @@ async function main(): Promise<void> {
 			`expected address.zip '10115', got ${quotedProfile.address!.zip}`,
 		);
 		pass("GetUserProfile", "GetUserProfile (nullable enum + composite)");
+
+		const compositeAddress: UserAddress = {
+			street: '12 "Main", Apt \\3',
+			city: "",
+			zip: "10115",
+		};
+		const roundTrippedAddress = await roundTripUserAddress(sql, compositeAddress);
+		assert(
+			JSON.stringify(roundTrippedAddress.address) === JSON.stringify(compositeAddress),
+			"RoundTripUserAddress",
+			`expected ${JSON.stringify(compositeAddress)}, got ${JSON.stringify(roundTrippedAddress.address)}`,
+		);
+		const roundTrippedNull = await roundTripUserAddress(sql, null);
+		assert(roundTrippedNull.address === null, "RoundTripUserAddress", "expected null composite");
+		pass("RoundTripUserAddress", "RoundTripUserAddress (escaped fields + null)");
 
 		await deleteUser(sql, presentId);
 		await deleteUser(sql, absentId);

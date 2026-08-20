@@ -1,4 +1,4 @@
-# scythe:provenance v=0.16.1 backend=elixir-ecto engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:a78685f58b075ff5 options=opt1:cbf29ce484222325
+# scythe:provenance v=0.16.1 backend=elixir-ecto engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325
 defmodule UserStatus do
   @moduledoc "Enum type for user_status."
 
@@ -158,6 +158,10 @@ defmodule UserAddress do
       zip: zip,
     }
   end
+
+  def to_tuple(%__MODULE__{} = value) do
+    {value.street, value.city, value.zip}
+  end
 end
 
 defmodule GetUserProfileRow do
@@ -169,6 +173,42 @@ defmodule GetUserProfileRow do
     address: UserAddress | nil
   }
   defstruct [:id, :secondary_status, :address]
+end
+
+defmodule RoundTripUserAddressRow do
+  @moduledoc "Row type for RoundTripUserAddress queries."
+
+  @type t :: %__MODULE__{
+    address: UserAddress | nil
+  }
+  defstruct [:address]
+end
+
+defmodule GetUserAsJsonRow do
+  @moduledoc "Row type for GetUserAsJson queries."
+
+  @type t :: %__MODULE__{
+    payload: map() | nil
+  }
+  defstruct [:payload]
+end
+
+defmodule GetUsersAsJsonRow do
+  @moduledoc "Row type for GetUsersAsJson queries."
+
+  @type t :: %__MODULE__{
+    payload: list(map()) | nil
+  }
+  defstruct [:payload]
+end
+
+defmodule GetUserOrdersAsJsonRow do
+  @moduledoc "Row type for GetUserOrdersAsJson queries."
+
+  @type t :: %__MODULE__{
+    payload: list(map()) | nil
+  }
+  defstruct [:payload]
 end
 
 defmodule Scythe.Queries do
@@ -341,6 +381,56 @@ def get_user_profile(repo, id) do
     {:ok, %{rows: [row | _]}} ->
       [id, secondary_status, address] = row
       {:ok, %GetUserProfileRow{id: id, secondary_status: secondary_status, address: UserAddress.from_tuple(address)}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec round_trip_user_address(Ecto.Repo.t(), UserAddress | nil) :: {:ok, %RoundTripUserAddressRow{}} | {:error, :not_found} | {:error, term()}
+def round_trip_user_address(repo, address) do
+  case Ecto.Adapters.SQL.query(repo, "INSERT INTO users (name, status, address)
+VALUES ('Composite Parameter Round Trip', 'active', $1)
+RETURNING address", [if(is_nil(address), do: nil, else: UserAddress.to_tuple(address))], []) do
+    {:ok, %{rows: [row | _]}} ->
+      [address] = row
+      {:ok, %RoundTripUserAddressRow{address: UserAddress.from_tuple(address)}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec get_user_as_json(Ecto.Repo.t(), integer()) :: {:ok, %GetUserAsJsonRow{}} | {:error, :not_found} | {:error, term()}
+def get_user_as_json(repo, id) do
+  case Ecto.Adapters.SQL.query(repo, "SELECT row_to_json(u.*) AS payload FROM users u WHERE u.id = $1", [id], []) do
+    {:ok, %{rows: [row | _]}} ->
+      [payload] = row
+      {:ok, %GetUserAsJsonRow{payload: payload}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec get_users_as_json(Ecto.Repo.t()) :: {:ok, %GetUsersAsJsonRow{}} | {:error, :not_found} | {:error, term()}
+def get_users_as_json(repo) do
+  case Ecto.Adapters.SQL.query(repo, "SELECT jsonb_agg(u.* ORDER BY u.id) AS payload FROM users u", [], []) do
+    {:ok, %{rows: [row | _]}} ->
+      [payload] = row
+      {:ok, %GetUsersAsJsonRow{payload: payload}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec get_user_orders_as_json(Ecto.Repo.t(), integer()) :: {:ok, %GetUserOrdersAsJsonRow{}} | {:error, :not_found} | {:error, term()}
+def get_user_orders_as_json(repo, id) do
+  case Ecto.Adapters.SQL.query(repo, "SELECT json_agg(o.* ORDER BY o.id) AS payload
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+WHERE u.id = $1
+GROUP BY u.id", [id], []) do
+    {:ok, %{rows: [row | _]}} ->
+      [payload] = row
+      {:ok, %GetUserOrdersAsJsonRow{payload: payload}}
     {:ok, %{rows: []}} -> {:error, :not_found}
     {:error, err} -> {:error, err}
   end

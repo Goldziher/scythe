@@ -1,4 +1,4 @@
-// scythe:provenance v=0.16.1 backend=rust-sqlx engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:2bf05f8805c8aa22 options=opt1:57af1d7acc85e6c7
+// scythe:provenance v=0.16.1 backend=rust-sqlx engine=postgresql schema=sch1:c247390d575b8f71 queries=q1:c96004910bdb030a options=opt1:57af1d7acc85e6c7
 #![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type, serde::Serialize, serde::Deserialize)]
@@ -67,4 +67,9 @@ pub struct UserAddress {
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetUserAsJsonRow {
     pub payload: Option<sqlx::types::Json<GetUserAsJsonRowPayload>>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct RoundTripUserAddressRow {
+    pub address: Option<UserAddress>,
 }

@@ -14,7 +14,10 @@
 #[allow(dead_code, unused_imports, clippy::all)]
 mod queries;
 
-use queries::{GetUserAsJsonRow, GetUsersWithOrdersOuterRow, GetUsersWithOrdersRow, UserStatus};
+use queries::{
+    GetUserAsJsonRow, GetUsersWithOrdersOuterRow, GetUsersWithOrdersRow, RoundTripUserAddressRow, UserAddress,
+    UserStatus,
+};
 use rust_decimal::Decimal;
 use sqlx::postgres::PgPoolOptions;
 use std::str::FromStr;
@@ -160,6 +163,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_test!(second.email.is_none(), "GetUserAsJson");
     assert_test!(second.status == UserStatus::Inactive, "GetUserAsJson");
     pass!("GetUserAsJson");
+
+    let address = UserAddress {
+        street: r#"12 "Main", Apt \3"#.to_string(),
+        city: String::new(),
+        zip: "10115".to_string(),
+    };
+    let present: RoundTripUserAddressRow = sqlx::query_as(
+        "INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', $1) RETURNING address",
+    )
+    .bind(Some(address.clone()))
+    .fetch_one(&pool)
+    .await?;
+    let returned = present.address.expect("composite address present");
+    assert_test!(returned.street == address.street, "RoundTripUserAddress street");
+    assert_test!(returned.city == address.city, "RoundTripUserAddress city");
+    assert_test!(returned.zip == address.zip, "RoundTripUserAddress zip");
+    let absent: RoundTripUserAddressRow = sqlx::query_as(
+        "INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', $1) RETURNING address",
+    )
+    .bind(Option::<UserAddress>::None)
+    .fetch_one(&pool)
+    .await?;
+    assert_test!(absent.address.is_none(), "RoundTripUserAddress null");
+    pass!("RoundTripUserAddress");
 
     println!("All nested-aggregate integration tests passed.");
     Ok(())

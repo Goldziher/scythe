@@ -8,6 +8,8 @@ import {
 	deleteOrdersByUser,
 	deleteUser,
 	getUserProfile,
+	roundTripUserAddress,
+	type UserAddress,
 	UserStatus,
 } from "./generated/queries.js";
 
@@ -272,6 +274,21 @@ async function main(): Promise<void> {
 			`expected address.zip '10115', got ${quotedProfile.address!.zip}`,
 		);
 		pass("GetUserProfile", "GetUserProfile (nullable enum + composite)");
+
+		const compositeAddress: UserAddress = {
+			street: '12 "Main", Apt \\3',
+			city: "",
+			zip: "10115",
+		};
+		const roundTrippedAddress = await roundTripUserAddress(sql, compositeAddress);
+		assert(
+			JSON.stringify(roundTrippedAddress.address) === JSON.stringify(compositeAddress),
+			"RoundTripUserAddress",
+			`expected ${JSON.stringify(compositeAddress)}, got ${JSON.stringify(roundTrippedAddress.address)}`,
+		);
+		const roundTrippedNull = await roundTripUserAddress(sql, null);
+		assert(roundTrippedNull.address === null, "RoundTripUserAddress", "expected null composite");
+		pass("RoundTripUserAddress", "RoundTripUserAddress (escaped fields + null)");
 
 		await deleteUser(sql, presentId);
 		await deleteUser(sql, absentId);
