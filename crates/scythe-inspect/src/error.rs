@@ -2,6 +2,35 @@
 
 use thiserror::Error;
 
+/// Safe, stable categories for schema-file failures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub enum SchemaExecutionErrorCategory {
+    /// The schema file could not be read.
+    Read,
+    /// The embedded database rejected the schema SQL.
+    SqlRejected,
+}
+
+impl SchemaExecutionErrorCategory {
+    /// Stable code suitable for conversion at language boundaries.
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Read => "SCHEMA_READ_ERROR",
+            Self::SqlRejected => "SCHEMA_SQL_REJECTED",
+        }
+    }
+}
+
+impl std::fmt::Display for SchemaExecutionErrorCategory {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Read => formatter.write_str("schema file could not be read"),
+            Self::SqlRejected => formatter.write_str("database rejected schema SQL"),
+        }
+    }
+}
+
 /// Render an error together with its full `source()` chain.
 ///
 /// `tokio_postgres::Error` displays as a bare `"db error"` — the SQLSTATE and
@@ -24,8 +53,8 @@ pub fn error_chain(error: &dyn std::error::Error) -> String {
 pub enum InspectError {
     /// Reading or executing one configured schema file failed.
     #[error(
-        "{engine} schema file `{path}` failed while {operation}: {}",
-        error_chain(&**source),
+        "{engine} schema file `{path}` failed while {operation} [{code}]: {category}",
+        code = category.code(),
         path = path.display()
     )]
     SchemaExecution {
@@ -35,9 +64,8 @@ pub enum InspectError {
         path: std::path::PathBuf,
         /// Operation in progress when the failure occurred.
         operation: &'static str,
-        /// Underlying filesystem or database error.
-        #[source]
-        source: Box<dyn std::error::Error + Send + Sync>,
+        /// Sanitized category. The engine error is deliberately not retained because it may echo SQL.
+        category: SchemaExecutionErrorCategory,
     },
 
     /// Engine introspection produced definitions rejected by the catalog boundary.

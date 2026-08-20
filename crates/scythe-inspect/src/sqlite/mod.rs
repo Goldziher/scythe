@@ -32,7 +32,7 @@ use scythe_core::catalog::{
 };
 use scythe_core::dialect::SqlDialect;
 
-use crate::error::InspectError;
+use crate::error::{InspectError, SchemaExecutionErrorCategory};
 use crate::schema_diff::model::{ColumnDescription, SchemaDescription, TableDescription, object_key};
 use crate::schema_diff::source::SchemaCatalogDriver;
 
@@ -56,19 +56,19 @@ pub fn execute_sqlite_schema_files(paths: &[PathBuf]) -> Result<Catalog, Inspect
     })?;
 
     for path in paths {
-        let sql = std::fs::read_to_string(path).map_err(|source| InspectError::SchemaExecution {
+        let sql = std::fs::read_to_string(path).map_err(|_| InspectError::SchemaExecution {
             engine: SQLITE_ENGINE,
             path: path.clone(),
             operation: "reading schema SQL",
-            source: Box::new(source),
+            category: SchemaExecutionErrorCategory::Read,
         })?;
         connection
             .execute_batch(&sql)
-            .map_err(|source| InspectError::SchemaExecution {
+            .map_err(|_| InspectError::SchemaExecution {
                 engine: SQLITE_ENGINE,
                 path: path.clone(),
                 operation: "executing schema DDL",
-                source: Box::new(source),
+                category: SchemaExecutionErrorCategory::SqlRejected,
             })?;
     }
 

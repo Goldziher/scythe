@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use scythe_core::catalog::{GeneratedColumnKind, RelationKind};
 use scythe_inspect::execute_sqlite_schema_files;
 
+const SECRET_SENTINEL: &str = "SCYTHE_SECRET_SENTINEL";
+
 fn write_schema(directory: &Path, name: &str, sql: &str) -> PathBuf {
     let path = directory.join(name);
     std::fs::write(&path, sql).expect("write schema file");
@@ -73,13 +75,20 @@ fn should_support_typeless_and_virtual_generated_columns() {
 #[test]
 fn should_report_engine_file_and_operation_for_invalid_sql() {
     let directory = tempfile::tempdir().expect("temp directory");
-    let schema = write_schema(directory.path(), "broken.sql", "CREATE TABL broken (id INTEGER);");
+    let schema = write_schema(
+        directory.path(),
+        "broken.sql",
+        "CREATE TABL broken (secret TEXT DEFAULT 'SCYTHE_SECRET_SENTINEL');",
+    );
 
     let error = execute_sqlite_schema_files(std::slice::from_ref(&schema)).expect_err("invalid SQL must fail");
     let rendered = error.to_string();
     assert!(rendered.contains("sqlite"), "{rendered}");
     assert!(rendered.contains(&schema.display().to_string()), "{rendered}");
     assert!(rendered.contains("executing schema DDL"), "{rendered}");
+    assert!(rendered.contains("SCHEMA_SQL_REJECTED"), "{rendered}");
+    assert!(!rendered.contains(SECRET_SENTINEL), "{rendered}");
+    assert!(!rendered.contains("CREATE TABL"), "{rendered}");
 }
 
 #[test]

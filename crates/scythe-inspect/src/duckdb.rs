@@ -9,7 +9,7 @@ use scythe_core::catalog::{
 };
 use scythe_core::dialect::SqlDialect;
 
-use crate::error::InspectError;
+use crate::error::{InspectError, SchemaExecutionErrorCategory};
 
 const DUCKDB_ENGINE: &str = "duckdb";
 const INTERNAL_SCHEMAS: [&str; 2] = ["information_schema", "pg_catalog"];
@@ -23,19 +23,19 @@ const INTERNAL_SCHEMAS: [&str; 2] = ["information_schema", "pg_catalog"];
 pub fn execute_duckdb_schema_files(paths: &[PathBuf]) -> Result<Catalog, InspectError> {
     let connection = open_secured_connection()?;
     for path in paths {
-        let sql = std::fs::read_to_string(path).map_err(|source| InspectError::SchemaExecution {
+        let sql = std::fs::read_to_string(path).map_err(|_| InspectError::SchemaExecution {
             engine: DUCKDB_ENGINE,
             path: path.clone(),
             operation: "reading schema SQL",
-            source: Box::new(source),
+            category: SchemaExecutionErrorCategory::Read,
         })?;
         connection
             .execute_batch(&sql)
-            .map_err(|source| InspectError::SchemaExecution {
+            .map_err(|_| InspectError::SchemaExecution {
                 engine: DUCKDB_ENGINE,
                 path: path.clone(),
                 operation: "executing schema DDL",
-                source: Box::new(source),
+                category: SchemaExecutionErrorCategory::SqlRejected,
             })?;
     }
     build_catalog(&connection)

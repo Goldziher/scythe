@@ -82,7 +82,8 @@ fn all_configured_commands_use_execute_without_parse_fallback() {
         assert!(error.contains("schema_source=execute"), "{command} stderr: {error}");
         assert!(error.contains("engine `sqlite`"), "{command} stderr: {error}");
         assert!(error.contains("schema.sql"), "{command} stderr: {error}");
-        assert!(error.contains("already exists"), "{command} stderr: {error}");
+        assert!(error.contains("SCHEMA_SQL_REJECTED"), "{command} stderr: {error}");
+        assert!(!error.contains("CREATE TABLE"), "{command} stderr: {error}");
     }
 }
 
