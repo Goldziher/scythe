@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 from scythe_sql.version_utils import (
     PlaceholderVersionError,

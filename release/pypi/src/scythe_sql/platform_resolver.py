@@ -10,8 +10,6 @@ Release assets published by goreleaser (verified against the v0.12.0 release):
 There is no musl target and no aarch64 Windows asset.
 """
 
-from __future__ import annotations
-
 import sys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass

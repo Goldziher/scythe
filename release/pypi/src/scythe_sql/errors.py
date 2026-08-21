@@ -1,7 +1,5 @@
 """Shared base exception for every failure this wrapper raises."""
 
-from __future__ import annotations
-
 
 class ScytheSqlError(RuntimeError):
     """Base class for all scythe-sql wrapper failures.

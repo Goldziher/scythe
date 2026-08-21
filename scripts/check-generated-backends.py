@@ -41,8 +41,6 @@ Usage: scripts/check-generated-backends.py [--keep]
   --keep  Print the scratch workspace path instead of deleting it on exit.
 """
 
-from __future__ import annotations
-
 import glob
 import os
 import shutil

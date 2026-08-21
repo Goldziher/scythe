@@ -6,8 +6,6 @@ and `ProxyHandler`, unlike Node's `fetch`. Only the CA bundle path needs
 explicit resolution, since Python has no single standard env var for it.
 """
 
-from __future__ import annotations
-
 
 def resolve_ca_file(env: dict[str, str]) -> str | None:
     """Resolves the CA bundle file path to trust, honouring pip's and requests' conventions.

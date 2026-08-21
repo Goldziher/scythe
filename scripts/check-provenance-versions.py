@@ -27,8 +27,6 @@ Usage: scripts/check-provenance-versions.py
 Exit status: 0 if every header agrees, 1 otherwise.
 """
 
-from __future__ import annotations
-
 import os
 import re
 import sys

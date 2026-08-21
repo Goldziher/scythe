@@ -1,7 +1,5 @@
 """Download and cache the platform-specific scythe binary."""
 
-from __future__ import annotations
-
 import os
 import platform
 import stat

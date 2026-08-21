@@ -1,7 +1,5 @@
 """Checksum parsing and verification for goreleaser checksum files."""
 
-from __future__ import annotations
-
 import hashlib
 import re
 

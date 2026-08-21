@@ -7,8 +7,6 @@ argument) right before `uv build`, so the built wheel/sdist carry the real
 version. Never run this against a checkout you intend to commit.
 """
 
-from __future__ import annotations
-
 import re
 import sys
 from pathlib import Path

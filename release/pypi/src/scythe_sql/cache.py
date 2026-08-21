@@ -1,7 +1,5 @@
 """Cache directory resolution for the downloaded scythe binary."""
 
-from __future__ import annotations
-
 import os
 from pathlib import Path
 

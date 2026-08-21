@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 from scythe_sql.extract import BinaryNotFoundError, find_binary_entry
 

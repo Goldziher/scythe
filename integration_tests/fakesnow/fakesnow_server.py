@@ -9,8 +9,6 @@ https://github.com/tekumara/fakesnow/pull/313 while keeping CI pinned to a
 released fakesnow version.
 """
 
-from __future__ import annotations
-
 import asyncio
 import gzip
 import importlib

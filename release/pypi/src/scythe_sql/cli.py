@@ -8,8 +8,6 @@ kernel propagate the exit code. Never writes into site-packages at runtime --
 that breaks read-only installs, containers, and `pip install --user`.
 """
 
-from __future__ import annotations
-
 import os
 import sys
 

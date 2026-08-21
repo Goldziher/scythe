@@ -1,7 +1,5 @@
 """Version string parsing and the 0.0.0 placeholder guard."""
 
-from __future__ import annotations
-
 import re
 
 from scythe_sql.errors import ScytheSqlError

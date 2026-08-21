@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from scythe_sql.preinstalled import has_matching_path_binary
 
 

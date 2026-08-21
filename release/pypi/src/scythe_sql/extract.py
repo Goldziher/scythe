@@ -4,8 +4,6 @@ The archive also contains LICENSE/README (goreleaser default), so callers
 must not assume a fixed path inside the archive -- search by basename.
 """
 
-from __future__ import annotations
-
 import io
 import os
 import stat

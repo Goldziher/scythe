@@ -6,8 +6,6 @@ serving a synthetic release rather than mocked out -- hermetic and offline, but
 still through `urllib`.
 """
 
-from __future__ import annotations
-
 import http.server
 import io
 import os
@@ -78,7 +76,7 @@ class ReleaseServer:
         # The default 0.5s poll interval is paid back on every shutdown().
         self._thread = threading.Thread(target=self._server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
 
-    def __enter__(self) -> ReleaseServer:
+    def __enter__(self) -> "ReleaseServer":
         self._thread.start()
         return self
 

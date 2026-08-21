@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 
 from scythe_sql.cache import cached_binary_path, resolve_cache_root
