@@ -58,6 +58,51 @@ cd scythe
 cargo install --path crates/scythe-cli
 ```
 
+## GitHub Actions
+
+Use the moving `v0` action to install the latest scythe release, verify its checksum, and add it to
+`PATH`:
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - name: Install scythe
+    id: scythe
+    uses: Goldziher/scythe@v0
+  - run: scythe --version
+```
+
+`v0` tracks the latest compatible action implementation. By default, the action resolves the latest
+scythe GitHub release using `github.token` and caches the installed binary by version, operating
+system, and runner architecture. Pin the CLI version independently when reproducibility matters:
+
+```yaml
+- name: Install scythe 0.18.0 without caching
+  id: scythe
+  uses: Goldziher/scythe@v0
+  with:
+    version: 0.18.0
+    cache: false
+- run: scythe check
+```
+
+The `version` input accepts `0.18.0` or `v0.18.0`; omit it or pass `latest` to resolve the latest
+release. Set `github-token` only when the default workflow token cannot read release metadata.
+
+Every download is checked against the release's SHA-256 checksum file before installation. The
+action supports native x64 and ARM64 Linux and macOS runners. Windows x64 and ARM64 runners install
+the x64 Windows binary; Windows ARM64 therefore requires x64 emulation.
+
+The step exposes these outputs:
+
+| Output | Value |
+| --- | --- |
+| `version` | Installed version without the `v` prefix |
+| `target` | Installed Rust target triple |
+| `install-dir` | Directory added to `PATH` |
+
+Reference them through the step id, for example `${{ steps.scythe.outputs.version }}`.
+
 ## Pre-commit / prek
 
 If you only need scythe for pre-commit hooks, add it directly to your `.pre-commit-config.yaml`:

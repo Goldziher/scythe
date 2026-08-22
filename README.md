@@ -75,11 +75,16 @@ pip install scythe-sql
 Install scythe in a GitHub Actions workflow with the moving major-version action:
 
 ```yaml
-- uses: Goldziher/scythe@v0
+- name: Install scythe
+  id: scythe
+  uses: Goldziher/scythe@v0
+- run: scythe --version
 ```
 
-Pass `version: 0.18.0` under `with` to pin the downloaded binary. The action verifies the release
-checksum, caches the binary by version and platform, and adds `scythe` to `PATH`.
+`v0` tracks the latest compatible action. Pin the downloaded CLI independently with
+`version: 0.18.0`, or set `cache: false` to disable the version-and-platform cache. The action
+verifies the release SHA-256 checksum, adds `scythe` to `PATH`, and exposes `version`, `target`, and
+`install-dir` outputs.
 
 See [Installation](https://goldziher.github.io/scythe/getting-started/installation/) for supported
 platforms, proxy configuration and cache control.
@@ -95,7 +100,7 @@ repos:
       - id: scythe-fmt        # format SQL
       - id: scythe-lint       # lint with auto-fix
       - id: scythe-audit      # SC-SEC*/SC-RLS*/SC-MIG*/SC-CHK*
-      - id: scythe-inspect    # live-DB checks, needs $DATABASE_URL
+      - id: scythe-inspect    # live-DB checks, needs a configured database URL
       - id: scythe-generate   # regenerate on SQL changes
       - id: scythe-check      # validate without generating
 ```
@@ -105,7 +110,7 @@ minutes. If you already have the binary on `PATH` (via `brew`, `npm` or `pip` ab
 `language: system` to a hook to use it directly instead.
 
 See [Pre-commit hooks](https://goldziher.github.io/scythe/guide/pre-commit-hooks/) for the full
-table and per-hook configuration.
+table, native Poly producer setup, and per-hook configuration.
 
 </details>
 
