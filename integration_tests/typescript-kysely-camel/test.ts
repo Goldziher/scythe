@@ -64,12 +64,16 @@ function assertNestedJson(
 		"row_to_json composite must use its JSON DTO",
 	);
 	assert(
-		typeof single.payload?.created_at === "string",
+		typeof single.payload?.createdAt === "string",
 		"NestedJson",
 		"JSON timestamps must use their serialized string representation",
 	);
 	const aggregateUser = many.payload?.find((candidate) => candidate.id === expectedUserId);
-	assert(aggregateUser?.secondary_status === "inactive", "NestedJson", "jsonb_agg enum must stay typed");
+	assert(
+		aggregateUser?.secondaryStatus === "inactive",
+		"NestedJson",
+		"jsonb_agg enum must stay typed",
+	);
 	assert(
 		typeof orders.payload?.[0]?.total === "number",
 		"NestedJson",

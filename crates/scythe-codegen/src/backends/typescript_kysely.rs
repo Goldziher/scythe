@@ -13,10 +13,11 @@ use crate::backend_trait::GroupedQueryFn;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
     TsFieldCase, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
-    generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_json_composite_interface,
-    generate_ts_nested_interface, generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs,
-    generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option, ts_index_access, ts_member_access,
-    ts_property_key, ts_row_not_found_throw,
+    generate_ts_grouped_fold_body, generate_ts_interface_row_struct,
+    generate_ts_json_composite_interface_with_field_case, generate_ts_nested_interface_with_field_case,
+    generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs, generate_zod_row_struct,
+    generate_zod_union_row_struct, parse_bool_option, ts_index_access, ts_member_access, ts_property_key,
+    ts_row_not_found_throw,
 };
 
 /// Board #204: whatever driver the caller's `Kysely<DB>`/`QueryExecutorProvider` wraps (`pg`
@@ -936,14 +937,18 @@ impl CodegenBackend for TypescriptKyselyBackend {
         if !self.manifest.types.containers.contains_key("json_nested") {
             return Ok(None);
         }
-        Ok(generate_ts_nested_interface(nested, &self.manifest).ok())
+        Ok(generate_ts_nested_interface_with_field_case(nested, &self.manifest, self.field_case).ok())
     }
 
     fn generate_composite_def_for_nested(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
         let mut out = self.generate_composite_def(composite)?;
         if self.manifest.types.containers.contains_key("json_nested") {
             out.push_str("\n\n");
-            out.push_str(&generate_ts_json_composite_interface(composite, &self.manifest)?);
+            out.push_str(&generate_ts_json_composite_interface_with_field_case(
+                composite,
+                &self.manifest,
+                self.field_case,
+            )?);
         }
         Ok(out)
     }
@@ -991,7 +996,10 @@ mod tests {
     use super::{TsFieldCase, TypescriptKyselyBackend, ts_composite_field_overrides};
     use crate::GeneratedCode;
     use crate::backend_trait::CodegenBackend;
-    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedParam, AnalyzedQuery, GroupByConfig};
+    use scythe_core::analyzer::{
+        AnalyzedColumn, AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, GroupByConfig,
+        NestedFieldInfo, NestedStructInfo,
+    };
     use scythe_core::parser::QueryCommand;
 
     fn make_grouped_query() -> AnalyzedQuery {
@@ -1730,6 +1738,60 @@ mod tests {
             !row_struct.contains("user_id"),
             "must not leave the raw SQL name in the declaration; got:\n{row_struct}"
         );
+    }
+
+    #[test]
+    fn test_camel_case_plugin_shapes_nested_json_interface_keys() {
+        let mut backend = TypescriptKyselyBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "field_case".to_string(),
+                "camelCase".to_string(),
+            )]))
+            .unwrap();
+        let nested = NestedStructInfo {
+            name: "get_users_as_json_row_payload".to_string(),
+            fields: vec![NestedFieldInfo {
+                name: "secondary_status".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: true,
+            }],
+        };
+
+        let generated = backend
+            .generate_nested_struct_def(&nested)
+            .unwrap()
+            .expect("nested JSON interface");
+
+        assert!(
+            generated.contains("secondaryStatus: string | null;"),
+            "got:\n{generated}"
+        );
+        assert!(!generated.contains("secondary_status:"), "got:\n{generated}");
+    }
+
+    #[test]
+    fn test_camel_case_plugin_shapes_json_composite_interface_keys() {
+        let mut backend = TypescriptKyselyBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "field_case".to_string(),
+                "camelCase".to_string(),
+            )]))
+            .unwrap();
+        let composite = CompositeInfo {
+            sql_name: "user_address".to_string(),
+            fields: vec![CompositeFieldInfo {
+                name: "postal_code".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            }],
+        };
+
+        let generated = backend.generate_composite_def_for_nested(&composite).unwrap();
+
+        assert!(generated.contains("postalCode: string;"), "got:\n{generated}");
+        assert!(!generated.contains("postal_code: string;"), "got:\n{generated}");
     }
 
     /// Kysely gets the declared rename only, no runtime remap: `:one`/

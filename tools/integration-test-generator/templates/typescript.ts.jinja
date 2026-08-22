@@ -259,12 +259,20 @@ function assertNestedJson(
 		"row_to_json composite must use its JSON DTO",
 	);
 	assert(
-		typeof single.payload?.created_at === "string",
+		typeof single.payload?.{% if driver == "kysely-pg" and options.field_case == "camelCase" %}createdAt{% else %}created_at{% endif %} === "string",
 		"NestedJson",
 		"JSON timestamps must use their serialized string representation",
 	);
 	const aggregateUser = many.payload?.find((candidate) => candidate.id === expectedUserId);
+{%- if driver == "kysely-pg" and options.field_case == "camelCase" %}
+	assert(
+		aggregateUser?.secondaryStatus === "inactive",
+		"NestedJson",
+		"jsonb_agg enum must stay typed",
+	);
+{%- else %}
 	assert(aggregateUser?.secondary_status === "inactive", "NestedJson", "jsonb_agg enum must stay typed");
+{%- endif %}
 	assert(
 		typeof orders.payload?.[0]?.total === "number",
 		"NestedJson",

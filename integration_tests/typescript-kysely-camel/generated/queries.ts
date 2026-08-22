@@ -20,9 +20,9 @@ export interface GetUserAsJsonRowPayload {
 	name: string;
 	email: string | null;
 	status: UserStatus;
-	secondary_status: UserStatus | null;
+	secondaryStatus: UserStatus | null;
 	address: UserAddressJson | null;
-	created_at: string;
+	createdAt: string;
 }
 
 /** JSON object produced for get_users_as_json_row_payload. */
@@ -31,19 +31,19 @@ export interface GetUsersAsJsonRowPayload {
 	name: string;
 	email: string | null;
 	status: UserStatus;
-	secondary_status: UserStatus | null;
+	secondaryStatus: UserStatus | null;
 	address: UserAddressJson | null;
-	created_at: string;
+	createdAt: string;
 }
 
 /** JSON object produced for get_user_orders_as_json_row_payload. */
 export interface GetUserOrdersAsJsonRowPayload {
 	id: number;
-	user_id: number;
+	userId: number;
 	total: number;
-	weight_kg: number | null;
+	weightKg: number | null;
 	notes: string | null;
-	created_at: string;
+	createdAt: string;
 }
 
 /** Row type for CreateOrder queries. */

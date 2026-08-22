@@ -1,7 +1,7 @@
 use std::fmt::Write;
 
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{composite_type_name, enum_type_name, to_pascal_case};
+use scythe_backend::naming::{composite_type_name, enum_type_name, to_camel_case, to_pascal_case};
 use scythe_core::analyzer::{CompositeInfo, NestedStructInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
@@ -327,6 +327,14 @@ pub fn generate_ts_nested_interface(
     nested: &NestedStructInfo,
     manifest: &BackendManifest,
 ) -> Result<String, ScytheError> {
+    generate_ts_nested_interface_with_field_case(nested, manifest, TsFieldCase::Snake)
+}
+
+pub fn generate_ts_nested_interface_with_field_case(
+    nested: &NestedStructInfo,
+    manifest: &BackendManifest,
+    field_case: TsFieldCase,
+) -> Result<String, ScytheError> {
     let name = to_pascal_case(&nested.name);
     let mut out = String::new();
     let _ = writeln!(out, "/** JSON object produced for {}. */", nested.name);
@@ -336,7 +344,11 @@ pub fn generate_ts_nested_interface(
         if field.nullable {
             field_type.push_str(" | null");
         }
-        let _ = writeln!(out, "\t{}: {field_type};", ts_property_key(&field.name));
+        let field_name = match field_case {
+            TsFieldCase::Snake => field.name.clone(),
+            TsFieldCase::Camel => to_camel_case(&field.name).into_owned(),
+        };
+        let _ = writeln!(out, "\t{}: {field_type};", ts_property_key(&field_name));
     }
     let _ = write!(out, "}}");
     Ok(out)
@@ -345,6 +357,14 @@ pub fn generate_ts_nested_interface(
 pub fn generate_ts_json_composite_interface(
     composite: &CompositeInfo,
     manifest: &BackendManifest,
+) -> Result<String, ScytheError> {
+    generate_ts_json_composite_interface_with_field_case(composite, manifest, TsFieldCase::Snake)
+}
+
+pub fn generate_ts_json_composite_interface_with_field_case(
+    composite: &CompositeInfo,
+    manifest: &BackendManifest,
+    field_case: TsFieldCase,
 ) -> Result<String, ScytheError> {
     let name = format!("{}Json", composite_type_name(&composite.sql_name, &manifest.naming));
     let mut out = String::new();
@@ -359,7 +379,11 @@ pub fn generate_ts_json_composite_interface(
         if field.nullable {
             field_type.push_str(" | null");
         }
-        let _ = writeln!(out, "\t{}: {field_type};", ts_property_key(&field.name));
+        let field_name = match field_case {
+            TsFieldCase::Snake => field.name.clone(),
+            TsFieldCase::Camel => to_camel_case(&field.name).into_owned(),
+        };
+        let _ = writeln!(out, "\t{}: {field_type};", ts_property_key(&field_name));
     }
     let _ = write!(out, "}}");
     Ok(out)
