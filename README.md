@@ -72,6 +72,15 @@ npm install --save-dev scythe-cli
 pip install scythe-sql
 ```
 
+Install scythe in a GitHub Actions workflow with the moving major-version action:
+
+```yaml
+- uses: Goldziher/scythe@v0
+```
+
+Pass `version: 0.18.0` under `with` to pin the downloaded binary. The action verifies the release
+checksum, caches the binary by version and platform, and adds `scythe` to `PATH`.
+
 See [Installation](https://goldziher.github.io/scythe/getting-started/installation/) for supported
 platforms, proxy configuration and cache control.
 

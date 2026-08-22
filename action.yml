@@ -1,0 +1,203 @@
+name: "Setup scythe CLI"
+description: "Install a verified scythe release binary with optional local caching"
+author: "Na'aman Hirschfeld"
+
+branding:
+  icon: "database"
+  color: "purple"
+
+inputs:
+  version:
+    description: 'Release version to install (for example, v0.18.0 or 0.18.0). Omit or pass "latest" for the latest release.'
+    required: false
+    default: ""
+  cache:
+    description: "Cache the installed binary with actions/cache."
+    required: false
+    default: "true"
+  github-token:
+    description: "Token used to resolve the latest GitHub release."
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  version:
+    description: "The installed version without the v prefix."
+    value: ${{ steps.resolve.outputs.version }}
+  install-dir:
+    description: "The directory containing scythe, which is added to PATH."
+    value: ${{ steps.resolve.outputs.install-dir }}
+  target:
+    description: "The installed Rust target triple."
+    value: ${{ steps.resolve.outputs.target }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        INPUT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        version="$INPUT_VERSION"
+        if [ -z "$version" ] || [ "$version" = "latest" ]; then
+          version="$(gh release view --repo Goldziher/scythe --json tagName -q '.tagName' 2>/dev/null || true)"
+          if [ -z "$version" ]; then
+            echo "::error::could not resolve the latest scythe release" >&2
+            exit 1
+          fi
+        fi
+        version="${version#v}"
+        if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+          echo "::error::invalid scythe version: $version" >&2
+          exit 1
+        fi
+
+        case "${RUNNER_OS}/${RUNNER_ARCH}" in
+          Linux/X64) target="x86_64-unknown-linux-gnu" ;;
+          Linux/ARM64) target="aarch64-unknown-linux-gnu" ;;
+          macOS/X64) target="x86_64-apple-darwin" ;;
+          macOS/ARM64) target="aarch64-apple-darwin" ;;
+          Windows/X64 | Windows/ARM64) target="x86_64-pc-windows-gnu" ;;
+          *)
+            echo "::error::unsupported runner platform: ${RUNNER_OS}/${RUNNER_ARCH}" >&2
+            exit 1
+            ;;
+        esac
+
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          extension="zip"
+          binary_name="scythe.exe"
+        else
+          extension="tar.gz"
+          binary_name="scythe"
+        fi
+
+        install_dir="${RUNNER_TEMP}/scythe-install"
+        binary_path="${install_dir}/${binary_name}"
+        mkdir -p "$install_dir"
+        {
+          echo "version=$version"
+          echo "target=$target"
+          echo "extension=$extension"
+          echo "binary-name=$binary_name"
+          echo "binary-path=$binary_path"
+          echo "install-dir=$install_dir"
+          echo "cache-key=scythe-v${version}-${RUNNER_OS}-${RUNNER_ARCH}"
+        } >> "$GITHUB_OUTPUT"
+
+    - id: cache
+      if: inputs.cache == 'true'
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+      with:
+        path: ${{ steps.resolve.outputs.install-dir }}
+        key: ${{ steps.resolve.outputs.cache-key }}
+
+    - if: runner.os != 'Windows' && steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        VERSION: ${{ steps.resolve.outputs.version }}
+        TARGET: ${{ steps.resolve.outputs.target }}
+        EXTENSION: ${{ steps.resolve.outputs.extension }}
+        BINARY_NAME: ${{ steps.resolve.outputs.binary-name }}
+        BINARY_PATH: ${{ steps.resolve.outputs.binary-path }}
+      run: |
+        set -euo pipefail
+
+        asset="scythe-${TARGET}.${EXTENSION}"
+        checksums="scythe_${VERSION}_checksums.txt"
+        base_url="https://github.com/Goldziher/scythe/releases/download/v${VERSION}"
+        temp_dir="$(mktemp -d)"
+        trap 'rm -rf "$temp_dir"' EXIT
+
+        curl -fsSL --retry 3 -o "${temp_dir}/${checksums}" "${base_url}/${checksums}"
+        curl -fsSL --retry 3 -o "${temp_dir}/${asset}" "${base_url}/${asset}"
+
+        expected="$(awk -v asset="$asset" '$NF == asset { print $1; exit }' "${temp_dir}/${checksums}")"
+        if [ -z "$expected" ]; then
+          echo "::error::release checksum file has no entry for $asset" >&2
+          exit 1
+        fi
+        if command -v sha256sum >/dev/null 2>&1; then
+          actual="$(sha256sum "${temp_dir}/${asset}" | awk '{ print $1 }')"
+        else
+          actual="$(shasum -a 256 "${temp_dir}/${asset}" | awk '{ print $1 }')"
+        fi
+        if [ "$actual" != "$expected" ]; then
+          echo "::error::checksum mismatch for $asset" >&2
+          exit 1
+        fi
+
+        mkdir "${temp_dir}/archive"
+        tar -xzf "${temp_dir}/${asset}" -C "${temp_dir}/archive"
+        source_binary="$(find "${temp_dir}/archive" -type f -name "$BINARY_NAME" -print -quit)"
+        if [ -z "$source_binary" ]; then
+          echo "::error::$asset does not contain $BINARY_NAME" >&2
+          exit 1
+        fi
+        install -m 0755 "$source_binary" "$BINARY_PATH"
+
+    - if: runner.os == 'Windows' && steps.cache.outputs.cache-hit != 'true'
+      shell: pwsh
+      env:
+        VERSION: ${{ steps.resolve.outputs.version }}
+        TARGET: ${{ steps.resolve.outputs.target }}
+        EXTENSION: ${{ steps.resolve.outputs.extension }}
+        BINARY_NAME: ${{ steps.resolve.outputs.binary-name }}
+        BINARY_PATH: ${{ steps.resolve.outputs.binary-path }}
+      run: |
+        $ErrorActionPreference = "Stop"
+
+        $asset = "scythe-$env:TARGET.$env:EXTENSION"
+        $checksums = "scythe_$env:VERSION`_checksums.txt"
+        $baseUrl = "https://github.com/Goldziher/scythe/releases/download/v$env:VERSION"
+        $tempDir = Join-Path $env:RUNNER_TEMP "scythe-action-$([Guid]::NewGuid())"
+        New-Item -ItemType Directory -Path $tempDir | Out-Null
+
+        try {
+          $checksumPath = Join-Path $tempDir $checksums
+          $assetPath = Join-Path $tempDir $asset
+          Invoke-WebRequest -Uri "$baseUrl/$checksums" -OutFile $checksumPath
+          Invoke-WebRequest -Uri "$baseUrl/$asset" -OutFile $assetPath
+
+          $row = Get-Content $checksumPath | Where-Object { $_ -match "\s\*?$([Regex]::Escape($asset))$" } | Select-Object -First 1
+          if (-not $row) {
+            throw "release checksum file has no entry for $asset"
+          }
+          $expected = ($row -split "\s+")[0].ToLowerInvariant()
+          $actual = (Get-FileHash -Algorithm SHA256 $assetPath).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) {
+            throw "checksum mismatch for $asset"
+          }
+
+          $archiveDir = Join-Path $tempDir "archive"
+          Expand-Archive -Path $assetPath -DestinationPath $archiveDir
+          $sourceBinary = Get-ChildItem -Path $archiveDir -Recurse -File -Filter $env:BINARY_NAME | Select-Object -First 1
+          if (-not $sourceBinary) {
+            throw "$asset does not contain $env:BINARY_NAME"
+          }
+          Copy-Item -Path $sourceBinary.FullName -Destination $env:BINARY_PATH -Force
+        } finally {
+          Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
+    - shell: bash
+      env:
+        INSTALL_DIR: ${{ steps.resolve.outputs.install-dir }}
+      run: echo "$INSTALL_DIR" >> "$GITHUB_PATH"
+
+    - shell: bash
+      env:
+        EXPECTED_VERSION: ${{ steps.resolve.outputs.version }}
+        SCYTHE_BINARY_PATH: ${{ steps.resolve.outputs.binary-path }}
+      run: |
+        set -euo pipefail
+        output="$("$SCYTHE_BINARY_PATH" --version)"
+        echo "$output"
+        if [[ "$output" != *"$EXPECTED_VERSION"* ]]; then
+          echo "::error::installed scythe did not report version $EXPECTED_VERSION" >&2
+          exit 1
+        fi
