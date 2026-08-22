@@ -1,0 +1,114 @@
+version = 1
+
+[[hooks]]
+id = "scythe-fmt"
+stages = ["pre-commit"]
+args = ["fmt"]
+files = ["*.sql", "**/*.sql"]
+pass_filenames = true
+
+[[hooks.paths]]
+channel = "system"
+check = "command -v scythe"
+run = "scythe"
+
+[[hooks.paths]]
+channel = "cargo"
+check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.0\""
+install = "cargo install --locked scythe-cli --version 0.18.0"
+run = "\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\""
+
+[[hooks]]
+id = "scythe-lint"
+stages = ["pre-commit"]
+args = ["lint", "--fix"]
+files = ["*.sql", "**/*.sql"]
+pass_filenames = true
+
+[[hooks.paths]]
+channel = "system"
+check = "command -v scythe"
+run = "scythe"
+
+[[hooks.paths]]
+channel = "cargo"
+check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.0\""
+install = "cargo install --locked scythe-cli --version 0.18.0"
+run = "\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\""
+
+[[hooks]]
+id = "scythe-audit"
+stages = ["pre-commit"]
+args = ["audit"]
+files = ["*.sql", "**/*.sql"]
+pass_filenames = true
+
+[[hooks.paths]]
+channel = "system"
+check = "command -v scythe"
+run = "scythe"
+
+[[hooks.paths]]
+channel = "cargo"
+check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.0\""
+install = "cargo install --locked scythe-cli --version 0.18.0"
+run = "\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\""
+
+[[hooks]]
+id = "scythe-inspect"
+stages = ["pre-commit"]
+args = ["inspect"]
+workspace = true
+pass_filenames = false
+always_run = true
+
+[[hooks.paths]]
+channel = "system"
+check = "command -v scythe"
+run = "scythe"
+
+[[hooks.paths]]
+channel = "cargo"
+check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.0\""
+install = "cargo install --locked scythe-cli --version 0.18.0"
+run = "\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\""
+
+[[hooks]]
+id = "scythe-generate"
+stages = ["pre-commit"]
+args = ["generate"]
+files = ["scythe.toml", "*.sql", "**/*.sql"]
+workspace = true
+pass_filenames = false
+serial = true
+
+[[hooks.paths]]
+channel = "system"
+check = "command -v scythe"
+run = "scythe"
+
+[[hooks.paths]]
+channel = "cargo"
+check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.0\""
+install = "cargo install --locked scythe-cli --version 0.18.0"
+run = "\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\""
+
+[[hooks]]
+id = "scythe-check"
+stages = ["pre-commit"]
+args = ["check"]
+files = ["scythe.toml", "*.sql", "**/*.sql"]
+workspace = true
+pass_filenames = false
+serial = true
+
+[[hooks.paths]]
+channel = "system"
+check = "command -v scythe"
+run = "scythe"
+
+[[hooks.paths]]
+channel = "cargo"
+check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.0\""
+install = "cargo install --locked scythe-cli --version 0.18.0"
+run = "\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\""

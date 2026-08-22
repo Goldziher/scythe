@@ -188,6 +188,8 @@ tasks:
             sed -i '' -E 's/^([[:space:]]*rev: )v[0-9]+\.[0-9]+\.[0-9]+/\1v{{.VERSION}}/' "$f"
           done
         fi
+      # ~keep Keep native Poly install commands and exact-version probes aligned with the release.
+      - sed -i '' -E 's/(scythe )[0-9]+\.[0-9]+\.[0-9]+/\1{{.VERSION}}/g; s/(scythe-cli --version )[0-9]+\.[0-9]+\.[0-9]+/\1{{.VERSION}}/g' poly-hooks.toml
       # Every generated-code example in the docs opens with a provenance header,
       # and that header embeds the scythe version. Same blind spot as the `rev:`
       # pins above: prose Markdown that no CI job validates, so a stale one just
@@ -285,6 +287,8 @@ tasks:
         violations=""
         crates_checked=0
         revs_checked=0
+        hook_pins_checked=0
+        hook_probes_checked=0
         for f in crates/*/Cargo.toml; do
           crates_checked=$((crates_checked + 1))
           # An unpublished crate never reaches crates.io, so its own version is
@@ -328,11 +332,36 @@ tasks:
           echo "version:check: found no documented 'rev: vX.Y.Z' pin under README.md, website/src or skills. version:sync rewrites those pins and nothing else validates them, so zero matches means this check silently stopped covering them -- either the pins moved (add their location to both this task and version:sync) or the grep pattern no longer recognises them." >&2
           exit 1
         fi
+        while IFS= read -r v; do
+          [ -z "$v" ] && continue
+          hook_pins_checked=$((hook_pins_checked + 1))
+          if [ "$v" != "$expected" ]; then
+            violations="${violations}Poly hook pin drift: poly-hooks.toml pins scythe-cli at $v, expected $expected\n"
+          fi
+        done <<HOOK_PINS
+        $(grep -oE 'scythe-cli --version [0-9]+\.[0-9]+\.[0-9]+' poly-hooks.toml | awk '{print $NF}')
+        HOOK_PINS
+        cargo_channels=$(grep -c '^channel = "cargo"$' poly-hooks.toml || true)
+        if [ "$hook_pins_checked" -eq 0 ] || [ "$hook_pins_checked" -ne "$cargo_channels" ]; then
+          violations="${violations}Poly hook pin coverage: found $hook_pins_checked pinned install command(s) for $cargo_channels cargo channel(s)\n"
+        fi
+        while IFS= read -r v; do
+          [ -z "$v" ] && continue
+          hook_probes_checked=$((hook_probes_checked + 1))
+          if [ "$v" != "$expected" ]; then
+            violations="${violations}Poly hook probe drift: poly-hooks.toml checks for scythe $v, expected $expected\n"
+          fi
+        done <<HOOK_PROBES
+        $(grep -oE 'scythe [0-9]+\.[0-9]+\.[0-9]+' poly-hooks.toml | awk '{print $NF}')
+        HOOK_PROBES
+        if [ "$hook_probes_checked" -eq 0 ] || [ "$hook_probes_checked" -ne "$cargo_channels" ]; then
+          violations="${violations}Poly hook probe coverage: found $hook_probes_checked exact-version probe(s) for $cargo_channels cargo channel(s)\n"
+        fi
         if [ -n "$violations" ]; then
           printf "%b" "$violations" >&2
           exit 1
         fi
-        echo "All $crates_checked crate version(s)/pin(s) and $revs_checked documented rev pin(s) agree on $expected"
+        echo "All $crates_checked crate version(s)/pin(s), $revs_checked documented rev pin(s), and $hook_pins_checked Poly hook pin(s) agree on $expected"
 
   update:
     desc: Update dependencies (workspace + dev tooling + integration tests)

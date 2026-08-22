@@ -4,7 +4,7 @@
 
 Prerequisites:
 
-- Rust (latest stable)
+- [rustup](https://rustup.rs/) (installs the pinned toolchain from `.rust-toolchain.toml`)
 - [Task](https://taskfile.dev/) runner
 - Docker (for integration tests only)
 
@@ -21,7 +21,8 @@ This should take under 5 minutes from clone to green tests.
 
 Install the git hooks with `task setup` (or `poly hooks install` directly). On
 every commit, poly runs lint, format, and file-safety checks plus `cargo clippy`;
-the commit-msg hook validates the message. Run all hooks manually with
+the Cargo hook also runs `cargo sort`, `cargo machete`, and `cargo deny`, and the
+commit-msg hook validates the message. Run all hooks manually with
 `poly hooks run pre-commit --all-files`.
 
 ## Architecture

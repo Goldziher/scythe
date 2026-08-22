@@ -3,7 +3,10 @@ title: Pre-commit Hooks
 description: pre-commit / prek hooks for SQL formatting, linting, code generation, and validation.
 ---
 
-Scythe provides [pre-commit](https://pre-commit.com/) / [prek](https://github.com/j178/prek) hooks for SQL formatting, linting, code generation, and validation.
+Scythe provides [pre-commit](https://pre-commit.com/) / [prek](https://github.com/j178/prek)
+hooks for SQL formatting, linting, code generation, and validation.
+
+It also publishes the same six hooks as a native [Poly](https://github.com/xberg-io/poly) producer catalog.
 
 ## Setup
 
@@ -28,6 +31,46 @@ pre-commit install
 # prek
 prek install
 ```
+
+## Native Poly Hooks
+
+Add Scythe's producer catalog to the `[hooks]` configuration in `poly.toml`:
+
+```toml
+[[hooks.sources]]
+id = "scythe"
+git = "https://github.com/Goldziher/scythe.git"
+revision = "v0.18.1"
+hooks = ["scythe-fmt", "scythe-lint", "scythe-audit"]
+```
+
+Select only the hook IDs you want to enable. Poly rejects unknown IDs, and new hooks in later Scythe
+releases remain disabled until you select them.
+
+Choose whether this machine uses an existing Scythe binary or installs the pinned crate with Cargo.
+Put this machine-local preference in the gitignored `poly.local.toml`:
+
+```toml
+[hook_preferences]
+channels = ["system", "cargo"]
+```
+
+Poly tries channels in order. The `system` channel uses `scythe` from `PATH`. The `cargo` channel
+installs the catalog's pinned `scythe-cli` version during `poly hooks install` and runs it from
+Cargo's binary directory.
+
+Resolve and lock the Git revision, commit the lock file, then install Poly's Git shims:
+
+```bash
+poly hooks update
+git add poly.toml poly-hooks.lock
+poly hooks install
+```
+
+Normal hook runs use the locked commit and do not move the configured revision. Change `revision`
+and run `poly hooks update` when you intentionally upgrade Scythe. For local catalog development,
+replace `git` and `revision` with `path = "../scythe"`; local sources reload on each run and do not
+create a lock entry.
 
 ## Available Hooks
 

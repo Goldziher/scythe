@@ -40,10 +40,11 @@
     CI-mode hook. Connects to a live Postgres database and runs the SC-INS*
     operational health checks (missing FK indexes, RLS misconfig, duplicate
     indexes). Requires $DATABASE_URL (or $SCYTHE_DATABASE_URL) in the hook
-    environment — local pre-commit runs without the variable fail loudly
-    with the same error as the CLI. Designed for CI pre-merge gates and
-    pre-deploy checks, not interactive commit blocking. Exits 2 on error-
-    severity findings; pass `--exit-zero` via `args:` for advisory mode.
+    environment, or [inspect].database_url in scythe.toml — local pre-commit
+    runs without any configured URL fail loudly with the same error as the
+    CLI. Designed for CI pre-merge gates and pre-deploy checks, not
+    interactive commit blocking. Exits 2 on error-severity findings; pass
+    `--exit-zero` via `args:` for advisory mode.
   entry: scythe inspect
   language: rust
   always_run: true
