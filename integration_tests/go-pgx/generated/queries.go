@@ -61,6 +61,33 @@ func parseCompositeFields(text string) []*string {
 	}
 	return fields
 }
+type pgCompositeTextEncoder interface {
+	ToPgText() string
+}
+
+func encodeCompositeField(value any) string {
+	if value == nil {
+		return ""
+	}
+	var raw string
+	if nested, ok := value.(pgCompositeTextEncoder); ok {
+		raw = nested.ToPgText()
+	} else {
+		raw = fmt.Sprint(value)
+	}
+	if raw != "" && !strings.ContainsAny(raw, ",()\"\\") && raw == strings.TrimSpace(raw) {
+		return raw
+	}
+	escaped := strings.ReplaceAll(strings.ReplaceAll(raw, "\\", "\\\\"), "\"", "\"\"")
+	return "\"" + escaped + "\""
+}
+
+func encodeCompositeFieldPtr[T any](value *T) string {
+	if value == nil {
+		return ""
+	}
+	return encodeCompositeField(*value)
+}
 
 type UserStatus string
 

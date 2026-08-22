@@ -270,6 +270,7 @@ func testDeleteOrdersByUser(ctx context.Context, pool *pgxpool.Pool) {
 	}
 	pass(name)
 }
+
 // Test: GetUserProfile (board #197/#204) -- a nullable enum and a nullable
 // composite column, each observed both present and as SQL NULL, plus a
 // composite field containing a double quote and a comma to prove
@@ -319,13 +320,13 @@ func testGetUserProfile(ctx context.Context, pool *pgxpool.Pool) {
 	if !assertf(name, profile.Address != nil, "expected address to be present") {
 		return
 	}
-	if !assertf(name, profile.Address.Street == "1 Main St", "expected address.street '1 Main St', got %s", profile.Address.Street) {
+	if !assertf(name, profile.Address.Street != nil && *profile.Address.Street == "1 Main St", "expected address.street '1 Main St', got %v", profile.Address.Street) {
 		return
 	}
-	if !assertf(name, profile.Address.City == "Springfield", "expected address.city 'Springfield', got %s", profile.Address.City) {
+	if !assertf(name, profile.Address.City != nil && *profile.Address.City == "Springfield", "expected address.city 'Springfield', got %v", profile.Address.City) {
 		return
 	}
-	if !assertf(name, profile.Address.Zip == "12345", "expected address.zip '12345', got %s", profile.Address.Zip) {
+	if !assertf(name, profile.Address.Zip != nil && *profile.Address.Zip == "12345", "expected address.zip '12345', got %v", profile.Address.Zip) {
 		return
 	}
 
@@ -349,13 +350,13 @@ func testGetUserProfile(ctx context.Context, pool *pgxpool.Pool) {
 	if !assertf(name, quotedProfile.Address != nil, "expected quoted address to be present") {
 		return
 	}
-	if !assertf(name, quotedProfile.Address.Street == `12 "Main", Apt 3`, "expected address.street '12 \"Main\", Apt 3', got %s", quotedProfile.Address.Street) {
+	if !assertf(name, quotedProfile.Address.Street != nil && *quotedProfile.Address.Street == `12 "Main", Apt 3`, "expected address.street '12 \"Main\", Apt 3', got %v", quotedProfile.Address.Street) {
 		return
 	}
-	if !assertf(name, quotedProfile.Address.City == "Berlin", "expected address.city 'Berlin', got %s", quotedProfile.Address.City) {
+	if !assertf(name, quotedProfile.Address.City != nil && *quotedProfile.Address.City == "Berlin", "expected address.city 'Berlin', got %v", quotedProfile.Address.City) {
 		return
 	}
-	if !assertf(name, quotedProfile.Address.Zip == "10115", "expected address.zip '10115', got %s", quotedProfile.Address.Zip) {
+	if !assertf(name, quotedProfile.Address.Zip != nil && *quotedProfile.Address.Zip == "10115", "expected address.zip '10115', got %v", quotedProfile.Address.Zip) {
 		return
 	}
 
@@ -377,13 +378,20 @@ func testGetUserProfile(ctx context.Context, pool *pgxpool.Pool) {
 
 func testRoundTripUserAddress(ctx context.Context, pool *pgxpool.Pool) {
 	name := "RoundTripUserAddress"
-	address := &queries.UserAddress{Street: `12 "Main", Apt \3`, City: "", Zip: "10115"}
+	street := `12 "Main", Apt \3`
+	city := ""
+	zip := "10115"
+	address := &queries.UserAddress{Street: &street, City: &city, Zip: &zip}
 	present, err := queries.RoundTripUserAddress(ctx, pool, address)
 	if err != nil {
 		fail(name, err)
 		return
 	}
-	if !assertf(name, present.Address != nil && *present.Address == *address, "expected %#v, got %#v", address, present.Address) {
+	addressesMatch := present.Address != nil &&
+		present.Address.Street != nil && *present.Address.Street == *address.Street &&
+		present.Address.City != nil && *present.Address.City == *address.City &&
+		present.Address.Zip != nil && *present.Address.Zip == *address.Zip
+	if !assertf(name, addressesMatch, "expected %#v, got %#v", address, present.Address) {
 		return
 	}
 	absent, err := queries.RoundTripUserAddress(ctx, pool, nil)
