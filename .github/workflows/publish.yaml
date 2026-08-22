@@ -306,6 +306,75 @@ jobs:
       smoke-command: |
         scythe --version
 
+  finalize_release:
+    name: Verify GitHub release is complete
+    needs: [meta, release_assets]
+    if: >-
+      always() && needs.meta.result == 'success'
+      && (needs.release_assets.result == 'success' || needs.release_assets.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify and publish the complete release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.meta.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          required=(
+            "scythe-x86_64-unknown-linux-gnu.tar.gz"
+            "scythe-aarch64-unknown-linux-gnu.tar.gz"
+            "scythe-x86_64-apple-darwin.tar.gz"
+            "scythe-aarch64-apple-darwin.tar.gz"
+            "scythe-x86_64-pc-windows-gnu.zip"
+            "scythe_${RELEASE_VERSION}_checksums.txt"
+          )
+
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' \
+            > /tmp/scythe-release-assets.txt
+          missing=0
+          for asset in "${required[@]}"; do
+            if ! grep -qxF "$asset" /tmp/scythe-release-assets.txt; then
+              echo "::error::release $RELEASE_TAG is missing $asset"
+              missing=$((missing + 1))
+            fi
+          done
+          if [ "$missing" -gt 0 ]; then
+            echo "::error::release $RELEASE_TAG is incomplete ($missing required assets missing)"
+            exit 1
+          fi
+
+          gh release edit "$RELEASE_TAG" --draft=false --repo "$GITHUB_REPOSITORY"
+
+  update_major_tag:
+    name: Move the major version tag
+    needs: [meta, finalize_release]
+    if: needs.finalize_release.result == 'success' && !contains(needs.meta.outputs.version, '-rc') && !contains(needs.meta.outputs.version, '-beta') && !contains(needs.meta.outputs.version, '-alpha')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Move the major tag to this release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.meta.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          major="v${RELEASE_VERSION%%.*}"
+          sha="$(git rev-list -n1 "$RELEASE_TAG")"
+          remote_sha="$(git ls-remote --tags origin "refs/tags/${major}" | awk '{print $1}')"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f "$major" "$sha"
+          git push --force-with-lease="refs/tags/${major}:${remote_sha}" origin "refs/tags/${major}"
+          echo "Moved ${major} to ${RELEASE_TAG} (${sha})"
+
   smoke_wrappers:
     name: Smoke test npm/PyPI wrappers
     needs: [meta, release_assets]
