@@ -1,4 +1,4 @@
-// scythe:provenance v=0.18.0 backend=typescript-better-sqlite3 engine=sqlite schema=sch2:588fb635332179bc queries=q1:f7199f36438b6396 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.18.1 backend=typescript-better-sqlite3 engine=sqlite schema=sch2:588fb635332179bc queries=q1:f7199f36438b6396 options=opt1:cbf29ce484222325
 import type Database from "better-sqlite3";
 
 

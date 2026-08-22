@@ -14,8 +14,8 @@ run = "scythe"
 
 [[hooks.paths]]
 channel = "cargo"
-check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.0\""
-install = "cargo install --locked scythe-cli --version 0.18.0"
+check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.1\""
+install = "cargo install --locked scythe-cli --version 0.18.1"
 run = "\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\""
 
 [[hooks]]
@@ -32,8 +32,8 @@ run = "scythe"
 
 [[hooks.paths]]
 channel = "cargo"
-check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.0\""
-install = "cargo install --locked scythe-cli --version 0.18.0"
+check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.1\""
+install = "cargo install --locked scythe-cli --version 0.18.1"
 run = "\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\""
 
 [[hooks]]
@@ -50,8 +50,8 @@ run = "scythe"
 
 [[hooks.paths]]
 channel = "cargo"
-check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.0\""
-install = "cargo install --locked scythe-cli --version 0.18.0"
+check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.1\""
+install = "cargo install --locked scythe-cli --version 0.18.1"
 run = "\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\""
 
 [[hooks]]
@@ -69,8 +69,8 @@ run = "scythe"
 
 [[hooks.paths]]
 channel = "cargo"
-check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.0\""
-install = "cargo install --locked scythe-cli --version 0.18.0"
+check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.1\""
+install = "cargo install --locked scythe-cli --version 0.18.1"
 run = "\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\""
 
 [[hooks]]
@@ -89,8 +89,8 @@ run = "scythe"
 
 [[hooks.paths]]
 channel = "cargo"
-check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.0\""
-install = "cargo install --locked scythe-cli --version 0.18.0"
+check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.1\""
+install = "cargo install --locked scythe-cli --version 0.18.1"
 run = "\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\""
 
 [[hooks]]
@@ -109,6 +109,6 @@ run = "scythe"
 
 [[hooks.paths]]
 channel = "cargo"
-check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.0\""
-install = "cargo install --locked scythe-cli --version 0.18.0"
+check = "test \"$(\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\" --version 2>/dev/null)\" = \"scythe 0.18.1\""
+install = "cargo install --locked scythe-cli --version 0.18.1"
 run = "\"${CARGO_HOME:-$HOME/.cargo}/bin/scythe\""

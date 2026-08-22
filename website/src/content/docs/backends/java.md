@@ -10,7 +10,7 @@ Snowflake, Oracle). `java-r2dbc` supports PostgreSQL, MySQL, MariaDB, and SQLite
 page use PostgreSQL.
 
 Generated files carry a provenance header as their first line, e.g.
-`// scythe:provenance v=0.18.0 backend=java-jdbc engine=postgresql schema=sch1:... queries=q1:...`
+`// scythe:provenance v=0.18.1 backend=java-jdbc engine=postgresql schema=sch1:... queries=q1:...`
 (`integration_tests/java-jdbc/src/main/java/generated/Queries.java:1`).
 
 ## Field naming: `field_case`

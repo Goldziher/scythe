@@ -1,4 +1,4 @@
-// scythe:provenance v=0.18.0 backend=typescript-postgres engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:861cdfc5df3ece62 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.18.1 backend=typescript-postgres engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:861cdfc5df3ece62 options=opt1:cbf29ce484222325
 type PostgresJsonValue = null | string | number | boolean | Date | readonly PostgresJsonValue[] | { readonly [key: string]: undefined | PostgresJsonValue };
 import type { Sql } from "postgres";
 

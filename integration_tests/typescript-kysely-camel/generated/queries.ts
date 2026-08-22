@@ -1,4 +1,4 @@
-// scythe:provenance v=0.18.0 backend=typescript-kysely engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:a57e49e335041301 options=opt1:304531517b9a94ef
+// scythe:provenance v=0.18.1 backend=typescript-kysely engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:a57e49e335041301 options=opt1:304531517b9a94ef
 // scythe: this file was generated with field_case = "camelCase".
 // Kysely does not remap rows -- register CamelCasePlugin on your Kysely
 // instance or every field below reads back undefined at runtime:

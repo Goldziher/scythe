@@ -77,16 +77,16 @@ scythe GitHub release using `github.token` and caches the installed binary by ve
 system, and runner architecture. Pin the CLI version independently when reproducibility matters:
 
 ```yaml
-- name: Install scythe 0.18.0 without caching
+- name: Install scythe 0.18.1 without caching
   id: scythe
   uses: Goldziher/scythe@v0
   with:
-    version: 0.18.0
+    version: 0.18.1
     cache: false
 - run: scythe check
 ```
 
-The `version` input accepts `0.18.0` or `v0.18.0`; omit it or pass `latest` to resolve the latest
+The `version` input accepts `0.18.1` or `v0.18.1`; omit it or pass `latest` to resolve the latest
 release. Set `github-token` only when the default workflow token cannot read release metadata.
 
 Every download is checked against the release's SHA-256 checksum file before installation. The
@@ -110,7 +110,7 @@ If you only need scythe for pre-commit hooks, add it directly to your `.pre-comm
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.18.0
+    rev: v0.18.1
     hooks:
       - id: scythe-fmt
       - id: scythe-lint

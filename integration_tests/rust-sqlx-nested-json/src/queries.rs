@@ -1,4 +1,4 @@
-// scythe:provenance v=0.18.0 backend=rust-sqlx engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:7067fdb0f4886dd1 options=opt1:57af1d7acc85e6c7
+// scythe:provenance v=0.18.1 backend=rust-sqlx engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:7067fdb0f4886dd1 options=opt1:57af1d7acc85e6c7
 #![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type, serde::Serialize, serde::Deserialize)]

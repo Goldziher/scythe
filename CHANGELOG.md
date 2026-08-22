@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-08-22
+
+### Added
+
+- A GitHub Marketplace setup action installs checksum-verified release binaries through the moving
+  `Goldziher/scythe@v0` tag, with version pinning, optional caching, and installation metadata
+  outputs.
+- A native Poly producer catalog exposes all six Scythe hooks through guarded system and pinned
+  Cargo execution paths.
+
+### Fixed
+
+- The Go integration fixture and harness now exercise nullable PostgreSQL composite fields with the
+  generated pointer encoder instead of leaving that path uncompiled.
+- Kysely camel-case generation now matches the plugin's recursively transformed nested JSON keys.
+
 ## [0.18.0] - 2026-08-22
 
 **Upgrading**: pass the field nullability as the third argument to

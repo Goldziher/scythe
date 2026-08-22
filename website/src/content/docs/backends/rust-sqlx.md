@@ -48,7 +48,7 @@ Every generated file starts with a provenance header, then
 (`integration_tests/rust-sqlx/src/queries.rs:1-2`):
 
 ```rust
-// scythe:provenance v=0.18.0 backend=rust-sqlx engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:9c4e1f77a0b3d582
+// scythe:provenance v=0.18.1 backend=rust-sqlx engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:9c4e1f77a0b3d582
 #![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]
 ```
 

@@ -1,4 +1,4 @@
-// scythe:provenance v=0.18.0 backend=rust-sqlx engine=redshift schema=sch2:a4457eae974a6707 queries=q1:1d594d539783fc08 options=opt1:57af1d7acc85e6c7
+// scythe:provenance v=0.18.1 backend=rust-sqlx engine=redshift schema=sch2:a4457eae974a6707 queries=q1:1d594d539783fc08 options=opt1:57af1d7acc85e6c7
 #![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]
 
 #[derive(Debug, Clone, sqlx::FromRow)]

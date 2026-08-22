@@ -82,7 +82,7 @@ Install scythe in a GitHub Actions workflow with the moving major-version action
 ```
 
 `v0` tracks the latest compatible action. Pin the downloaded CLI independently with
-`version: 0.18.0`, or set `cache: false` to disable the version-and-platform cache. The action
+`version: 0.18.1`, or set `cache: false` to disable the version-and-platform cache. The action
 verifies the release SHA-256 checksum, adds `scythe` to `PATH`, and exposes `version`, `target`, and
 `install-dir` outputs.
 
@@ -95,7 +95,7 @@ platforms, proxy configuration and cache control.
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.18.0
+    rev: v0.18.1
     hooks:
       - id: scythe-fmt        # format SQL
       - id: scythe-lint       # lint with auto-fix
