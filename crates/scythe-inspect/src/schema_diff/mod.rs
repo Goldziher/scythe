@@ -38,10 +38,11 @@
 //! PostgreSQL-only, reading `pg_catalog` through a `tokio_postgres::Client`
 //! parameter. Catalog-reading for other engines is not similarly restricted:
 //! [`source::SchemaCatalogDriver`] is the engine-agnostic trait for it, and
-//! [`crate::sqlite::SqliteCatalogSource`] / [`crate::mysql::MySqlCatalogSource`]
-//! implement it. Nothing currently wires their output into [`diff`] the way
-//! `fetch_live_schema`'s is — that plumbing (and, for PostgreSQL, populating
-//! [`ColumnDescription::primary_key`]) is a follow-up, not this change.
+//! [`source::PostgresCatalogSource`], [`crate::sqlite::SqliteCatalogSource`],
+//! and [`crate::mysql::MySqlCatalogSource`] implement it. The PostgreSQL source
+//! also exposes [`fetch_live_catalog`] for callers that need the richer
+//! code-generation catalog, including primary-key metadata and user-defined
+//! types.
 
 pub mod catalog;
 pub mod diff;
@@ -56,11 +57,15 @@ use crate::error::InspectError;
 
 pub use catalog::describe_catalog;
 pub use diff::{
-    DriftSeverities, SC_DRF01, SC_DRF02, SC_DRF03, SC_DRF04, SC_DRF05, SC_DRF06, SC_DRF07, diff as diff_schemas,
+    DriftSeverities, SC_DRF01, SC_DRF02, SC_DRF03, SC_DRF04, SC_DRF05, SC_DRF06, SC_DRF07, SC_DRF08, SC_DRF09,
+    SC_DRF10, SC_DRF11, SC_DRF12, SC_DRF13, diff as diff_schemas,
 };
-pub use live::fetch_live_schema;
-pub use model::{ColumnDescription, EnumDescription, SchemaDescription, TableDescription, object_key};
-pub use source::SchemaCatalogDriver;
+pub use live::{fetch_live_catalog, fetch_live_schema};
+pub use model::{
+    ColumnDescription, CompositeDescription, CompositeFieldDescription, EnumDescription, SchemaDescription,
+    TableDescription, object_key,
+};
+pub use source::{PostgresCatalogSource, SchemaCatalogDriver};
 
 /// Fetch the live schema once and diff every supplied DDL description against
 /// it.
@@ -96,7 +101,7 @@ pub async fn drift_findings(
 ) -> Result<Vec<Finding>, InspectError> {
     if schemas
         .iter()
-        .all(|(_, ddl)| ddl.tables.is_empty() && ddl.enums.is_empty())
+        .all(|(_, ddl)| ddl.tables.is_empty() && ddl.enums.is_empty() && ddl.composites.is_empty())
     {
         return Err(InspectError::NoSchemasToCompare);
     }
@@ -127,7 +132,8 @@ fn declared_schemas(schemas: &[(&str, &SchemaDescription)]) -> Vec<String> {
         .flat_map(|(_, ddl)| {
             let tables = ddl.tables.values().map(|table| table.display_name.as_str());
             let enums = ddl.enums.values().map(|enum_type| enum_type.display_name.as_str());
-            tables.chain(enums)
+            let composites = ddl.composites.values().map(|composite| composite.display_name.as_str());
+            tables.chain(enums).chain(composites)
         })
         .filter_map(schema_qualifier)
         .collect();
@@ -182,6 +188,16 @@ mod tests {
     fn should_collect_the_schema_a_qualified_enum_declares() {
         let ddl = schema_with(&[], &["app.status"]);
         assert_eq!(declared_schemas(&[("block", &ddl)]), vec!["app".to_string()]);
+    }
+
+    #[test]
+    fn should_collect_the_schema_a_qualified_composite_declares() {
+        let mut description = SchemaDescription::new();
+        description
+            .composites
+            .insert("address".to_string(), CompositeDescription::new("app.address"));
+
+        assert_eq!(declared_schemas(&[("main", &description)]), vec!["app"]);
     }
 
     /// The overwhelmingly common case: unqualified DDL adds nothing, so the

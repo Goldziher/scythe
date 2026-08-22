@@ -35,10 +35,12 @@ fn address_composite() -> CompositeInfo {
             CompositeFieldInfo {
                 name: "street".to_string(),
                 neutral_type: "string".to_string(),
+                nullable: false,
             },
             CompositeFieldInfo {
                 name: "zip_code".to_string(),
                 neutral_type: "string".to_string(),
+                nullable: false,
             },
         ],
     }

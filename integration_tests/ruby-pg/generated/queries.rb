@@ -1,5 +1,5 @@
 # frozen_string_literal: true
-# scythe:provenance v=0.17.0 backend=ruby-pg engine=postgresql schema=sch2:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325
+# scythe:provenance v=0.18.0 backend=ruby-pg engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:861cdfc5df3ece62 options=opt1:cbf29ce484222325
 
 require "bigdecimal/util"
 require "json"
@@ -154,9 +154,9 @@ WHERE u.id = $1", [id])
 
       f = _parse_composite_fields(text)
       new(
-        street: f[0],
-        city: f[1],
-        zip: f[2]
+        street: f[0].nil? ? nil : f[0],
+        city: f[1].nil? ? nil : f[1],
+        zip: f[2].nil? ? nil : f[2]
       )
     end
 

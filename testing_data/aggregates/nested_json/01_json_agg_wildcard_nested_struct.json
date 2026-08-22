@@ -18,11 +18,9 @@
           { "column": "orders", "struct_name": "GetUserOrdersRowOrders", "fallback_type": "json_array" }
         ]
       },
-      "typescript-pg": {
-        "degraded_nested_structs": [
-          { "column": "orders", "struct_name": "GetUserOrdersRowOrders", "fallback_type": "json_array" }
-        ]
-      },
+      "typescript-pg": { "degraded_nested_structs": [] },
+      "typescript-postgres": { "degraded_nested_structs": [] },
+      "typescript-kysely": { "degraded_nested_structs": [] },
       "php-pdo": { "degraded_nested_structs": [] },
       "php-amphp": { "degraded_nested_structs": [] },
       "java-jdbc": {

@@ -40,7 +40,7 @@ pub(crate) fn normalize_data_type(
             // `get_domain_base_type` does, so a column's resolved type and
             // its `NOT NULL`-ness never take two different lookup paths
             // that can disagree. See issue #184 (item 3).
-            if let Some(domain) = super::lookup_qualified(domains, &raw) {
+            if let Some(domain) = super::lookup_qualified(domains, &raw, None) {
                 return (domain.base_type.clone(), domain.not_null);
             }
             (raw, false)

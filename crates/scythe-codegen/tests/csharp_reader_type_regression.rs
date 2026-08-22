@@ -454,6 +454,7 @@ fn one_column_query(neutral_type: &str, nullable: bool) -> AnalyzedQuery {
             fields: vec![CompositeFieldInfo {
                 name: "street".to_string(),
                 neutral_type: "string".to_string(),
+                nullable: false,
             }],
         }];
         query.enums = vec![EnumInfo {

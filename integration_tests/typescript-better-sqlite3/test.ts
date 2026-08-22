@@ -32,6 +32,7 @@ function pass(testName: string, label: string = testName): void {
 	}
 }
 
+
 // Splits a SQL script into individual statements on top-level `;` only --
 // unlike a naive `.split(";")`, this tracks single-quoted and
 // double-quoted spans, PostgreSQL dollar-quoted bodies, and `--` line

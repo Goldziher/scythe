@@ -1,5 +1,8 @@
 use std::fmt::Write;
 
+use scythe_backend::manifest::BackendManifest;
+use scythe_backend::naming::{composite_type_name, enum_type_name, to_pascal_case};
+use scythe_core::analyzer::{CompositeInfo, NestedStructInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
@@ -256,6 +259,12 @@ fn is_ts_identifier(name: &str) -> bool {
 /// seen -- whereas `z.unknown()` would have silently widened the field.
 pub fn ts_type_to_zod(ts_type: &str) -> String {
     let ts_type = ts_type.trim();
+    if let Some(base) = ts_type.strip_suffix(" | null") {
+        return format!("{}.nullable()", ts_type_to_zod(base));
+    }
+    if let Some(element) = ts_type.strip_prefix("Array<").and_then(|value| value.strip_suffix('>')) {
+        return format!("z.array({})", ts_type_to_zod(element));
+    }
     if let Some(element) = ts_type.strip_suffix("[]") {
         return format!("z.array({})", ts_type_to_zod(element));
     }
@@ -273,6 +282,95 @@ pub fn ts_type_to_zod(ts_type: &str) -> String {
         "Record<string, unknown>" => "z.record(z.string(), z.unknown())".to_string(),
         _ => format!("z.custom<{ts_type}>()"),
     }
+}
+
+pub fn resolve_ts_json_runtime_type(neutral_type: &str, manifest: &BackendManifest) -> Result<String, ScytheError> {
+    let neutral_type = neutral_type.trim();
+    if let Some(inner) = container_inner(neutral_type, "nullable") {
+        return Ok(format!("{} | null", resolve_ts_json_runtime_type(inner, manifest)?));
+    }
+    if let Some(inner) = container_inner(neutral_type, "array") {
+        return Ok(format!("Array<{}>", resolve_ts_json_runtime_type(inner, manifest)?));
+    }
+    if let Some(inner) = container_inner(neutral_type, "json_nested") {
+        return resolve_ts_json_runtime_type(inner, manifest);
+    }
+    if let Some(inner) = container_inner(neutral_type, "json_typed") {
+        return Ok(inner.to_string());
+    }
+    if let Some(sql_name) = neutral_type.strip_prefix("enum::") {
+        return Ok(enum_type_name(sql_name, &manifest.naming));
+    }
+    if let Some(sql_name) = neutral_type.strip_prefix("composite::") {
+        return Ok(format!("{}Json", composite_type_name(sql_name, &manifest.naming)));
+    }
+
+    let runtime_type = match neutral_type {
+        "bool" => "boolean",
+        "int16" | "int32" | "int64" | "float32" | "float64" | "decimal" => "number",
+        "string" | "bytes" | "uuid" | "date" | "time" | "time_tz" | "datetime" | "datetime_tz" | "interval"
+        | "inet" => "string",
+        "json" => "unknown",
+        "json_array" => "Array<unknown>",
+        custom if custom.chars().next().is_some_and(char::is_uppercase) => custom,
+        _ => {
+            return Err(ScytheError::new(
+                ErrorCode::InternalError,
+                format!("unsupported TypeScript JSON runtime type: {neutral_type}"),
+            ));
+        }
+    };
+    Ok(runtime_type.to_string())
+}
+
+pub fn generate_ts_nested_interface(
+    nested: &NestedStructInfo,
+    manifest: &BackendManifest,
+) -> Result<String, ScytheError> {
+    let name = to_pascal_case(&nested.name);
+    let mut out = String::new();
+    let _ = writeln!(out, "/** JSON object produced for {}. */", nested.name);
+    let _ = writeln!(out, "export interface {name} {{");
+    for field in &nested.fields {
+        let mut field_type = resolve_ts_json_runtime_type(&field.neutral_type, manifest)?;
+        if field.nullable {
+            field_type.push_str(" | null");
+        }
+        let _ = writeln!(out, "\t{}: {field_type};", ts_property_key(&field.name));
+    }
+    let _ = write!(out, "}}");
+    Ok(out)
+}
+
+pub fn generate_ts_json_composite_interface(
+    composite: &CompositeInfo,
+    manifest: &BackendManifest,
+) -> Result<String, ScytheError> {
+    let name = format!("{}Json", composite_type_name(&composite.sql_name, &manifest.naming));
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "/** JSON representation of composite type {}. */",
+        composite.sql_name
+    );
+    let _ = writeln!(out, "export interface {name} {{");
+    for field in &composite.fields {
+        let mut field_type = resolve_ts_json_runtime_type(&field.neutral_type, manifest)?;
+        if field.nullable {
+            field_type.push_str(" | null");
+        }
+        let _ = writeln!(out, "\t{}: {field_type};", ts_property_key(&field.name));
+    }
+    let _ = write!(out, "}}");
+    Ok(out)
+}
+
+fn container_inner<'a>(neutral_type: &'a str, container: &str) -> Option<&'a str> {
+    neutral_type
+        .strip_prefix(container)?
+        .strip_prefix('<')?
+        .strip_suffix('>')
+        .map(str::trim)
 }
 
 /// Render the plain TypeScript interface for a row.
@@ -1179,6 +1277,94 @@ mod tests {
     #[test]
     fn ts_property_key_escapes_a_quote_inside_the_name() {
         assert_eq!(ts_property_key("weird\"name"), "\"weird\\\"name\"");
+    }
+
+    fn postgres_manifest() -> BackendManifest {
+        crate::backends::parse_manifest(include_str!("../../manifests/typescript-pg.toml"))
+            .expect("TypeScript PostgreSQL manifest must parse")
+    }
+
+    #[test]
+    fn json_runtime_types_follow_postgresql_json_encoding() {
+        let manifest = postgres_manifest();
+        assert_eq!(resolve_ts_json_runtime_type("decimal", &manifest).unwrap(), "number");
+        assert_eq!(
+            resolve_ts_json_runtime_type("datetime_tz", &manifest).unwrap(),
+            "string"
+        );
+        assert_eq!(resolve_ts_json_runtime_type("bytes", &manifest).unwrap(), "string");
+        assert_eq!(
+            resolve_ts_json_runtime_type("enum::order_status", &manifest).unwrap(),
+            "OrderStatus"
+        );
+        assert_eq!(
+            resolve_ts_json_runtime_type("array<nullable<int32>>", &manifest).unwrap(),
+            "Array<number | null>"
+        );
+        assert_eq!(
+            resolve_ts_json_runtime_type("composite::shipping_address", &manifest).unwrap(),
+            "ShippingAddressJson"
+        );
+        assert_eq!(
+            resolve_ts_json_runtime_type("json_typed<ApiPayload>", &manifest).unwrap(),
+            "ApiPayload"
+        );
+        assert!(resolve_ts_json_runtime_type("unknown", &manifest).is_err());
+        assert!(resolve_ts_json_runtime_type("future_geography", &manifest).is_err());
+    }
+
+    #[test]
+    fn nested_interface_preserves_raw_json_keys_and_required_nullability() {
+        let nested = NestedStructInfo {
+            name: "get_orders_row_orders".to_string(),
+            fields: vec![
+                scythe_core::analyzer::NestedFieldInfo {
+                    name: "createdAt".to_string(),
+                    neutral_type: "datetime_tz".to_string(),
+                    nullable: false,
+                },
+                scythe_core::analyzer::NestedFieldInfo {
+                    name: "delivery notes".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: true,
+                },
+            ],
+        };
+        assert_eq!(
+            generate_ts_nested_interface(&nested, &postgres_manifest()).unwrap(),
+            "/** JSON object produced for get_orders_row_orders. */\n\
+             export interface GetOrdersRowOrders {\n\
+             \tcreatedAt: string;\n\
+             \t\"delivery notes\": string | null;\n\
+             }"
+        );
+    }
+
+    #[test]
+    fn json_composite_interface_is_distinct_from_driver_native_type() {
+        let composite = CompositeInfo {
+            sql_name: "shipping_address".to_string(),
+            fields: vec![scythe_core::analyzer::CompositeFieldInfo {
+                name: "zip_code".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: true,
+            }],
+        };
+        assert_eq!(
+            generate_ts_json_composite_interface(&composite, &postgres_manifest()).unwrap(),
+            "/** JSON representation of composite type shipping_address. */\n\
+             export interface ShippingAddressJson {\n\
+             \tzip_code: number | null;\n\
+             }"
+        );
+    }
+
+    #[test]
+    fn zod_array_uses_custom_nested_element_type_without_recursive_validation() {
+        assert_eq!(
+            ts_type_to_zod("Array<GetOrdersRowOrders | null>"),
+            "z.array(z.custom<GetOrdersRowOrders>().nullable())"
+        );
     }
 
     fn column(

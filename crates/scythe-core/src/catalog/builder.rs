@@ -3,7 +3,10 @@ use ahash::{AHashMap, AHashSet};
 use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 
-use super::{Catalog, Column, CompositeField, CompositeType, DomainDef, EnumType, Table};
+use super::{
+    Catalog, Column, CompositeField, CompositeType, DomainDef, EnumType, Function, FunctionArgument,
+    FunctionArgumentMode, FunctionResultColumn, FunctionReturn, Table,
+};
 
 /// A database object name with its original identifier spelling preserved.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -168,14 +171,16 @@ impl EnumDefinition {
 pub struct CompositeFieldDefinition {
     name: String,
     raw_sql_type: String,
+    nullable: bool,
 }
 
 impl CompositeFieldDefinition {
     /// Construct a composite field definition.
-    pub fn new(name: impl Into<String>, raw_sql_type: impl Into<String>) -> Self {
+    pub fn new(name: impl Into<String>, raw_sql_type: impl Into<String>, nullable: bool) -> Self {
         Self {
             name: name.into(),
             raw_sql_type: raw_sql_type.into(),
+            nullable,
         }
     }
 }
@@ -202,6 +207,88 @@ pub struct DomainDefinition {
     not_null: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionArgumentDefinition {
+    name: Option<String>,
+    raw_sql_type: String,
+    mode: FunctionArgumentMode,
+    has_default: bool,
+}
+
+impl FunctionArgumentDefinition {
+    pub fn new(raw_sql_type: impl Into<String>) -> Self {
+        Self {
+            name: None,
+            raw_sql_type: raw_sql_type.into(),
+            mode: FunctionArgumentMode::In,
+            has_default: false,
+        }
+    }
+
+    #[must_use]
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    #[must_use]
+    pub fn mode(mut self, mode: FunctionArgumentMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    #[must_use]
+    pub fn defaulted(mut self) -> Self {
+        self.has_default = true;
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionResultColumnDefinition {
+    name: String,
+    raw_sql_type: String,
+    nullable: bool,
+}
+
+impl FunctionResultColumnDefinition {
+    pub fn new(name: impl Into<String>, raw_sql_type: impl Into<String>, nullable: bool) -> Self {
+        Self {
+            name: name.into(),
+            raw_sql_type: raw_sql_type.into(),
+            nullable,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionDefinition {
+    name: CatalogObjectName,
+    arguments: Vec<FunctionArgumentDefinition>,
+    return_type: FunctionReturnDefinition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FunctionReturnDefinition {
+    Scalar(String),
+    SetOf(String),
+    Table(Vec<FunctionResultColumnDefinition>),
+}
+
+impl FunctionDefinition {
+    pub fn new(
+        name: CatalogObjectName,
+        arguments: Vec<FunctionArgumentDefinition>,
+        return_type: FunctionReturnDefinition,
+    ) -> Self {
+        Self {
+            name,
+            arguments,
+            return_type,
+        }
+    }
+}
+
 impl DomainDefinition {
     /// Construct a domain definition.
     pub fn new(name: CatalogObjectName, raw_base_type: impl Into<String>, not_null: bool) -> Self {
@@ -218,10 +305,12 @@ impl DomainDefinition {
 pub struct CatalogBuilder {
     dialect: SqlDialect,
     engine: Option<String>,
+    search_path: Option<Vec<String>>,
     relations: Vec<RelationDefinition>,
     enums: Vec<EnumDefinition>,
     composites: Vec<CompositeDefinition>,
     domains: Vec<DomainDefinition>,
+    functions: Vec<FunctionDefinition>,
 }
 
 impl CatalogBuilder {
@@ -230,10 +319,12 @@ impl CatalogBuilder {
         Self {
             dialect,
             engine: None,
+            search_path: None,
             relations: Vec::new(),
             enums: Vec::new(),
             composites: Vec::new(),
             domains: Vec::new(),
+            functions: Vec::new(),
         }
     }
 
@@ -241,6 +332,17 @@ impl CatalogBuilder {
     #[must_use]
     pub fn engine(mut self, engine: impl Into<String>) -> Self {
         self.engine = Some(engine.into());
+        self
+    }
+
+    /// Register the ordered schemas used to resolve unqualified object names.
+    #[must_use]
+    pub fn search_path<I, S>(mut self, schemas: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.search_path = Some(schemas.into_iter().map(Into::into).collect());
         self
     }
 
@@ -272,6 +374,12 @@ impl CatalogBuilder {
         self
     }
 
+    #[must_use]
+    pub fn function(mut self, definition: FunctionDefinition) -> Self {
+        self.functions.push(definition);
+        self
+    }
+
     /// Validate all definitions and construct the catalog.
     pub fn build(self) -> Result<Catalog, ScytheError> {
         let mut catalog = Catalog {
@@ -279,8 +387,10 @@ impl CatalogBuilder {
             enums: AHashMap::new(),
             composites: AHashMap::new(),
             domains: AHashMap::new(),
+            functions: AHashMap::new(),
             dialect: self.dialect,
             engine: normalize_optional_engine(self.engine)?,
+            search_path: normalize_search_path(self.search_path)?,
             relation_names: AHashMap::new(),
             relation_kinds: AHashMap::new(),
             raw_column_types: AHashMap::new(),
@@ -295,8 +405,67 @@ impl CatalogBuilder {
         add_enums(&mut catalog, self.enums)?;
         add_composites(&mut catalog, self.composites)?;
         add_domains(&mut catalog, self.domains)?;
+        add_functions(&mut catalog, self.functions)?;
         Ok(catalog)
     }
+}
+
+fn add_functions(catalog: &mut Catalog, definitions: Vec<FunctionDefinition>) -> Result<(), ScytheError> {
+    for definition in definitions {
+        let key = definition.name.normalized_key("function")?;
+        let arguments = definition
+            .arguments
+            .into_iter()
+            .map(|argument| {
+                Ok(FunctionArgument {
+                    name: argument.name,
+                    sql_type: normalized_sql_type(&argument.raw_sql_type, "function argument type")?,
+                    mode: argument.mode,
+                    has_default: argument.has_default,
+                })
+            })
+            .collect::<Result<Vec<_>, ScytheError>>()?;
+        let return_type = match definition.return_type {
+            FunctionReturnDefinition::Scalar(sql_type) => FunctionReturn::Scalar {
+                sql_type: normalized_sql_type(&sql_type, "function return type")?,
+            },
+            FunctionReturnDefinition::SetOf(sql_type) => FunctionReturn::SetOf {
+                sql_type: normalized_sql_type(&sql_type, "function return type")?,
+            },
+            FunctionReturnDefinition::Table(columns) => FunctionReturn::Table {
+                columns: columns
+                    .into_iter()
+                    .map(|column| {
+                        Ok(FunctionResultColumn {
+                            name: column.name,
+                            sql_type: normalized_sql_type(&column.raw_sql_type, "function result type")?,
+                            nullable: column.nullable,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, ScytheError>>()?,
+            },
+        };
+        let function = Function { arguments, return_type };
+        let overloads = catalog.functions.entry(key.clone()).or_default();
+        let signature = function
+            .arguments
+            .iter()
+            .filter(|argument| argument.mode != FunctionArgumentMode::Out)
+            .map(|argument| argument.sql_type.as_str())
+            .collect::<Vec<_>>();
+        if overloads.iter().any(|existing| {
+            existing
+                .arguments
+                .iter()
+                .filter(|argument| argument.mode != FunctionArgumentMode::Out)
+                .map(|argument| argument.sql_type.as_str())
+                .eq(signature.iter().copied())
+        }) {
+            return Err(duplicate_error("function signature", &key));
+        }
+        overloads.push(function);
+    }
+    Ok(())
 }
 
 fn add_relations(catalog: &mut Catalog, definitions: Vec<RelationDefinition>) -> Result<(), ScytheError> {
@@ -380,6 +549,7 @@ fn add_composites(catalog: &mut Catalog, definitions: Vec<CompositeDefinition>) 
             fields.push(CompositeField {
                 name: field.name,
                 sql_type: normalized_sql_type(&field.raw_sql_type, "composite field type")?,
+                nullable: field.nullable,
             });
         }
         catalog.composites.insert(key.clone(), CompositeType { fields });
@@ -413,6 +583,17 @@ fn add_domains(catalog: &mut Catalog, definitions: Vec<DomainDefinition>) -> Res
 
 fn normalize_optional_engine(engine: Option<String>) -> Result<Option<String>, ScytheError> {
     engine.map(|value| normalized_identifier(&value, "engine")).transpose()
+}
+
+fn normalize_search_path(search_path: Option<Vec<String>>) -> Result<Option<Vec<String>>, ScytheError> {
+    search_path
+        .map(|schemas| {
+            schemas
+                .into_iter()
+                .map(|schema| normalized_identifier(&schema, "search path schema"))
+                .collect()
+        })
+        .transpose()
 }
 
 fn normalized_identifier(value: &str, description: &str) -> Result<String, ScytheError> {
@@ -561,7 +742,7 @@ mod tests {
             ))
             .composite(CompositeDefinition::new(
                 CatalogObjectName::qualified("Public", "Address"),
-                vec![CompositeFieldDefinition::new("ZipCode", "VARCHAR(12)")],
+                vec![CompositeFieldDefinition::new("ZipCode", "VARCHAR(12)", true)],
             ))
             .domain(DomainDefinition::new(
                 CatalogObjectName::qualified("Public", "PositiveId"),
@@ -643,5 +824,92 @@ mod tests {
             .expect("valid catalog");
 
         assert_ne!(integer_catalog.fingerprint(), text_catalog.fingerprint());
+    }
+
+    #[test]
+    fn should_resolve_bare_qualified_objects_in_search_path_order() {
+        let catalog = CatalogBuilder::new(SqlDialect::PostgreSQL)
+            .search_path(["Tenant", "public"])
+            .relation(RelationDefinition::table(
+                CatalogObjectName::qualified("public", "accounts"),
+                vec![ColumnDefinition::new("public_marker", "TEXT", false)],
+            ))
+            .relation(RelationDefinition::table(
+                CatalogObjectName::qualified("tenant", "accounts"),
+                vec![ColumnDefinition::new("tenant_marker", "TEXT", false)],
+            ))
+            .enum_type(EnumDefinition::new(
+                CatalogObjectName::qualified("public", "status"),
+                vec!["public".to_string()],
+            ))
+            .enum_type(EnumDefinition::new(
+                CatalogObjectName::qualified("tenant", "status"),
+                vec!["tenant".to_string()],
+            ))
+            .composite(CompositeDefinition::new(
+                CatalogObjectName::qualified("public", "address"),
+                vec![CompositeFieldDefinition::new("public_marker", "TEXT", false)],
+            ))
+            .composite(CompositeDefinition::new(
+                CatalogObjectName::qualified("tenant", "address"),
+                vec![CompositeFieldDefinition::new("tenant_marker", "TEXT", false)],
+            ))
+            .domain(DomainDefinition::new(
+                CatalogObjectName::qualified("public", "identifier"),
+                "INTEGER",
+                false,
+            ))
+            .domain(DomainDefinition::new(
+                CatalogObjectName::qualified("tenant", "identifier"),
+                "BIGINT",
+                false,
+            ))
+            .build()
+            .expect("valid schema-qualified definitions");
+
+        assert_eq!(
+            catalog.get_table("accounts").expect("scoped relation").columns[0].name,
+            "tenant_marker"
+        );
+        assert_eq!(
+            catalog
+                .get_table("public.accounts")
+                .expect("qualified relation")
+                .columns[0]
+                .name,
+            "public_marker"
+        );
+        assert_eq!(catalog.get_enum("status").expect("scoped enum").values, ["tenant"]);
+        assert_eq!(
+            catalog.get_enum("public.status").expect("qualified enum").values,
+            ["public"]
+        );
+        assert_eq!(
+            catalog.get_composite("address").expect("scoped composite").fields[0].name,
+            "tenant_marker"
+        );
+        assert_eq!(
+            catalog
+                .get_composite("public.address")
+                .expect("qualified composite")
+                .fields[0]
+                .name,
+            "public_marker"
+        );
+        assert_eq!(catalog.get_domain_base_type("identifier"), Some("bigint"));
+        assert_eq!(catalog.get_domain_base_type("public.identifier"), Some("integer"));
+        assert_eq!(catalog.tables_iter().count(), 2);
+        assert_eq!(catalog.enums_iter().count(), 2);
+        assert_eq!(catalog.composites_iter().count(), 2);
+    }
+
+    #[test]
+    fn should_reject_an_empty_search_path_schema() {
+        let error = CatalogBuilder::new(SqlDialect::PostgreSQL)
+            .search_path(["public", " "])
+            .build()
+            .expect_err("blank search path schema must fail");
+
+        assert!(error.to_string().contains("search path schema must not be empty"));
     }
 }

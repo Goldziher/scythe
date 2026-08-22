@@ -40,14 +40,19 @@ const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/python-asy
 /// text"), so an enum sub-field still decodes to `str` and needs `T(value)` to become our
 /// generated `Enum` subclass; a composite sub-field only needs wrapping into its own generated
 /// class, recursing through that class's own `_from_record`.
-fn asyncpg_composite_field_from_record(neutral_type: &str, field_type: &str, raw: &str) -> String {
-    if neutral_type.starts_with("composite::") {
-        return format!("{field_type}._from_record({raw})");
+fn asyncpg_composite_field_from_record(neutral_type: &str, base_type: &str, raw: &str, nullable: bool) -> String {
+    let converted = if neutral_type.starts_with("composite::") {
+        format!("{base_type}._from_record({raw})")
+    } else if neutral_type.starts_with("enum::") {
+        format!("{base_type}({raw})")
+    } else {
+        raw.to_string()
+    };
+    if nullable {
+        format!("None if {raw} is None else {converted}")
+    } else {
+        converted
     }
-    if neutral_type.starts_with("enum::") {
-        return format!("{field_type}({raw})");
-    }
-    raw.to_string()
 }
 
 /// Build the `field=value` expression for one column read from an `asyncpg.Record`
@@ -517,15 +522,20 @@ impl CodegenBackend for PythonAsyncpgBackend {
             return Ok(out);
         }
         let _ = writeln!(out);
-        let mut field_types: Vec<String> = Vec::with_capacity(composite.fields.len());
+        let mut base_field_types: Vec<String> = Vec::with_capacity(composite.fields.len());
         for field in &composite.fields {
-            let py_type = resolve_type(&field.neutral_type, &self.manifest, false)
+            let py_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
                 .map(|t| t.into_owned())
                 .map_err(|e| {
                     ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
                 })?;
             let _ = writeln!(out, "    {}: {}", to_snake_case(&field.name), py_type);
-            field_types.push(py_type);
+            let base_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                .map(|value| value.into_owned())
+                .map_err(|error| {
+                    ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {error}"))
+                })?;
+            base_field_types.push(base_type);
         }
 
         let _ = writeln!(out);
@@ -546,9 +556,9 @@ impl CodegenBackend for PythonAsyncpgBackend {
         let _ = writeln!(out, "        if record is None:");
         let _ = writeln!(out, "            return None");
         let _ = writeln!(out, "        return cls(");
-        for (field, field_type) in composite.fields.iter().zip(&field_types) {
+        for (field, base_type) in composite.fields.iter().zip(&base_field_types) {
             let raw = format!("record[\"{}\"]", field.name);
-            let value_expr = asyncpg_composite_field_from_record(&field.neutral_type, field_type, &raw);
+            let value_expr = asyncpg_composite_field_from_record(&field.neutral_type, base_type, &raw, field.nullable);
             let _ = writeln!(out, "            {}={value_expr},", to_snake_case(&field.name));
         }
         let _ = writeln!(out, "        )");

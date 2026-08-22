@@ -1,4 +1,4 @@
-// scythe:provenance v=0.17.0 backend=typescript-kysely engine=mariadb schema=sch2:262bec5a0954c973 queries=q1:2f37bd0f0a685c79 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.18.0 backend=typescript-kysely engine=mariadb schema=sch2:262bec5a0954c973 queries=q1:2f37bd0f0a685c79 options=opt1:cbf29ce484222325
 import { type QueryExecutorProvider, sql } from "kysely";
 
 

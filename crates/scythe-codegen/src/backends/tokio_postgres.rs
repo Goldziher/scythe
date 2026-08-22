@@ -664,7 +664,7 @@ impl CodegenBackend for TokioPostgresBackend {
         let _ = writeln!(out, "#[postgres(name = \"{}\")]", composite.sql_name);
         let _ = writeln!(out, "pub struct {} {{", struct_name);
         for field in &composite.fields {
-            let rust_type = resolve_type(&field.neutral_type, &self.manifest, false)
+            let rust_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
                 .map(|t| t.into_owned())
                 .map_err(|e| {
                     ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))

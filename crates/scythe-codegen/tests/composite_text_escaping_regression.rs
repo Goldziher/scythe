@@ -44,10 +44,10 @@ const STRICT_SKIP_REASON: &str = "strict mode requires it; without it only the s
 const PG_TEXT: &str = r#"("he said ""hi""","back\\slash")"#;
 const EXPECTED_FIELDS: [&str; 2] = [r#"he said "hi""#, r"back\slash"];
 
-fn generated_text(backend_name: &str) -> String {
+fn generated_text_for(schema: &str, query: &str, backend_name: &str) -> String {
     let backend = get_backend(backend_name, "postgresql").expect("backend must support postgresql");
-    let catalog = Catalog::from_ddl_with_dialect(&[SCHEMA], &SqlDialect::PostgreSQL).expect("schema must parse");
-    let parsed = parse_query_with_dialect(QUERY, &SqlDialect::PostgreSQL).expect("query must parse");
+    let catalog = Catalog::from_ddl_with_dialect(&[schema], &SqlDialect::PostgreSQL).expect("schema must parse");
+    let parsed = parse_query_with_dialect(query, &SqlDialect::PostgreSQL).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
     let code = scythe_codegen::generate_with_backend(&analyzed, &*backend).expect("codegen must succeed");
 
@@ -68,6 +68,10 @@ fn generated_text(backend_name: &str) -> String {
         out.push('\n');
     }
     out
+}
+
+fn generated_text(backend_name: &str) -> String {
+    generated_text_for(SCHEMA, QUERY, backend_name)
 }
 
 /// Every backend that emits a hand-written composite parser, paired with the language's
@@ -105,6 +109,111 @@ fn every_generated_composite_parser_handles_a_doubled_quote() {
             "{backend}: the emitted composite parser must treat a doubled double-quote as one \
              escaped quote, not as the field's closing quote -- looked for `{needle}`;\n\
              generated:\n{code}"
+        );
+    }
+}
+
+const NULLABLE_SCHEMA: &str = "CREATE TYPE mood AS ENUM ('happy', 'sad'); \
+    CREATE TYPE geo AS (latitude INTEGER); \
+    CREATE TYPE profile AS (age INTEGER, mood mood, geo geo); \
+    CREATE TABLE profiles (id INTEGER PRIMARY KEY, details profile NOT NULL);";
+
+const NULLABLE_QUERY: &str = "-- @name GetProfile\n-- @returns :one\nSELECT id, details FROM profiles WHERE id = $1;";
+
+#[test]
+fn nullable_composite_fields_skip_scalar_and_static_decoders_for_sql_null() {
+    let expectations = [
+        (
+            "java-r2dbc",
+            [
+                "f.get(0) == null ? null : Integer.parseInt(f.get(0))",
+                "f.get(1) == null ? null : Mood.fromValue(f.get(1))",
+                "f.get(2) == null ? null : Geo.fromText(f.get(2))",
+            ],
+        ),
+        (
+            "php-pdo",
+            [
+                "$f[0] === null ? null : (int) $f[0]",
+                "$f[1] === null ? null : Mood::from($f[1])",
+                "$f[2] === null ? null : Geo::fromText($f[2])",
+            ],
+        ),
+        (
+            "php-amphp",
+            [
+                "$f[0] === null ? null : (int) $f[0]",
+                "$f[1] === null ? null : Mood::from($f[1])",
+                "$f[2] === null ? null : Geo::fromText($f[2])",
+            ],
+        ),
+        (
+            "ruby-pg",
+            [
+                "age: f[0].nil? ? nil : f[0].to_i",
+                "mood: f[1].nil? ? nil : f[1]",
+                "geo: f[2].nil? ? nil : Geo.from_text(f[2])",
+            ],
+        ),
+        (
+            "typescript-pg",
+            [
+                "age: f[0] === null ? null : Number(f[0])",
+                "mood: f[1] === null ? null : f[1] as Mood",
+                "geo: f[2] === null ? null : parseGeo(f[2]) as Geo",
+            ],
+        ),
+        (
+            "typescript-postgres",
+            [
+                "age: f[0] === null ? null : Number(f[0])",
+                "mood: f[1] === null ? null : f[1] as Mood",
+                "geo: f[2] === null ? null : parseGeo(f[2]) as Geo",
+            ],
+        ),
+        (
+            "typescript-kysely",
+            [
+                "age: f[0] === null ? null : Number(f[0])",
+                "mood: f[1] === null ? null : f[1] as Mood",
+                "geo: f[2] === null ? null : parseGeo(f[2]) as Geo",
+            ],
+        ),
+    ];
+
+    for (backend, needles) in expectations {
+        let code = generated_text_for(NULLABLE_SCHEMA, NULLABLE_QUERY, backend);
+        for needle in needles {
+            assert!(
+                code.contains(needle),
+                "{backend}: missing `{needle}` in generated code:\n{code}"
+            );
+        }
+    }
+}
+
+#[test]
+fn composite_encoders_preserve_sql_null_subfields() {
+    let expectations = [
+        ("java-r2dbc", "if (value == null) return \"\";"),
+        ("php-pdo", "if ($value === null) {"),
+        ("php-amphp", "if ($value === null) {"),
+        ("ruby-pg", "return \"\" if value.nil?"),
+        (
+            "typescript-pg",
+            "if (field === null || field === undefined) return \"\";",
+        ),
+        (
+            "typescript-kysely",
+            "if (field === null || field === undefined) return \"\";",
+        ),
+    ];
+
+    for (backend, needle) in expectations {
+        let code = generated_text_for(NULLABLE_SCHEMA, NULLABLE_QUERY, backend);
+        assert!(
+            code.contains(needle),
+            "{backend}: missing null-safe encoder `{needle}`:\n{code}"
         );
     }
 }

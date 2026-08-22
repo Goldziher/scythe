@@ -10,18 +10,23 @@
 
 use std::collections::BTreeMap;
 
-/// One side of a drift comparison: the tables and enum types a schema
-/// contains, keyed by their lookup name.
+/// One side of a drift comparison: the tables and user-defined types a schema
+/// contains, keyed by normalized object identity.
 ///
 /// `BTreeMap` rather than a hash map so findings come out in a stable order.
 /// A drift report that reshuffles between runs is unreadable in a CI diff and
 /// impossible to snapshot-test.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SchemaDescription {
-    /// Tables (and views) keyed by [`object_key`].
+    /// Tables (and views) keyed by qualified identity when known. A live
+    /// source may also register a bare alias for the search-path winner.
     pub tables: BTreeMap<String, TableDescription>,
-    /// Enum types keyed by lowercase bare type name.
+    /// Enum types keyed by qualified identity when known, plus an optional
+    /// bare search-path alias on live sources.
     pub enums: BTreeMap<String, EnumDescription>,
+    /// Composite types keyed by qualified identity when known, plus an
+    /// optional bare search-path alias on live sources.
+    pub composites: BTreeMap<String, CompositeDescription>,
 }
 
 impl SchemaDescription {
@@ -155,14 +160,67 @@ impl EnumDescription {
     }
 }
 
-/// The key a table or enum is matched on across the two sides of a comparison.
+/// A standalone composite type and the fields it exposes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompositeDescription {
+    /// Name used in finding messages.
+    pub display_name: String,
+    /// Fields keyed by lowercase field name.
+    pub fields: BTreeMap<String, CompositeFieldDescription>,
+}
+
+impl CompositeDescription {
+    /// Build an empty composite description.
+    pub fn new(display_name: impl Into<String>) -> Self {
+        Self {
+            display_name: display_name.into(),
+            fields: BTreeMap::new(),
+        }
+    }
+
+    /// Add a field using its normalized lookup key.
+    pub fn with_field(mut self, field: CompositeFieldDescription) -> Self {
+        self.fields.insert(field.name.to_lowercase(), field);
+        self
+    }
+}
+
+/// One field in a standalone composite type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompositeFieldDescription {
+    /// Field name as reported by the source.
+    pub name: String,
+    /// Neutral type, or `None` when the type cannot be compared.
+    pub neutral_type: Option<String>,
+    /// Whether the field accepts NULL.
+    pub nullable: bool,
+}
+
+impl CompositeFieldDescription {
+    /// Build a field with a comparable neutral type.
+    pub fn new(name: impl Into<String>, neutral_type: impl Into<String>, nullable: bool) -> Self {
+        Self {
+            name: name.into(),
+            neutral_type: Some(neutral_type.into()),
+            nullable,
+        }
+    }
+
+    /// Build a field whose type cannot be compared.
+    pub fn unmappable(name: impl Into<String>, nullable: bool) -> Self {
+        Self {
+            name: name.into(),
+            neutral_type: None,
+            nullable,
+        }
+    }
+}
+
+/// Normalize a potentially qualified name to its lowercase bare component.
 ///
-/// Both sides are reduced to the bare, lowercased name. Scythe's catalog
-/// stores whatever the DDL wrote — `users` from `CREATE TABLE users`,
-/// `public.users` from `CREATE TABLE public.users` — while `pg_catalog` always
-/// knows the schema. Matching on the qualified name would report the same
-/// table as both missing from the database (SC-DRF01) and missing from the DDL
-/// (SC-DRF02) purely because one side spelled the schema out.
+/// Live descriptions use this for the alias that represents PostgreSQL's
+/// search-path winner. Qualified identities remain separate map entries so an
+/// explicit `tenant.users` declaration cannot be compared to `public.users`.
 pub fn object_key(name: &str) -> String {
     let lower = name.to_lowercase();
     match lower.rsplit_once('.') {
@@ -220,5 +278,12 @@ mod tests {
     fn as_primary_key_marks_the_column() {
         let column = ColumnDescription::new("id", "int32", false).as_primary_key();
         assert!(column.primary_key);
+    }
+
+    #[test]
+    fn with_field_keys_on_the_lowercased_name() {
+        let composite =
+            CompositeDescription::new("Address").with_field(CompositeFieldDescription::new("ZipCode", "string", true));
+        assert_eq!(composite.fields["zipcode"].name, "ZipCode");
     }
 }

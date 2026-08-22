@@ -3909,6 +3909,7 @@ backend = \"rust-sqlx\"
             fields: vec![CompositeFieldInfo {
                 name: "street".to_string(),
                 neutral_type: "string".to_string(),
+                nullable: false,
             }],
         };
 

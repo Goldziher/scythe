@@ -170,7 +170,7 @@ fn pg_nested_composite_field_recurses_through_inner_parse_fn() {
     assert_contains(
         "typescript-pg",
         &code,
-        "tag: parseInnerThing(f[2]) as InnerThing,",
+        "tag: f[2] === null ? null : parseInnerThing(f[2]) as InnerThing,",
         "a composite-typed field must recurse through the inner type's own parse function, not \
          attempt to parse the (already-unescaped) nested text form itself",
     );
@@ -182,13 +182,13 @@ fn pg_composite_scalar_fields_are_converted_not_left_as_strings() {
     assert_contains(
         "typescript-pg",
         &code,
-        "n: Number(f[0]),",
+        "n: f[0] === null ? null : Number(f[0]),",
         "an int32 composite field (`n`) must be parsed, not assigned the raw text token",
     );
     assert_contains(
         "typescript-pg",
         &code,
-        "flag: f[2] === \"t\",",
+        "flag: f[2] === null ? null : f[2] === \"t\",",
         "PostgreSQL's boolean text output is \"t\"/\"f\", not \"true\"/\"false\"",
     );
 }

@@ -448,7 +448,7 @@ impl CodegenBackend for GoGosnowflakeBackend {
         if !composite.fields.is_empty() {
             for field in &composite.fields {
                 let field_name = to_pascal_case(&field.name);
-                let go_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                let go_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
                     .map(|t| t.into_owned())
                     .unwrap_or_else(|_| "any".to_string());
                 let json_tag = &field.name;

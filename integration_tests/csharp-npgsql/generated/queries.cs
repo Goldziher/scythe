@@ -1,4 +1,4 @@
-// scythe:provenance v=0.17.0 backend=csharp-npgsql engine=postgresql schema=sch2:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.18.0 backend=csharp-npgsql engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:861cdfc5df3ece62 options=opt1:cbf29ce484222325
 #nullable enable
 
 using Npgsql;
@@ -254,9 +254,9 @@ public static async Task<List<SearchUsersRow>> SearchUsers(NpgsqlConnection conn
 }
 
 public record UserAddress(
-    string Street,
-    string City,
-    string Zip
+    string? Street,
+    string? City,
+    string? Zip
 ) {
     /// <summary>
     /// ~keep board #220: Npgsql has no binary decoder for this composite unless the
@@ -272,9 +272,9 @@ public record UserAddress(
         }
         var f = ParseCompositeFields(text);
         return new UserAddress(
-            f[0]!,
-            f[1]!,
-            f[2]!
+            f[0] is null ? null : f[0],
+            f[1] is null ? null : f[1],
+            f[2] is null ? null : f[2]
         );
     }
 

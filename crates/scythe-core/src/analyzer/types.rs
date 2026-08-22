@@ -90,30 +90,27 @@ pub struct GroupByConfig {
     pub child_columns: Vec<AnalyzedColumn>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CompositeInfo {
     pub sql_name: String,
     pub fields: Vec<CompositeFieldInfo>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CompositeFieldInfo {
     pub name: String,
     pub neutral_type: String,
+    pub nullable: bool,
 }
 
 /// A struct definition synthesized for a nested-aggregate result column
 /// (`json_agg(o.*)`, `row_to_json(u.*)`, ...). PostgreSQL only.
 ///
 /// Distinct from [`CompositeInfo`]/[`CompositeFieldInfo`]: those describe a
-/// SQL composite *type* from the catalog, where every backend's
-/// `generate_composite_def` hardcodes `nullable: false` on every field (no
-/// per-field nullability is tracked). A nested-aggregate field's
-/// nullability instead comes from the source column it was built from, so
-/// [`NestedFieldInfo`] carries a real `nullable` rather than reusing that
-/// channel.
+/// named SQL composite type, while this shape is synthesized from a query's
+/// source columns.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct NestedStructInfo {
@@ -536,5 +533,17 @@ impl<'a> Analyzer<'a> {
         self.next_nested_id += 1;
         self.pending_nested.push(PendingNestedStruct { id, fields });
         id
+    }
+}
+
+#[cfg(all(test, feature = "serde"))]
+mod serde_tests {
+    use super::CompositeFieldInfo;
+
+    #[test]
+    fn composite_field_requires_nullable_in_serialized_metadata() {
+        let error = serde_json::from_str::<CompositeFieldInfo>(r#"{"name":"zip","neutral_type":"string"}"#)
+            .expect_err("missing nullable must be rejected");
+        assert!(error.to_string().contains("nullable"));
     }
 }

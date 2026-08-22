@@ -477,7 +477,7 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
         } else {
             let _ = writeln!(out, "public record {}(", name);
             for (i, field) in composite.fields.iter().enumerate() {
-                let cs_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                let cs_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
                     .map(|t| t.into_owned())
                     .unwrap_or_else(|_| "object".to_string());
                 let field_name = to_pascal_case(&field.name);

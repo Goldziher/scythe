@@ -21,18 +21,17 @@
 //! [`SchemaDescription`], [`diff`](super::diff::diff), or anything that
 //! consumes them.
 //!
-//! PostgreSQL is not (yet) rewired through this trait. `fetch_live_schema`'s
-//! free-function signature — `(&Client, &[String])` — is a public API that
-//! `scythe-cli`'s `scythe check` already calls directly; wrapping it here
-//! would either change that signature or leave two ways to do the same
-//! fetch. Bound `Self: Sized`-free by construction (no method here returns
-//! `Self`), so a `PostgresCatalogDriver` adapter over the existing free
-//! functions can be added later without touching this trait.
+//! [`PostgresCatalogSource`] implements the same trait while preserving
+//! `fetch_live_schema`'s established free-function API for callers that
+//! already own a `tokio_postgres::Client`.
 
 use async_trait::async_trait;
+use scythe_core::catalog::Catalog;
+use tokio_postgres::{Client, NoTls};
 
 use crate::error::InspectError;
 
+use super::live::{fetch_live_catalog, fetch_live_schema};
 use super::model::SchemaDescription;
 
 /// Read a live database's schema into a [`SchemaDescription`].
@@ -71,4 +70,101 @@ pub trait SchemaCatalogDriver: Send {
     /// ignore the parameter; it is part of the trait so a caller does not
     /// need to special-case engines that do have the concept.
     async fn fetch_schema(&mut self, declared_schemas: &[String]) -> Result<SchemaDescription, InspectError>;
+}
+
+/// PostgreSQL-backed live catalog source.
+pub struct PostgresCatalogSource {
+    client: Option<Client>,
+}
+
+impl PostgresCatalogSource {
+    /// Build an unconnected source.
+    pub fn new() -> Self {
+        Self { client: None }
+    }
+
+    /// Build a source around an established PostgreSQL client.
+    pub fn from_client(client: Client) -> Self {
+        Self { client: Some(client) }
+    }
+
+    /// Fetch a codegen catalog from the connected database.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InspectError::NotConnected`] before [`Self::connect`] or
+    /// when a PostgreSQL catalog query or catalog validation fails.
+    pub async fn fetch_catalog(&mut self, declared_schemas: &[String]) -> Result<Catalog, InspectError> {
+        let client = self
+            .client
+            .as_ref()
+            .ok_or(InspectError::NotConnected { engine: "postgres" })?;
+        fetch_live_catalog(client, declared_schemas).await
+    }
+}
+
+impl Default for PostgresCatalogSource {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl SchemaCatalogDriver for PostgresCatalogSource {
+    fn engine(&self) -> &'static str {
+        "postgres"
+    }
+
+    async fn connect(&mut self, url: &str) -> Result<(), InspectError> {
+        let (client, connection) =
+            tokio_postgres::connect(url, NoTls)
+                .await
+                .map_err(|source| InspectError::Connect {
+                    engine: "postgres",
+                    source: Box::new(source),
+                })?;
+        tokio::spawn(async move {
+            if let Err(error) = connection.await {
+                tracing::warn!(error = %error, "PostgreSQL catalog connection terminated");
+            }
+        });
+        self.client = Some(client);
+        Ok(())
+    }
+
+    async fn fetch_schema(&mut self, declared_schemas: &[String]) -> Result<SchemaDescription, InspectError> {
+        let client = self
+            .client
+            .as_ref()
+            .ok_or(InspectError::NotConnected { engine: "postgres" })?;
+        fetch_live_schema(client, declared_schemas).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn engine_name_is_postgres() {
+        assert_eq!(PostgresCatalogSource::new().engine(), "postgres");
+    }
+
+    #[tokio::test]
+    async fn fetch_schema_without_connect_errors() {
+        let error = PostgresCatalogSource::new()
+            .fetch_schema(&[])
+            .await
+            .expect_err("unconnected source must fail");
+        assert!(matches!(error, InspectError::NotConnected { engine: "postgres" }));
+    }
+
+    #[tokio::test]
+    async fn fetch_catalog_without_connect_errors() {
+        let error = PostgresCatalogSource::new()
+            .fetch_catalog(&[])
+            .await
+            .expect_err("unconnected source must fail");
+        assert!(matches!(error, InspectError::NotConnected { engine: "postgres" }));
+    }
 }

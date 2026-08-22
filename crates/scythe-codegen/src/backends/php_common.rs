@@ -16,7 +16,7 @@
 use std::fmt::Write;
 
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{composite_type_name, field_name, to_pascal_case};
+use scythe_backend::naming::{composite_type_name, enum_type_name, field_name, to_pascal_case};
 use scythe_backend::types::{resolve_docblock_type, resolve_type, resolve_type_pair};
 
 use scythe_core::analyzer::{CompositeInfo, NestedStructInfo};
@@ -347,43 +347,45 @@ pub(crate) fn composite_parser_class_if_used(generated: &[GeneratedCode]) -> Str
     }
 }
 
-/// The PHP expression converting one composite field's raw text token (`raw`, a `string`
+/// The PHP expression converting one composite field's raw text token (`raw`, a `?string`
 /// already unescaped by `parseCompositeFields`) into the field's declared PHP type -- the
 /// inverse of what PostgreSQL's composite output function wrote for that field.
-///
-/// A field's own declared type is always non-nullable (`php_composite_def` resolves every field
-/// with `nullable: false` -- composite fields carry no per-field nullability, matching
-/// `java_jdbc.rs`'s identical note), so a genuinely NULL sub-field converted through a
-/// non-string arm (`(int) null`, ...) silently becomes `0` rather than throwing. That is a
-/// pre-existing gap in what `CompositeFieldInfo` tracks, not one this fix introduces or can
-/// close from here.
+/// Nullable fields return PHP `null` before any scalar or static conversion runs.
 fn php_composite_field_from_text(
     neutral_type: &str,
     field_type: &str,
     raw: &str,
+    nullable: bool,
     manifest: &BackendManifest,
 ) -> String {
-    if let Some(sql_name) = neutral_type.strip_prefix("composite::") {
-        return format!("{}::fromText({raw})", composite_type_name(sql_name, &manifest.naming));
-    }
-    if neutral_type.starts_with("enum::") {
-        return format!("{field_type}::from({raw})");
-    }
-    match neutral_type {
-        "bool" => format!("{raw} === 't'"),
-        "int16" | "int32" | "int64" => format!("(int) {raw}"),
-        "float32" | "float64" => format!("(float) {raw}"),
-        // ~keep PostgreSQL's default `bytea` text output is hex ("\x48656c6c6f"); decode the
-        // digits after the "\x" prefix back into bytes.
-        "bytes" => format!("hex2bin(substr({raw}, 2))"),
-        "date" | "time" | "time_tz" | "datetime" | "datetime_tz" => format!("new \\DateTimeImmutable({raw})"),
-        "json" if field_type == "array" => format!("json_decode({raw}, true)"),
-        // ~keep "string"/"uuid"/"decimal"/"interval"/"inet"/"json" (when declared "string") all
-        // resolve to PHP `string`, so the already-parsed text needs only the cast PHPStan wants.
-        // Any neutral type not named above (e.g. an array-typed composite field) falls through
-        // here too; passing the raw text through is the least-wrong fallback available at
-        // generate time rather than a hard error.
-        _ => format!("(string) {raw}"),
+    let converted = if let Some(sql_name) = neutral_type.strip_prefix("composite::") {
+        format!("{}::fromText({raw})", composite_type_name(sql_name, &manifest.naming))
+    } else if let Some(sql_name) = neutral_type.strip_prefix("enum::") {
+        format!("{}::from({raw})", enum_type_name(sql_name, &manifest.naming))
+    } else {
+        match neutral_type {
+            "bool" => format!("{raw} === 't'"),
+            "int16" | "int32" | "int64" => format!("(int) {raw}"),
+            "float32" | "float64" => format!("(float) {raw}"),
+            // ~keep PostgreSQL's default `bytea` text output is hex ("\x48656c6c6f"); decode the
+            // digits after the "\x" prefix back into bytes.
+            "bytes" => format!("hex2bin(substr({raw}, 2))"),
+            "date" | "time" | "time_tz" | "datetime" | "datetime_tz" => {
+                format!("new \\DateTimeImmutable({raw})")
+            }
+            "json" if field_type == "array" => format!("json_decode({raw}, true)"),
+            // ~keep "string"/"uuid"/"decimal"/"interval"/"inet"/"json" (when declared "string") all
+            // resolve to PHP `string`, so the already-parsed text needs only the cast PHPStan wants.
+            // Any neutral type not named above (e.g. an array-typed composite field) falls through
+            // here too; passing the raw text through is the least-wrong fallback available at
+            // generate time rather than a hard error.
+            _ => format!("(string) {raw}"),
+        }
+    };
+    if nullable {
+        format!("{raw} === null ? null : {converted}")
+    } else {
+        converted
     }
 }
 
@@ -416,7 +418,7 @@ fn generate_composite_def_inner(
             if include_json_factory && f.neutral_type == "decimal" {
                 return "string|float".to_string();
             }
-            resolve_type(&f.neutral_type, manifest, false)
+            resolve_type(&f.neutral_type, manifest, f.nullable)
                 .map(|t| t.into_owned())
                 .unwrap_or_else(|_| "mixed".to_string())
         })
@@ -439,7 +441,11 @@ fn generate_composite_def_inner(
     let _ = writeln!(out, "        return new self(");
     for (i, (field, field_type)) in composite.fields.iter().zip(&field_types).enumerate() {
         let raw = format!("$f[{}]", i);
-        let value_expr = php_composite_field_from_text(&field.neutral_type, field_type, &raw, manifest);
+        let conversion_type = resolve_type(&field.neutral_type, manifest, false)
+            .map(|t| t.into_owned())
+            .unwrap_or_else(|_| field_type.clone());
+        let value_expr =
+            php_composite_field_from_text(&field.neutral_type, &conversion_type, &raw, field.nullable, manifest);
         let _ = writeln!(out, "            {},", value_expr);
     }
     let _ = writeln!(out, "        );");

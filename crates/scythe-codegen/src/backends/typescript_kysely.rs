@@ -13,9 +13,10 @@ use crate::backend_trait::GroupedQueryFn;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
     TsFieldCase, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
-    generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_union_row_struct, generate_zod_enum,
-    generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option,
-    ts_index_access, ts_member_access, ts_property_key, ts_row_not_found_throw,
+    generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_json_composite_interface,
+    generate_ts_nested_interface, generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs,
+    generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option, ts_index_access, ts_member_access,
+    ts_property_key, ts_row_not_found_throw,
 };
 
 /// Board #204: whatever driver the caller's `Kysely<DB>`/`QueryExecutorProvider` wraps (`pg`
@@ -90,6 +91,7 @@ fn ts_encode_composite_helper(composite: &CompositeInfo, naming: &scythe_backend
         "function encode{name}(value: {name} | null): string | null {{\n\
 \tif (value === null) return null;\n\
 \tconst encode = (field: unknown): string => {{\n\
+\t\tif (field === null || field === undefined) return \"\";\n\
 \t\tconst text = String(field);\n\
 \t\tif (text === \"\" || /[(),\\\"\\\\\\s]/.test(text)) {{\n\
 \t\t\treturn `\"${{text.replaceAll(\"\\\\\", \"\\\\\\\\\").replaceAll('\\\"', '\\\"\\\"')}}\"`;\n\
@@ -141,23 +143,34 @@ fn ts_composite_needs_offset_datetime_helper(composite: &CompositeInfo) -> bool 
     composite.fields.iter().any(|f| f.neutral_type == "datetime_tz")
 }
 
-/// The TypeScript expression converting one composite field's raw text token into the field's
-/// declared type. See `typescript_pg.rs`'s identical helper for the full rationale, including
-/// the pre-existing per-field-NULL gap this mirrors from `java_jdbc.rs`.
-fn ts_composite_field_from_text(neutral_type: &str, field_type: &str, raw: &str, composite_name: &str) -> String {
-    if neutral_type.strip_prefix("composite::").is_some() {
-        return format!("parse{field_type}({raw}) as {field_type}");
-    }
-    if neutral_type.starts_with("enum::") {
-        return format!("{raw} as {field_type}");
-    }
-    match neutral_type {
-        "bool" => format!("{raw} === \"t\""),
-        "int16" | "int32" | "int64" | "float32" | "float64" => format!("Number({raw})"),
-        "bytes" => format!("parse{composite_name}Bytes({raw} as string)"),
-        "datetime" => format!("new Date(({raw} as string).replace(\" \", \"T\"))"),
-        "datetime_tz" => format!("parse{composite_name}OffsetDateTime({raw} as string)"),
-        _ => format!("{raw} as {field_type}"),
+/// The TypeScript expression converting one composite field's raw text token into its declared
+/// type. Nullable fields return `null` before conversion, and `field_type` is always the
+/// non-null manifest spelling used by static calls and type assertions.
+fn ts_composite_field_from_text(
+    neutral_type: &str,
+    field_type: &str,
+    raw: &str,
+    nullable: bool,
+    composite_name: &str,
+) -> String {
+    let converted = if neutral_type.strip_prefix("composite::").is_some() {
+        format!("parse{field_type}({raw}) as {field_type}")
+    } else if neutral_type.starts_with("enum::") {
+        format!("{raw} as {field_type}")
+    } else {
+        match neutral_type {
+            "bool" => format!("{raw} === \"t\""),
+            "int16" | "int32" | "int64" | "float32" | "float64" => format!("Number({raw})"),
+            "bytes" => format!("parse{composite_name}Bytes({raw} as string)"),
+            "datetime" => format!("new Date(({raw} as string).replace(\" \", \"T\"))"),
+            "datetime_tz" => format!("parse{composite_name}OffsetDateTime({raw} as string)"),
+            _ => format!("{raw} as {field_type}"),
+        }
+    };
+    if nullable {
+        format!("{raw} === null ? null : {converted}")
+    } else {
+        converted
     }
 }
 
@@ -856,7 +869,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
         }
         let mut field_types: Vec<String> = Vec::with_capacity(composite.fields.len());
         for field in &composite.fields {
-            let ts_type = resolve_type(&field.neutral_type, &self.manifest, false)
+            let ts_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
                 .map(|t| t.into_owned())
                 .map_err(|e| {
                     ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
@@ -881,9 +894,15 @@ impl CodegenBackend for TypescriptKyselyBackend {
         let _ = writeln!(out, "\t}}");
         let _ = writeln!(out, "\tconst f = parse{name}Fields(raw as string);");
         let _ = writeln!(out, "\treturn {{");
-        for (i, (field, field_type)) in composite.fields.iter().zip(&field_types).enumerate() {
+        for (i, field) in composite.fields.iter().enumerate() {
             let raw = format!("f[{i}]");
-            let value_expr = ts_composite_field_from_text(&field.neutral_type, field_type, &raw, &name);
+            let conversion_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                .map(|t| t.into_owned())
+                .map_err(|e| {
+                    ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
+                })?;
+            let value_expr =
+                ts_composite_field_from_text(&field.neutral_type, &conversion_type, &raw, field.nullable, &name);
             let _ = writeln!(
                 out,
                 "\t\t{}: {value_expr},",
@@ -907,6 +926,25 @@ impl CodegenBackend for TypescriptKyselyBackend {
         let _ = writeln!(out);
         let _ = writeln!(out);
         out.push_str(&ts_encode_composite_helper(composite, &self.manifest.naming));
+        Ok(out)
+    }
+
+    fn generate_nested_struct_def(
+        &self,
+        nested: &scythe_core::analyzer::NestedStructInfo,
+    ) -> Result<Option<String>, ScytheError> {
+        if !self.manifest.types.containers.contains_key("json_nested") {
+            return Ok(None);
+        }
+        Ok(generate_ts_nested_interface(nested, &self.manifest).ok())
+    }
+
+    fn generate_composite_def_for_nested(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
+        let mut out = self.generate_composite_def(composite)?;
+        if self.manifest.types.containers.contains_key("json_nested") {
+            out.push_str("\n\n");
+            out.push_str(&generate_ts_json_composite_interface(composite, &self.manifest)?);
+        }
         Ok(out)
     }
 

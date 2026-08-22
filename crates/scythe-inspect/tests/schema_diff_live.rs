@@ -19,7 +19,9 @@ use scythe_core::analyzer::analyze;
 use scythe_core::catalog::Catalog;
 use scythe_core::dialect::SqlDialect;
 use scythe_core::parser::parse_query_with_dialect;
-use scythe_inspect::schema_diff::{DriftSeverities, describe_catalog, diff_schemas, fetch_live_schema};
+use scythe_inspect::schema_diff::{
+    DriftSeverities, describe_catalog, diff_schemas, fetch_live_catalog, fetch_live_schema,
+};
 use scythe_lint::reporters::Finding;
 use tokio_postgres::{Client, NoTls};
 
@@ -78,6 +80,7 @@ fn declared_schemas(ddl: &scythe_inspect::SchemaDescription) -> Vec<String> {
         .values()
         .map(|table| table.display_name.as_str())
         .chain(ddl.enums.values().map(|enum_type| enum_type.display_name.as_str()))
+        .chain(ddl.composites.values().map(|composite| composite.display_name.as_str()))
         .filter_map(|name| name.rsplit_once('.').map(|(schema, _)| schema.to_lowercase()))
         .collect();
     declared.sort_unstable();
@@ -404,5 +407,148 @@ async fn an_unmappable_column_type_is_skipped_rather_than_reported() {
         findings.is_empty(),
         "an `xml` column scythe cannot map is not evidence of drift: {:?}",
         findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+async fn reports_every_composite_drift_rule_from_live_catalog_metadata() {
+    let client = client_with_schema(
+        "drift_composite_rules",
+        "CREATE TYPE changed AS (
+             type_field uuid,
+             nullability_field text,
+             live_only_field text
+         );
+         CREATE TYPE live_only_type AS (value text);",
+    )
+    .await;
+
+    let catalog = Catalog::from_ddl_with_dialect(
+        &["CREATE TYPE changed AS (
+                 type_field text,
+                 nullability_field text,
+                 ddl_only_field text
+             );
+             CREATE TYPE ddl_only_type AS (value text);"],
+        &SqlDialect::PostgreSQL,
+    )
+    .expect("catalog from committed DDL");
+    let mut ddl = describe_catalog(&catalog).expect("describe committed DDL");
+    // ~keep PostgreSQL composite DDL has no field-level NOT NULL syntax; mutate the portable model to exercise
+    // the rule against the authoritative nullable=true value loaded from pg_attribute.
+    ddl.composites
+        .get_mut("changed")
+        .expect("changed composite")
+        .fields
+        .get_mut("nullability_field")
+        .expect("nullability field")
+        .nullable = false;
+
+    let live = fetch_live_schema(&client, &declared_schemas(&ddl))
+        .await
+        .expect("fetch live composite metadata");
+    let findings = diff_schemas(&ddl, &live, &DriftSeverities::default(), "composite-rules");
+    let mut actual = rule_ids(&findings);
+    actual.sort_unstable();
+
+    assert_eq!(
+        actual,
+        vec!["SC-DRF08", "SC-DRF09", "SC-DRF10", "SC-DRF11", "SC-DRF12", "SC-DRF13"]
+    );
+}
+
+#[tokio::test]
+async fn live_catalog_preserves_postgres_relations_types_and_primary_keys() {
+    let schema = "scythe_drift_live_catalog";
+    let client = client_with_schema(
+        schema,
+        "CREATE TYPE status AS ENUM ('active', 'disabled');
+         CREATE DOMAIN postal_code AS text NOT NULL;
+         CREATE TYPE geo AS (
+             latitude numeric,
+             longitude numeric
+         );
+         CREATE TYPE address AS (
+             postal_code postal_code,
+             state status,
+             history status[],
+             coordinates geo
+         );
+         CREATE TABLE accounts (
+             id bigint,
+             audit_note text,
+             location address,
+             state status NOT NULL,
+             PRIMARY KEY (id) INCLUDE (audit_note)
+         );",
+    )
+    .await;
+
+    let shadow_schema = "scythe_drift_live_catalog_shadow";
+    client
+        .batch_execute(&format!(
+            "DROP SCHEMA IF EXISTS {shadow_schema} CASCADE;
+             CREATE SCHEMA {shadow_schema};
+             CREATE TYPE {shadow_schema}.status AS ENUM ('shadowed');
+             CREATE TYPE {shadow_schema}.address AS (shadow_only integer);
+             CREATE TABLE {shadow_schema}.accounts (shadow_only integer);"
+        ))
+        .await
+        .expect("create shadowed qualified objects");
+
+    let catalog = fetch_live_catalog(&client, &[shadow_schema.to_string()])
+        .await
+        .expect("fetch live catalog");
+    let description = fetch_live_schema(&client, &[]).await.expect("fetch live schema");
+    let accounts = catalog.get_table("accounts").expect("accounts table");
+    assert_eq!(accounts.columns[0].name, "id");
+    assert!(accounts.columns[0].primary_key);
+    assert!(
+        !accounts.columns[1].primary_key,
+        "an INCLUDE column is not part of the primary key"
+    );
+    assert_eq!(accounts.columns[2].sql_type, format!("{schema}.address"));
+    assert!(!accounts.columns[3].nullable);
+    assert!(catalog.get_table(&format!("{schema}.accounts")).is_some());
+    assert!(catalog.get_table(&format!("{shadow_schema}.accounts")).is_some());
+    assert_eq!(
+        catalog
+            .get_table(&format!("{shadow_schema}.accounts"))
+            .expect("qualified shadow table")
+            .columns[0]
+            .name,
+        "shadow_only"
+    );
+
+    let address = catalog.get_composite("address").expect("address composite");
+    assert_eq!(address.fields.len(), 4);
+    assert_eq!(address.fields[0].name, "postal_code");
+    assert_eq!(address.fields[0].sql_type, format!("{schema}.postal_code"));
+    assert_eq!(address.fields[1].sql_type, format!("{schema}.status"));
+    assert_eq!(address.fields[2].sql_type, format!("{schema}.status[]"));
+    assert_eq!(address.fields[3].sql_type, format!("{schema}.geo"));
+    assert!(address.fields.iter().all(|field| field.nullable));
+    assert_eq!(
+        description.composites["address"].fields["coordinates"]
+            .neutral_type
+            .as_deref(),
+        Some("composite::geo")
+    );
+
+    assert_eq!(
+        catalog.get_enum("status").expect("status enum").values,
+        ["active", "disabled"]
+    );
+    assert_eq!(
+        catalog
+            .get_enum(&format!("{shadow_schema}.status"))
+            .expect("qualified shadow enum")
+            .values,
+        ["shadowed"]
+    );
+    assert_eq!(catalog.get_domain_base_type("postal_code"), Some("text"));
+    assert!(
+        catalog.get_composite("accounts").is_none(),
+        "implicit table row type must be excluded"
     );
 }

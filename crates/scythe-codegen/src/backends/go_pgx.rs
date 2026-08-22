@@ -112,6 +112,13 @@ func encodeCompositeField(value any) string {
 	}
 	escaped := strings.ReplaceAll(strings.ReplaceAll(raw, "\\", "\\\\"), "\"", "\"\"")
 	return "\"" + escaped + "\""
+}
+
+func encodeCompositeFieldPtr[T any](value *T) string {
+	if value == nil {
+		return ""
+	}
+	return encodeCompositeField(*value)
 }"#;
 
 fn go_pgx_param_expr(param: &ResolvedParam, raw: &str) -> String {
@@ -166,24 +173,17 @@ fn composite_field_go_pgx_supported(neutral_type: &str) -> bool {
 /// bound to the local `raw` by the caller, into `v.<PascalField>` -- the inverse of what
 /// PostgreSQL's composite output function wrote for that field. `index` and `composite_display`
 /// are only for the error message a fallible conversion returns on failure.
-///
-/// A field's own declared type is always non-nullable (`generate_composite_def` resolves every
-/// field with `nullable: false` -- `CompositeFieldInfo` carries no per-field nullability), so a
-/// genuinely NULL sub-field never reaches this function -- the caller's null check on `f[index]`
-/// returns before it does. That is a pre-existing gap in what `CompositeFieldInfo` tracks (the
-/// same one `java_jdbc.rs`'s `composite_field_from_text` documents), not one this fix introduces
-/// or can close from here.
 fn composite_field_conversion(
     field: &CompositeFieldInfo,
     field_go_type: &str,
+    assign: &str,
     composite_display: &str,
     index: usize,
     naming: &NamingConfig,
 ) -> Vec<String> {
-    let assign = format!("v.{}", to_pascal_case(&field.name));
     if let Some(sql_name) = field.neutral_type.strip_prefix("composite::") {
         let expr = format!("{}FromText(raw)", composite_type_name(sql_name, naming));
-        return go_pgx_fallible_conversion(&assign, &expr, composite_display, &field.name, index, None);
+        return go_pgx_fallible_conversion(assign, &expr, composite_display, &field.name, index, None);
     }
     if field.neutral_type.starts_with("enum::") {
         return vec![format!("{assign} = {field_go_type}(raw)")];
@@ -193,7 +193,7 @@ fn composite_field_conversion(
         "string" => vec![format!("{assign} = raw")],
         "json" => vec![format!("{assign} = json.RawMessage(raw)")],
         "int16" => go_pgx_fallible_conversion(
-            &assign,
+            assign,
             "strconv.ParseInt(raw, 10, 16)",
             composite_display,
             &field.name,
@@ -201,7 +201,7 @@ fn composite_field_conversion(
             Some("int16"),
         ),
         "int32" => go_pgx_fallible_conversion(
-            &assign,
+            assign,
             "strconv.ParseInt(raw, 10, 32)",
             composite_display,
             &field.name,
@@ -209,7 +209,7 @@ fn composite_field_conversion(
             Some("int32"),
         ),
         "int64" => go_pgx_fallible_conversion(
-            &assign,
+            assign,
             "strconv.ParseInt(raw, 10, 64)",
             composite_display,
             &field.name,
@@ -217,7 +217,7 @@ fn composite_field_conversion(
             None,
         ),
         "float32" => go_pgx_fallible_conversion(
-            &assign,
+            assign,
             "strconv.ParseFloat(raw, 32)",
             composite_display,
             &field.name,
@@ -225,16 +225,16 @@ fn composite_field_conversion(
             Some("float32"),
         ),
         "float64" => go_pgx_fallible_conversion(
-            &assign,
+            assign,
             "strconv.ParseFloat(raw, 64)",
             composite_display,
             &field.name,
             index,
             None,
         ),
-        "uuid" => go_pgx_fallible_conversion(&assign, "uuid.Parse(raw)", composite_display, &field.name, index, None),
+        "uuid" => go_pgx_fallible_conversion(assign, "uuid.Parse(raw)", composite_display, &field.name, index, None),
         "decimal" => go_pgx_fallible_conversion(
-            &assign,
+            assign,
             "decimal.NewFromString(raw)",
             composite_display,
             &field.name,
@@ -242,7 +242,7 @@ fn composite_field_conversion(
             None,
         ),
         "date" => go_pgx_fallible_conversion(
-            &assign,
+            assign,
             "time.Parse(\"2006-01-02\", raw)",
             composite_display,
             &field.name,
@@ -250,7 +250,7 @@ fn composite_field_conversion(
             None,
         ),
         "time" => go_pgx_fallible_conversion(
-            &assign,
+            assign,
             "time.Parse(\"15:04:05.999999\", raw)",
             composite_display,
             &field.name,
@@ -258,7 +258,7 @@ fn composite_field_conversion(
             None,
         ),
         "datetime" => go_pgx_fallible_conversion(
-            &assign,
+            assign,
             "time.Parse(\"2006-01-02 15:04:05.999999\", raw)",
             composite_display,
             &field.name,
@@ -266,17 +266,17 @@ fn composite_field_conversion(
             None,
         ),
         "time_tz" => {
-            go_pgx_offset_time_conversion(&assign, "15:04:05.999999Z07:00", composite_display, &field.name, index)
+            go_pgx_offset_time_conversion(assign, "15:04:05.999999Z07:00", composite_display, &field.name, index)
         }
         "datetime_tz" => go_pgx_offset_time_conversion(
-            &assign,
+            assign,
             "2006-01-02T15:04:05.999999Z07:00",
             composite_display,
             &field.name,
             index,
         ),
-        "bytes" => go_pgx_bytes_conversion(&assign, composite_display, &field.name, index),
-        "inet" => go_pgx_inet_conversion(&assign, composite_display, &field.name, index),
+        "bytes" => go_pgx_bytes_conversion(assign, composite_display, &field.name, index),
+        "inet" => go_pgx_inet_conversion(assign, composite_display, &field.name, index),
         // `composite_field_go_pgx_supported` already rejected every other neutral type (array
         // containers, `interval`) before `generate_composite_def` ever calls this function, so
         // this arm is unreachable in practice -- kept as a safe fallback rather than a `panic!`
@@ -509,7 +509,7 @@ impl GoPgxBackend {
     /// composite's body is therefore an unconditional, clearly worded error instead of a per-field
     /// parse: no worse than the pre-existing direct-`Scan` failure this whole fix replaces, and
     /// easier to diagnose than pgx's own opaque "can't scan into dest".
-    fn generate_composite_from_text(&self, composite: &CompositeInfo, name: &str, field_go_types: &[String]) -> String {
+    fn generate_composite_from_text(&self, composite: &CompositeInfo, name: &str) -> String {
         let mut out = String::new();
         let _ = writeln!(
             out,
@@ -547,18 +547,35 @@ impl GoPgxBackend {
         );
         let _ = writeln!(out, "\t}}");
         let _ = writeln!(out, "\tvar v {name}");
-        for (index, (field, go_type)) in composite.fields.iter().zip(field_go_types).enumerate() {
-            let _ = writeln!(out, "\tif f[{index}] == nil {{");
-            let _ = writeln!(
-                out,
-                "\t\treturn zero, fmt.Errorf(\"{name}: field {index} ({}) is NULL\")",
-                field.name
-            );
-            let _ = writeln!(out, "\t}}");
-            let _ = writeln!(out, "\t{{");
+        for (index, field) in composite.fields.iter().enumerate() {
+            if field.nullable {
+                let _ = writeln!(out, "\tif f[{index}] != nil {{");
+            } else {
+                let _ = writeln!(out, "\tif f[{index}] == nil {{");
+                let _ = writeln!(
+                    out,
+                    "\t\treturn zero, fmt.Errorf(\"{name}: field {index} ({}) is NULL\")",
+                    field.name
+                );
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\t{{");
+            }
             let _ = writeln!(out, "\t\traw := *f[{index}]");
-            for line in composite_field_conversion(field, go_type, name, index, &self.manifest.naming) {
+            let field_name = to_pascal_case(&field.name);
+            let base_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                .map(|value| value.into_owned())
+                .unwrap_or_else(|_| "any".to_string());
+            let assign = if field.nullable {
+                let _ = writeln!(out, "\t\tvar fieldValue {base_type}");
+                "fieldValue".to_string()
+            } else {
+                format!("v.{field_name}")
+            };
+            for line in composite_field_conversion(field, &base_type, &assign, name, index, &self.manifest.naming) {
                 let _ = writeln!(out, "\t\t{line}");
+            }
+            if field.nullable {
+                let _ = writeln!(out, "\t\tv.{field_name} = &fieldValue");
             }
             let _ = writeln!(out, "\t}}");
         }
@@ -618,7 +635,7 @@ impl CodegenBackend for GoPgxBackend {
             header.push('\n');
             header.push_str(GO_PARSE_COMPOSITE_FIELDS_FUNC);
         }
-        if super::go_common::generated_code_uses_prefix(generated, "encodeCompositeField(") {
+        if super::go_common::generated_code_uses_prefix(generated, "encodeCompositeField") {
             header.push('\n');
             header.push_str(GO_ENCODE_COMPOSITE_FIELD_FUNC);
         }
@@ -1076,7 +1093,7 @@ impl CodegenBackend for GoPgxBackend {
             .fields
             .iter()
             .map(|field| {
-                resolve_type(&field.neutral_type, &self.manifest, false)
+                resolve_type(&field.neutral_type, &self.manifest, field.nullable)
                     .map(|t| t.into_owned())
                     .unwrap_or_else(|_| "any".to_string())
             })
@@ -1093,7 +1110,14 @@ impl CodegenBackend for GoPgxBackend {
             let encoded_fields = composite
                 .fields
                 .iter()
-                .map(|field| format!("encodeCompositeField(v.{})", to_pascal_case(&field.name)))
+                .map(|field| {
+                    let field_name = to_pascal_case(&field.name);
+                    if field.nullable {
+                        format!("encodeCompositeFieldPtr(v.{field_name})")
+                    } else {
+                        format!("encodeCompositeField(v.{field_name})")
+                    }
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             let _ = writeln!(out);
@@ -1106,7 +1130,7 @@ impl CodegenBackend for GoPgxBackend {
             let _ = write!(out, "}}");
             let _ = writeln!(out);
             let _ = writeln!(out);
-            out.push_str(&self.generate_composite_from_text(composite, &name, &field_go_types));
+            out.push_str(&self.generate_composite_from_text(composite, &name));
         }
         Ok(out)
     }
@@ -1151,7 +1175,7 @@ mod tests {
     use scythe_core::parser::QueryCommand;
 
     use crate::backends::get_backend;
-    use crate::generate_with_backend;
+    use crate::{GeneratedCode, generate_with_backend};
 
     fn make_grouped_query() -> AnalyzedQuery {
         let parent_cols = vec![
@@ -1385,5 +1409,22 @@ mod tests {
 
         assert!(header.contains("\"time\""), "got:\n{header}");
         assert!(header.contains("shopspring/decimal"), "got:\n{header}");
+    }
+
+    #[test]
+    fn file_header_emits_encoder_when_only_nullable_composite_fields_use_it() {
+        let backend = get_backend("go-pgx", "postgresql").unwrap();
+        let generated = GeneratedCode {
+            model_struct: Some("encodeCompositeFieldPtr(&value)".to_string()),
+            ..GeneratedCode::default()
+        };
+
+        let header = backend.file_header_for_results(&[generated]);
+
+        assert!(header.contains("func encodeCompositeFieldPtr"), "got:\n{header}");
+        assert!(
+            header.contains("func encodeCompositeField(value any)"),
+            "got:\n{header}"
+        );
     }
 }

@@ -1,4 +1,4 @@
-// scythe:provenance v=0.17.0 backend=java-r2dbc engine=postgresql schema=sch2:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.18.0 backend=java-r2dbc engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:861cdfc5df3ece62 options=opt1:cbf29ce484222325
 package generated;
 
 import io.r2dbc.spi.ConnectionFactory;
@@ -105,7 +105,7 @@ public record SearchUsersRow(
     @Nullable String email
 ) {}
 
-public record UserAddress(String street, String city, String zip) {
+public record UserAddress(@Nullable String street, @Nullable String city, @Nullable String zip) {
 
     /**
      * ~keep board #196: r2dbc-postgresql has no codec for this composite -- an unregistered
@@ -118,9 +118,9 @@ public record UserAddress(String street, String city, String zip) {
         }
         java.util.List<String> f = parseCompositeFields(text);
         return new UserAddress(
-            f.get(0),
-            f.get(1),
-            f.get(2)
+            f.get(0) == null ? null : f.get(0),
+            f.get(1) == null ? null : f.get(1),
+            f.get(2) == null ? null : f.get(2)
         );
     }
 

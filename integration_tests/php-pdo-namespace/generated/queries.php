@@ -1,5 +1,5 @@
 <?php
-// scythe:provenance v=0.17.0 backend=php-pdo engine=postgresql schema=sch2:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:1058eb3707db2fb2
+// scythe:provenance v=0.18.0 backend=php-pdo engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:861cdfc5df3ece62 options=opt1:1058eb3707db2fb2
 
 declare(strict_types=1);
 
@@ -330,9 +330,9 @@ readonly class SearchUsersRow {
 
 readonly class UserAddress {
     public function __construct(
-        public string $street,
-        public string $city,
-        public string $zip,
+        public ?string $street,
+        public ?string $city,
+        public ?string $zip,
     ) {}
 
     public static function fromText(?string $text): ?self {
@@ -341,9 +341,9 @@ readonly class UserAddress {
         }
         $f = ScytheCompositeText::parseCompositeFields($text);
         return new self(
-            (string) $f[0],
-            (string) $f[1],
-            (string) $f[2],
+            $f[0] === null ? null : (string) $f[0],
+            $f[1] === null ? null : (string) $f[1],
+            $f[2] === null ? null : (string) $f[2],
         );
     }
 
@@ -372,9 +372,9 @@ readonly class UserAddress {
 
     public static function fromJson(array $value): self {
         return new self(
-            (string) $value['street'],
-            (string) $value['city'],
-            (string) $value['zip'],
+            $value['street'],
+            $value['city'],
+            $value['zip'],
         );
     }
 }

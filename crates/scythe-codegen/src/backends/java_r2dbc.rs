@@ -255,37 +255,47 @@ fn composite_needs_offset_time_helper(composite: &CompositeInfo) -> bool {
 
 /// The Java expression converting one composite field's raw text token (`raw`, a possibly-null
 /// `String` already unescaped by `parseCompositeFields`) into the field's declared Java type --
-/// the inverse of what PostgreSQL's composite output function wrote for that field. See
-/// `java_jdbc.rs`'s twin function for the full reasoning, including why a genuinely NULL
-/// sub-field converted through a primitive arm is a pre-existing, out-of-scope gap.
-fn composite_field_from_text(neutral_type: &str, field_type: &str, raw: &str, manifest: &BackendManifest) -> String {
-    if let Some(sql_name) = neutral_type.strip_prefix("composite::") {
-        return format!("{}.fromText({})", composite_type_name(sql_name, &manifest.naming), raw);
-    }
-    if neutral_type.starts_with("enum::") {
-        return format!("{}.fromValue({})", field_type, raw);
-    }
-    match neutral_type {
-        "bool" => format!("\"t\".equals({})", raw),
-        "int16" => format!("Short.parseShort({})", raw),
-        "int32" => format!("Integer.parseInt({})", raw),
-        "int64" => format!("Long.parseLong({})", raw),
-        "float32" => format!("Float.parseFloat({})", raw),
-        "float64" => format!("Double.parseDouble({})", raw),
-        "decimal" => format!("new java.math.BigDecimal({})", raw),
-        "uuid" => format!("java.util.UUID.fromString({})", raw),
-        "date" => format!("java.time.LocalDate.parse({})", raw),
-        "time" => format!("java.time.LocalTime.parse({})", raw),
-        "datetime" => format!("java.time.LocalDateTime.parse({}.replace(' ', 'T'))", raw),
-        "datetime_tz" => format!("parseCompositeOffsetDateTime({})", raw),
-        "time_tz" => format!("parseCompositeOffsetTime({})", raw),
-        "bytes" => format!("parseCompositeBytes({})", raw),
-        // "string"/"json"/"inet"/"interval" all resolve to Java `String`, so the already-parsed
-        // text needs no further conversion. Any neutral type not named above (e.g. an
-        // array-typed composite field, which this fix does not handle -- see board #196's
-        // report) falls through here too; passing the raw text through is the least-wrong
-        // fallback available at generate time rather than a hard error.
-        _ => raw.to_string(),
+/// the inverse of what PostgreSQL's composite output function wrote for that field. Nullable
+/// fields return `null` before any scalar or static conversion runs.
+fn composite_field_from_text(
+    neutral_type: &str,
+    field_type: &str,
+    raw: &str,
+    nullable: bool,
+    manifest: &BackendManifest,
+) -> String {
+    let converted = if let Some(sql_name) = neutral_type.strip_prefix("composite::") {
+        format!("{}.fromText({})", composite_type_name(sql_name, &manifest.naming), raw)
+    } else if neutral_type.starts_with("enum::") {
+        format!("{}.fromValue({})", field_type, raw)
+    } else {
+        match neutral_type {
+            "bool" => format!("\"t\".equals({})", raw),
+            "int16" => format!("Short.parseShort({})", raw),
+            "int32" => format!("Integer.parseInt({})", raw),
+            "int64" => format!("Long.parseLong({})", raw),
+            "float32" => format!("Float.parseFloat({})", raw),
+            "float64" => format!("Double.parseDouble({})", raw),
+            "decimal" => format!("new java.math.BigDecimal({})", raw),
+            "uuid" => format!("java.util.UUID.fromString({})", raw),
+            "date" => format!("java.time.LocalDate.parse({})", raw),
+            "time" => format!("java.time.LocalTime.parse({})", raw),
+            "datetime" => format!("java.time.LocalDateTime.parse({}.replace(' ', 'T'))", raw),
+            "datetime_tz" => format!("parseCompositeOffsetDateTime({})", raw),
+            "time_tz" => format!("parseCompositeOffsetTime({})", raw),
+            "bytes" => format!("parseCompositeBytes({})", raw),
+            // "string"/"json"/"inet"/"interval" all resolve to Java `String`, so the already-parsed
+            // text needs no further conversion. Any neutral type not named above (e.g. an
+            // array-typed composite field, which this fix does not handle -- see board #196's
+            // report) falls through here too; passing the raw text through is the least-wrong
+            // fallback available at generate time rather than a hard error.
+            _ => raw.to_string(),
+        }
+    };
+    if nullable {
+        format!("{raw} == null ? null : {converted}")
+    } else {
+        converted
     }
 }
 
@@ -888,7 +898,7 @@ impl CodegenBackend for JavaR2dbcBackend {
             .fields
             .iter()
             .map(|f| {
-                resolve_type(&f.neutral_type, &self.manifest, false)
+                resolve_type(&f.neutral_type, &self.manifest, f.nullable)
                     .map(|t| t.into_owned())
                     .unwrap_or_else(|_| "Object".to_string())
             })
@@ -925,7 +935,16 @@ impl CodegenBackend for JavaR2dbcBackend {
         let _ = writeln!(out, "        return new {}(", name);
         for (i, (field, field_type)) in composite.fields.iter().zip(&field_types).enumerate() {
             let raw = format!("f.get({})", i);
-            let value_expr = composite_field_from_text(&field.neutral_type, field_type, &raw, &self.manifest);
+            let conversion_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                .map(|t| t.into_owned())
+                .unwrap_or_else(|_| field_type.clone());
+            let value_expr = composite_field_from_text(
+                &field.neutral_type,
+                &conversion_type,
+                &raw,
+                field.nullable,
+                &self.manifest,
+            );
             let sep = if i + 1 < composite.fields.len() { "," } else { "" };
             let _ = writeln!(out, "            {}{}", value_expr, sep);
         }
@@ -1335,10 +1354,12 @@ mod tests {
                 CompositeFieldInfo {
                     name: "HTTPSUrl".to_string(),
                     neutral_type: "string".to_string(),
+                    nullable: false,
                 },
                 CompositeFieldInfo {
                     name: "internal_id".to_string(),
                     neutral_type: "int32".to_string(),
+                    nullable: false,
                 },
             ],
         }

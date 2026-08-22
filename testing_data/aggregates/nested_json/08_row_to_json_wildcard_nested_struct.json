@@ -15,11 +15,9 @@
           { "column": "payload", "struct_name": "GetOrderPayloadRowPayload", "fallback_type": "json" }
         ]
       },
-      "typescript-pg": {
-        "degraded_nested_structs": [
-          { "column": "payload", "struct_name": "GetOrderPayloadRowPayload", "fallback_type": "json" }
-        ]
-      },
+      "typescript-pg": { "degraded_nested_structs": [] },
+      "typescript-postgres": { "degraded_nested_structs": [] },
+      "typescript-kysely": { "degraded_nested_structs": [] },
       "java-jdbc": {
         "degraded_nested_structs": [
           { "column": "payload", "struct_name": "GetOrderPayloadRowPayload", "fallback_type": "json" }

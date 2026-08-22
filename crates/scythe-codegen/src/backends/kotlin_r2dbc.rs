@@ -184,11 +184,8 @@ fn composite_needs_offset_time_helper(composite: &CompositeInfo) -> bool {
     composite.fields.iter().any(|f| f.neutral_type == "time_tz")
 }
 
-/// The Kotlin expression converting one composite field's raw text token (`raw`, a `String?`
-/// already unescaped by `parseCompositeFields`) into the field's declared Kotlin type. See
-/// `java_jdbc.rs`'s twin function for the reasoning behind the `!!` non-null assertions: a
-/// composite field's declared type is always non-nullable (no per-field nullability is
-/// tracked), a pre-existing gap this fix does not close.
+/// ~keep Convert one non-null composite field token into its non-null Kotlin type. Nullable
+/// fields wrap this expression in `?.let` at the call site so SQL NULL remains Kotlin null.
 fn composite_field_from_text_kotlin(
     neutral_type: &str,
     field_type: &str,
@@ -203,28 +200,26 @@ fn composite_field_from_text_kotlin(
         );
     }
     if neutral_type.starts_with("enum::") {
-        return format!("{}.fromValue({}!!)", field_type, raw);
+        return format!("{}.fromValue({})", field_type, raw);
     }
     match neutral_type {
-        "bool" => format!("{}!! == \"t\"", raw),
-        "int16" => format!("{}!!.toShort()", raw),
-        "int32" => format!("{}!!.toInt()", raw),
-        "int64" => format!("{}!!.toLong()", raw),
-        "float32" => format!("{}!!.toFloat()", raw),
-        "float64" => format!("{}!!.toDouble()", raw),
-        "decimal" => format!("java.math.BigDecimal({}!!)", raw),
-        "uuid" => format!("java.util.UUID.fromString({}!!)", raw),
-        "date" => format!("java.time.LocalDate.parse({}!!)", raw),
-        "time" => format!("java.time.LocalTime.parse({}!!)", raw),
-        "datetime" => format!("java.time.LocalDateTime.parse({}!!.replace(' ', 'T'))", raw),
-        "datetime_tz" => format!("parseCompositeOffsetDateTime({}!!)", raw),
-        "time_tz" => format!("parseCompositeOffsetTime({}!!)", raw),
-        "bytes" => format!("parseCompositeBytes({}!!)", raw),
-        // "string"/"json"/"inet"/"interval" all resolve to Kotlin `String`, so the already-parsed
-        // text needs no further conversion beyond the non-null assertion. Any neutral type not
-        // named above (e.g. an array-typed composite field, which this fix does not handle -- see
-        // board #196's report) falls through here too.
-        _ => format!("{}!!", raw),
+        "bool" => format!("{} == \"t\"", raw),
+        "int16" => format!("{}.toShort()", raw),
+        "int32" => format!("{}.toInt()", raw),
+        "int64" => format!("{}.toLong()", raw),
+        "float32" => format!("{}.toFloat()", raw),
+        "float64" => format!("{}.toDouble()", raw),
+        "decimal" => format!("java.math.BigDecimal({})", raw),
+        "uuid" => format!("java.util.UUID.fromString({})", raw),
+        "date" => format!("java.time.LocalDate.parse({})", raw),
+        "time" => format!("java.time.LocalTime.parse({})", raw),
+        "datetime" => format!("java.time.LocalDateTime.parse({}.replace(' ', 'T'))", raw),
+        "datetime_tz" => format!("parseCompositeOffsetDateTime({})", raw),
+        "time_tz" => format!("parseCompositeOffsetTime({})", raw),
+        "bytes" => format!("parseCompositeBytes({})", raw),
+        // ~keep String-like fields need no conversion. Unsupported composite field kinds retain
+        // the existing raw-token fallback.
+        _ => raw.to_string(),
     }
 }
 
@@ -917,6 +912,15 @@ impl CodegenBackend for KotlinR2dbcBackend {
             .fields
             .iter()
             .map(|f| {
+                resolve_type(&f.neutral_type, &self.manifest, f.nullable)
+                    .map(|t| t.into_owned())
+                    .unwrap_or_else(|_| "Any".to_string())
+            })
+            .collect();
+        let field_base_types: Vec<String> = composite
+            .fields
+            .iter()
+            .map(|f| {
                 resolve_type(&f.neutral_type, &self.manifest, false)
                     .map(|t| t.into_owned())
                     .unwrap_or_else(|_| "Any".to_string())
@@ -993,9 +997,15 @@ impl CodegenBackend for KotlinR2dbcBackend {
         let _ = writeln!(out, "            }}");
         let _ = writeln!(out, "            val f = parseCompositeFields(text)");
         let _ = writeln!(out, "            return {}(", name);
-        for (i, (field, field_type)) in composite.fields.iter().zip(&field_types).enumerate() {
+        for (i, (field, field_type)) in composite.fields.iter().zip(&field_base_types).enumerate() {
             let raw = format!("f[{}]", i);
-            let expr = composite_field_from_text_kotlin(&field.neutral_type, field_type, &raw, &self.manifest);
+            let expr = if field.nullable {
+                let conversion =
+                    composite_field_from_text_kotlin(&field.neutral_type, field_type, "value", &self.manifest);
+                format!("{raw}?.let {{ value -> {conversion} }}")
+            } else {
+                composite_field_from_text_kotlin(&field.neutral_type, field_type, &format!("{raw}!!"), &self.manifest)
+            };
             let _ = writeln!(out, "                {},", expr);
         }
         let _ = writeln!(out, "            )");
@@ -1385,10 +1395,12 @@ mod tests {
                 CompositeFieldInfo {
                     name: "HTTPSUrl".to_string(),
                     neutral_type: "string".to_string(),
+                    nullable: false,
                 },
                 CompositeFieldInfo {
                     name: "internal_id".to_string(),
                     neutral_type: "int32".to_string(),
+                    nullable: false,
                 },
             ],
         }

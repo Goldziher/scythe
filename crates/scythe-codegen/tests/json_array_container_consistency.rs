@@ -81,6 +81,9 @@ const JSON_NESTED_BACKENDS: &[&str] = &[
     "python-psycopg3",
     "rust-sqlx",
     "rust-tokio-postgres",
+    "typescript-kysely",
+    "typescript-pg",
+    "typescript-postgres",
 ];
 
 fn manifest_dir() -> PathBuf {

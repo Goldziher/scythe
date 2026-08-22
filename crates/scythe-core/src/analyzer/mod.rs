@@ -202,6 +202,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
             .map(|f| CompositeFieldInfo {
                 name: f.name.clone(),
                 neutral_type: sql_type_to_neutral(&f.sql_type, catalog).into_owned(),
+                nullable: f.nullable,
             })
             .collect();
         for field in &fields {
@@ -2309,5 +2310,211 @@ SELECT id, moods FROM t WHERE id = $1;",
             mood.values,
             vec!["sad".to_string(), "happy".to_string(), "ok".to_string()]
         );
+    }
+
+    fn function_catalog() -> Catalog {
+        Catalog::from_ddl(&[
+            "CREATE TABLE values_table (small_value smallint NOT NULL, integer_value integer NOT NULL);",
+            "CREATE FUNCTION label(value integer, prefix text DEFAULT 'v') RETURNS text LANGUAGE SQL AS 'SELECT';",
+            "CREATE FUNCTION promoted(value bigint) RETURNS bigint LANGUAGE SQL AS 'SELECT value';",
+            "CREATE FUNCTION choose(value bigint) RETURNS bigint LANGUAGE SQL AS 'SELECT value';",
+            "CREATE FUNCTION choose(value numeric) RETURNS numeric LANGUAGE SQL AS 'SELECT value';",
+            "CREATE FUNCTION item_rows(prefix text) RETURNS TABLE(item_count bigint, item_name text) LANGUAGE SQL AS 'SELECT';",
+            "CREATE FUNCTION item_names(prefix text) RETURNS SETOF text LANGUAGE SQL AS 'SELECT prefix';",
+            "CREATE FUNCTION join_ids(VARIADIC values bigint[]) RETURNS text LANGUAGE SQL AS 'SELECT';",
+            "CREATE FUNCTION count(value text) RETURNS text LANGUAGE SQL AS 'SELECT value';",
+        ])
+        .expect("function catalog should parse")
+    }
+
+    #[test]
+    fn should_resolve_schema_function_defaults_named_arguments_and_params() {
+        let catalog = function_catalog();
+        let query = parse_query("-- @name FunctionCall\n-- @returns :one\nSELECT label(value => $1) AS result;")
+            .expect("query should parse");
+        let analyzed = analyze(&catalog, &query).expect("function should resolve");
+        assert_eq!(analyzed.columns[0].neutral_type, "string");
+        assert!(analyzed.columns[0].nullable);
+        assert_eq!(analyzed.params[0].name, "value");
+        assert_eq!(analyzed.params[0].neutral_type, "int32");
+    }
+
+    #[test]
+    fn should_prefer_exact_function_over_numeric_widening() {
+        let catalog = function_catalog();
+        let query = parse_query(
+            "-- @name FunctionCall\n-- @returns :many\nSELECT promoted(integer_value) AS widened FROM values_table;",
+        )
+        .expect("query should parse");
+        let analyzed = analyze(&catalog, &query).expect("numeric widening should resolve");
+        assert_eq!(analyzed.columns[0].neutral_type, "int64");
+    }
+
+    #[test]
+    fn should_report_equal_best_function_overloads_as_ambiguous() {
+        let catalog = function_catalog();
+        let query = parse_query("-- @name FunctionCall\n-- @returns :one\nSELECT choose($1) AS result;")
+            .expect("query should parse");
+        let error = analyze(&catalog, &query).expect_err("unknown placeholder cannot disambiguate overloads");
+        assert_eq!(error.code, crate::errors::ErrorCode::AmbiguousFunction);
+    }
+
+    #[test]
+    fn should_keep_builtin_function_precedence() {
+        let catalog = function_catalog();
+        let query = parse_query("-- @name FunctionCall\n-- @returns :one\nSELECT count('x') AS result;")
+            .expect("query should parse");
+        let analyzed = analyze(&catalog, &query).expect("builtin should resolve");
+        assert_eq!(analyzed.columns[0].neutral_type, "int64");
+        assert!(!analyzed.columns[0].nullable);
+    }
+
+    #[test]
+    fn should_bind_variadic_schema_function_arguments() {
+        let catalog = function_catalog();
+        let query = parse_query("-- @name FunctionCall\n-- @returns :one\nSELECT join_ids(1, 2, 3) AS result;")
+            .expect("query should parse");
+        let analyzed = analyze(&catalog, &query).expect("variadic arguments should resolve");
+        assert_eq!(analyzed.columns[0].neutral_type, "string");
+    }
+
+    #[test]
+    fn should_report_incompatible_schema_function_arguments() {
+        let catalog = function_catalog();
+        let query = parse_query("-- @name FunctionCall\n-- @returns :one\nSELECT promoted('wrong') AS result;")
+            .expect("query should parse");
+        let error = analyze(&catalog, &query).expect_err("string cannot bind to bigint");
+        assert_eq!(error.code, crate::errors::ErrorCode::TypeMismatch);
+    }
+
+    #[test]
+    fn should_expand_catalog_table_function_columns_and_aliases() {
+        let catalog = function_catalog();
+        let query = parse_query(
+            "-- @name FunctionRows\n-- @returns :many\nSELECT total, name FROM item_rows('x') AS rows(total, name);",
+        )
+        .expect("query should parse");
+        let analyzed = analyze(&catalog, &query).expect("table function should resolve");
+        assert_eq!(analyzed.columns[0].neutral_type, "int64");
+        assert_eq!(analyzed.columns[1].neutral_type, "string");
+    }
+
+    #[test]
+    fn should_resolve_catalog_set_function_in_lateral_function_ast_form() {
+        let catalog = function_catalog();
+        let query = parse_query(
+            "-- @name FunctionRows\n-- @returns :many\nSELECT name FROM LATERAL item_names('x') AS names(name);",
+        )
+        .expect("query should parse");
+        let analyzed = analyze(&catalog, &query).expect("lateral function should resolve");
+        assert_eq!(analyzed.columns[0].neutral_type, "string");
+    }
+
+    #[test]
+    fn should_bind_placeholders_in_variadic_catalog_function_from_calls() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE FUNCTION expanded(VARIADIC values bigint[]) RETURNS SETOF bigint LANGUAGE SQL AS 'SELECT';",
+        ])
+        .expect("function catalog should parse");
+        let query =
+            parse_query("-- @name Expanded\n-- @returns :many\nSELECT value FROM expanded($1, $2) AS rows(value);")
+                .expect("query should parse");
+
+        let analyzed = analyze(&catalog, &query).expect("FROM-call placeholders should bind");
+        assert_eq!(analyzed.params.len(), 2);
+        assert!(
+            analyzed
+                .params
+                .iter()
+                .all(|parameter| parameter.neutral_type == "int64")
+        );
+    }
+
+    #[test]
+    fn should_prefer_exact_sql_type_when_neutral_types_are_equal() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TABLE labels (value varchar(20) NOT NULL);",
+            "CREATE FUNCTION classify(value text) RETURNS text LANGUAGE SQL AS 'SELECT value';",
+            "CREATE FUNCTION classify(value varchar(20)) RETURNS bigint LANGUAGE SQL AS 'SELECT 1';",
+        ])
+        .expect("function overloads should parse");
+        let query = parse_query("-- @name Classify\n-- @returns :many\nSELECT classify(value) AS result FROM labels;")
+            .expect("query should parse");
+
+        let analyzed = analyze(&catalog, &query).expect("varchar overload should win over text");
+        assert_eq!(analyzed.columns[0].neutral_type, "int64");
+    }
+
+    #[test]
+    fn should_prefer_domain_over_base_type_overload() {
+        use crate::catalog::{
+            CatalogBuilder, CatalogObjectName, ColumnDefinition, DomainDefinition, FunctionArgumentDefinition,
+            FunctionDefinition, FunctionReturnDefinition, RelationDefinition,
+        };
+
+        let catalog = CatalogBuilder::new(SqlDialect::PostgreSQL)
+            .domain(DomainDefinition::new(
+                CatalogObjectName::new("user_id"),
+                "integer",
+                true,
+            ))
+            .relation(RelationDefinition::table(
+                CatalogObjectName::new("users"),
+                vec![ColumnDefinition::new("id", "user_id", false)],
+            ))
+            .function(FunctionDefinition::new(
+                CatalogObjectName::new("identify"),
+                vec![FunctionArgumentDefinition::new("integer")],
+                FunctionReturnDefinition::Scalar("text".to_string()),
+            ))
+            .function(FunctionDefinition::new(
+                CatalogObjectName::new("identify"),
+                vec![FunctionArgumentDefinition::new("user_id")],
+                FunctionReturnDefinition::Scalar("bigint".to_string()),
+            ))
+            .build()
+            .expect("live-style catalog should build");
+        let query = parse_query("-- @name Identify\n-- @returns :many\nSELECT identify(id) AS result FROM users;")
+            .expect("query should parse");
+
+        let analyzed = analyze(&catalog, &query).expect("domain overload should win over its base type");
+        assert_eq!(analyzed.columns[0].neutral_type, "int64");
+    }
+
+    #[test]
+    fn should_report_catalog_record_returns_in_select_and_from() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE FUNCTION anonymous_row(value integer) RETURNS record LANGUAGE SQL AS 'SELECT value';",
+        ])
+        .expect("record-returning function should be cataloged");
+        for sql in [
+            "-- @name RecordSelect\n-- @returns :one\nSELECT anonymous_row(1) AS result;",
+            "-- @name RecordFrom\n-- @returns :many\nSELECT result FROM anonymous_row(1) AS rows(result);",
+        ] {
+            let query = parse_query(sql).expect("query should parse");
+            let error = analyze(&catalog, &query).expect_err("anonymous record must be rejected before codegen");
+            assert_eq!(error.code, crate::errors::ErrorCode::UnresolvedType);
+            assert!(error.message.contains("RETURNS TABLE/OUT"), "got: {}", error.message);
+        }
+    }
+
+    #[test]
+    fn should_resolve_named_composite_function_returns() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TYPE payload AS (id bigint, label text);",
+            "CREATE FUNCTION make_payload() RETURNS payload LANGUAGE SQL AS 'SELECT';",
+        ])
+        .expect("composite-returning function should be cataloged");
+        let select_query = parse_query("-- @name PayloadValue\n-- @returns :one\nSELECT make_payload() AS payload;")
+            .expect("query should parse");
+        let from_query =
+            parse_query("-- @name PayloadFields\n-- @returns :many\nSELECT id, label FROM make_payload();")
+                .expect("query should parse");
+
+        let selected = analyze(&catalog, &select_query).expect("named composite should resolve in SELECT");
+        assert_eq!(selected.columns[0].neutral_type, "composite::payload");
+        let expanded = analyze(&catalog, &from_query).expect("named composite should expand in FROM");
+        assert_eq!(expanded.columns[0].neutral_type, "int64");
+        assert_eq!(expanded.columns[1].neutral_type, "string");
     }
 }

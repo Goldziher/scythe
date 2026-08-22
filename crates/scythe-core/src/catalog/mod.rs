@@ -5,8 +5,8 @@ mod view_resolver;
 
 use ahash::AHashMap;
 use sqlparser::ast::{
-    AlterColumnOperation, AlterTableOperation, AlterTypeOperation, ColumnOption, DataType, Expr, ObjectName, Statement,
-    TableConstraint, UserDefinedTypeRepresentation,
+    AlterColumnOperation, AlterTableOperation, AlterTypeOperation, ArgMode, ColumnOption, CreateFunction, DataType,
+    Expr, FunctionReturnType, ObjectName, Statement, TableConstraint, UserDefinedTypeRepresentation,
 };
 use sqlparser::parser::Parser;
 
@@ -17,7 +17,8 @@ use type_normalizer::{bare_name, ident_to_lower, normalize_data_type, object_nam
 
 pub use builder::{
     CatalogBuilder, CatalogObjectName, ColumnDefinition, CompositeDefinition, CompositeFieldDefinition,
-    DomainDefinition, EnumDefinition, GeneratedColumnKind, RelationDefinition, RelationKind,
+    DomainDefinition, EnumDefinition, FunctionArgumentDefinition, FunctionDefinition, FunctionResultColumnDefinition,
+    FunctionReturnDefinition, GeneratedColumnKind, RelationDefinition, RelationKind,
 };
 
 #[derive(Debug)]
@@ -25,6 +26,7 @@ pub struct Catalog {
     tables: AHashMap<String, Table>,
     enums: AHashMap<String, EnumType>,
     composites: AHashMap<String, CompositeType>,
+    functions: AHashMap<String, Vec<Function>>,
     /// Domain name -> resolved base type (lowercase)
     domains: AHashMap<String, DomainDef>,
     /// SQL dialect this catalog was parsed with. Used downstream to resolve
@@ -49,6 +51,7 @@ pub struct Catalog {
     /// unit tests, and any embedder that never had an engine string)
     /// behaving exactly as it did before this field existed.
     engine: Option<String>,
+    search_path: Option<Vec<String>>,
     relation_names: AHashMap<String, CatalogObjectName>,
     relation_kinds: AHashMap<String, RelationKind>,
     raw_column_types: AHashMap<String, AHashMap<String, String>>,
@@ -57,6 +60,42 @@ pub struct Catalog {
     composite_names: AHashMap<String, CatalogObjectName>,
     domain_names: AHashMap<String, CatalogObjectName>,
     raw_domain_types: AHashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FunctionArgumentMode {
+    In,
+    Out,
+    InOut,
+    Variadic,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionArgument {
+    pub name: Option<String>,
+    pub sql_type: String,
+    pub mode: FunctionArgumentMode,
+    pub has_default: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionResultColumn {
+    pub name: String,
+    pub sql_type: String,
+    pub nullable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FunctionReturn {
+    Scalar { sql_type: String },
+    SetOf { sql_type: String },
+    Table { columns: Vec<FunctionResultColumn> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Function {
+    pub arguments: Vec<FunctionArgument>,
+    pub return_type: FunctionReturn,
 }
 
 #[derive(Debug, Clone)]
@@ -120,6 +159,16 @@ pub struct CompositeType {
 pub struct CompositeField {
     pub name: String,
     pub sql_type: String,
+    pub nullable: bool,
+}
+
+fn input_signature(function: &Function) -> Vec<&str> {
+    function
+        .arguments
+        .iter()
+        .filter(|argument| argument.mode != FunctionArgumentMode::Out)
+        .map(|argument| argument.sql_type.as_str())
+        .collect()
 }
 
 impl Catalog {
@@ -132,9 +181,11 @@ impl Catalog {
             tables: AHashMap::new(),
             enums: AHashMap::new(),
             composites: AHashMap::new(),
+            functions: AHashMap::new(),
             domains: AHashMap::new(),
             dialect: *dialect,
             engine: None,
+            search_path: None,
             relation_names: AHashMap::new(),
             relation_kinds: AHashMap::new(),
             raw_column_types: AHashMap::new(),
@@ -190,11 +241,11 @@ impl Catalog {
     }
 
     pub fn get_table(&self, name: &str) -> Option<&Table> {
-        lookup_qualified(&self.tables, name)
+        lookup_qualified(&self.tables, name, self.search_path.as_deref())
     }
 
     pub fn get_enum(&self, name: &str) -> Option<&EnumType> {
-        lookup_qualified(&self.enums, name)
+        lookup_qualified(&self.enums, name, self.search_path.as_deref())
     }
 
     /// Iterate over all table names in the catalog.
@@ -225,55 +276,65 @@ impl Catalog {
 
     /// Look up a domain's resolved base type by name.
     pub fn get_domain_base_type(&self, name: &str) -> Option<&str> {
-        lookup_qualified(&self.domains, name).map(|d| d.base_type.as_str())
+        lookup_qualified(&self.domains, name, self.search_path.as_deref()).map(|d| d.base_type.as_str())
     }
 
     pub fn get_composite(&self, name: &str) -> Option<&CompositeType> {
-        lookup_qualified(&self.composites, name)
+        lookup_qualified(&self.composites, name, self.search_path.as_deref())
+    }
+
+    pub fn get_functions(&self, name: &str) -> Option<&[Function]> {
+        lookup_qualified(&self.functions, name, self.search_path.as_deref()).map(Vec::as_slice)
+    }
+
+    pub fn functions_iter(&self) -> impl Iterator<Item = (&String, &[Function])> {
+        self.functions
+            .iter()
+            .map(|(name, functions)| (name, functions.as_slice()))
     }
 
     /// Return the preserved qualified spelling of an inspected relation name.
     pub fn relation_name(&self, name: &str) -> Option<&CatalogObjectName> {
-        lookup_qualified(&self.relation_names, name)
+        lookup_qualified(&self.relation_names, name, self.search_path.as_deref())
     }
 
     /// Return whether an inspected relation is a table or view.
     pub fn relation_kind(&self, name: &str) -> Option<RelationKind> {
-        lookup_qualified(&self.relation_kinds, name).copied()
+        lookup_qualified(&self.relation_kinds, name, self.search_path.as_deref()).copied()
     }
 
     /// Return the database-reported SQL type before catalog normalization.
     pub fn column_raw_sql_type(&self, relation: &str, column: &str) -> Option<&str> {
-        lookup_qualified(&self.raw_column_types, relation)?
+        lookup_qualified(&self.raw_column_types, relation, self.search_path.as_deref())?
             .get(&column.to_lowercase())
             .map(String::as_str)
     }
 
     /// Return how an inspected generated column is persisted by the engine.
     pub fn column_generated_kind(&self, relation: &str, column: &str) -> Option<GeneratedColumnKind> {
-        lookup_qualified(&self.generated_column_kinds, relation)?
+        lookup_qualified(&self.generated_column_kinds, relation, self.search_path.as_deref())?
             .get(&column.to_lowercase())
             .copied()
     }
 
     /// Return the preserved qualified spelling of an inspected enum name.
     pub fn enum_name(&self, name: &str) -> Option<&CatalogObjectName> {
-        lookup_qualified(&self.enum_names, name)
+        lookup_qualified(&self.enum_names, name, self.search_path.as_deref())
     }
 
     /// Return the preserved qualified spelling of an inspected composite name.
     pub fn composite_name(&self, name: &str) -> Option<&CatalogObjectName> {
-        lookup_qualified(&self.composite_names, name)
+        lookup_qualified(&self.composite_names, name, self.search_path.as_deref())
     }
 
     /// Return the preserved qualified spelling of an inspected domain name.
     pub fn domain_name(&self, name: &str) -> Option<&CatalogObjectName> {
-        lookup_qualified(&self.domain_names, name)
+        lookup_qualified(&self.domain_names, name, self.search_path.as_deref())
     }
 
     /// Return an inspected domain's database-reported base type.
     pub fn domain_raw_base_type(&self, name: &str) -> Option<&str> {
-        lookup_qualified(&self.raw_domain_types, name).map(String::as_str)
+        lookup_qualified(&self.raw_domain_types, name, self.search_path.as_deref()).map(String::as_str)
     }
 }
 
@@ -311,10 +372,15 @@ impl Catalog {
                 // dialect-specific bodies or argument literals that sqlparser
                 // cannot parse. They are dropped before parser handoff.
             } else {
-                let stmt_to_add = if matches!(dialect, SqlDialect::PostgreSQL | SqlDialect::MsSql) {
-                    Self::strip_identity_patterns(raw_stmt)
+                let rewritten = if *dialect == SqlDialect::PostgreSQL {
+                    Self::rewrite_returns_table(raw_stmt)
                 } else {
                     raw_stmt.to_string()
+                };
+                let stmt_to_add = if matches!(dialect, SqlDialect::PostgreSQL | SqlDialect::MsSql) {
+                    Self::strip_identity_patterns(&rewritten)
+                } else {
+                    rewritten
                 };
                 result.push_str(&stmt_to_add);
                 if !stmt_to_add.ends_with(';') {
@@ -323,6 +389,43 @@ impl Catalog {
             }
         }
         result
+    }
+
+    fn rewrite_returns_table(sql: &str) -> String {
+        let outside = sql_outside_mask(sql);
+        let Some(marker) = find_keyword_sequence(sql, &outside, &["RETURNS", "TABLE"]) else {
+            return sql.to_string();
+        };
+        let Some(table_open) = find_char_outside(sql, &outside, '(', marker) else {
+            return sql.to_string();
+        };
+        let Some(table_close) = matching_parenthesis(sql, &outside, table_open) else {
+            return sql.to_string();
+        };
+        let Some(function_open) = find_char_outside(sql, &outside, '(', 0).filter(|open| *open < marker) else {
+            return sql.to_string();
+        };
+        let Some(function_close) = matching_parenthesis(sql, &outside, function_open) else {
+            return sql.to_string();
+        };
+        if function_close > marker {
+            return sql.to_string();
+        }
+        let output_arguments = split_top_level_commas(&sql[table_open + 1..table_close])
+            .into_iter()
+            .map(|column| format!("OUT {}", column.trim()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let existing_arguments = sql[function_open + 1..function_close].trim();
+        let separator = if existing_arguments.is_empty() { "" } else { ", " };
+        format!(
+            "{}{}{}{}{}",
+            &sql[..function_close],
+            separator,
+            output_arguments,
+            &sql[function_close..=function_close],
+            &sql[table_close + 1..]
+        )
     }
 
     /// Strip IDENTITY(seed,step) patterns from SQL for Redshift/MSSQL compatibility.
@@ -791,8 +894,74 @@ impl Catalog {
             Statement::CreateView(cv) => {
                 self.process_create_view(cv.name, cv.columns, *cv.query, cv.materialized, dialect)
             }
+            Statement::CreateFunction(function) => self.process_create_function(function, dialect),
             _ => Ok(()),
         }
+    }
+
+    fn process_create_function(&mut self, definition: CreateFunction, dialect: &SqlDialect) -> Result<(), ScytheError> {
+        let key = object_name_to_key(&definition.name);
+        let mut arguments = Vec::new();
+        for argument in definition.args.unwrap_or_default() {
+            let sql_type = function_sql_type(&argument.data_type, &self.domains, *dialect);
+            let mode = match argument.mode {
+                None | Some(ArgMode::In) => FunctionArgumentMode::In,
+                Some(ArgMode::Out) => FunctionArgumentMode::Out,
+                Some(ArgMode::InOut) => FunctionArgumentMode::InOut,
+                Some(ArgMode::Variadic) => FunctionArgumentMode::Variadic,
+            };
+            arguments.push(FunctionArgument {
+                name: argument.name.map(|name| ident_to_lower(&name)),
+                sql_type,
+                mode,
+                has_default: argument.default_expr.is_some(),
+            });
+        }
+
+        let output_columns = arguments
+            .iter()
+            .filter(|argument| matches!(argument.mode, FunctionArgumentMode::Out | FunctionArgumentMode::InOut))
+            .enumerate()
+            .map(|(index, argument)| FunctionResultColumn {
+                name: argument.name.clone().unwrap_or_else(|| format!("column{}", index + 1)),
+                sql_type: argument.sql_type.clone(),
+                nullable: true,
+            })
+            .collect::<Vec<_>>();
+        let return_type = if !output_columns.is_empty() {
+            FunctionReturn::Table {
+                columns: output_columns,
+            }
+        } else {
+            match definition.return_type {
+                Some(FunctionReturnType::DataType(data_type)) => FunctionReturn::Scalar {
+                    sql_type: function_sql_type(&data_type, &self.domains, *dialect),
+                },
+                Some(FunctionReturnType::SetOf(data_type)) => FunctionReturn::SetOf {
+                    sql_type: function_sql_type(&data_type, &self.domains, *dialect),
+                },
+                None => return Ok(()),
+            }
+        };
+
+        let function = Function { arguments, return_type };
+        let overloads = self.functions.entry(key.clone()).or_default();
+        let signature = input_signature(&function);
+        if let Some(index) = overloads
+            .iter()
+            .position(|existing| input_signature(existing) == signature)
+        {
+            if definition.or_replace || definition.or_alter {
+                overloads[index] = function;
+            } else if !definition.if_not_exists {
+                return Err(ScytheError::syntax(format!(
+                    "function \"{key}\" with the same input signature already exists"
+                )));
+            }
+        } else {
+            overloads.push(function);
+        }
+        Ok(())
     }
 
     fn process_create_table(
@@ -1148,6 +1317,7 @@ impl Catalog {
                         CompositeField {
                             name: ident_to_lower(&attr.name),
                             sql_type: ft,
+                            nullable: true,
                         }
                     })
                     .collect();
@@ -1191,6 +1361,29 @@ impl Catalog {
     }
 }
 
+fn function_sql_type(data_type: &DataType, domains: &AHashMap<String, DomainDef>, dialect: SqlDialect) -> String {
+    match data_type {
+        DataType::Custom(name, _) if lookup_qualified(domains, &object_name_to_key(name), None).is_some() => {
+            object_name_to_key(name)
+        }
+        DataType::Array(element) => {
+            let inner = match element {
+                sqlparser::ast::ArrayElemTypeDef::SquareBracket(inner, _)
+                | sqlparser::ast::ArrayElemTypeDef::AngleBracket(inner)
+                | sqlparser::ast::ArrayElemTypeDef::Parenthesis(inner) => inner.as_ref(),
+                sqlparser::ast::ArrayElemTypeDef::None => return "unknown[]".to_string(),
+            };
+            if let DataType::Custom(name, _) = inner
+                && lookup_qualified(domains, &object_name_to_key(name), None).is_some()
+            {
+                return format!("{}[]", object_name_to_key(name));
+            }
+            normalize_data_type(data_type, domains, dialect).0
+        }
+        _ => normalize_data_type(data_type, domains, dialect).0,
+    }
+}
+
 fn get_table_mut<'a>(tables: &'a mut AHashMap<String, Table>, key: &str) -> Option<&'a mut Table> {
     if tables.contains_key(key) {
         return tables.get_mut(key);
@@ -1216,12 +1409,10 @@ fn get_table_mut<'a>(tables: &'a mut AHashMap<String, Table>, key: &str) -> Opti
 /// either side of the lookup/registration boundary:
 ///
 /// - An unqualified lookup (`"users"`) also matches an entry registered
-///   under any single leading qualifier (`"public.users"`), deterministically
-///   picking the lexicographically smallest matching key when more than one
-///   qualifier registers the same bare name. `AHashMap`'s iteration order is
-///   randomized per process, so relying on "whichever the iterator finds
-///   first" made the same input resolve to a different entry from one run
-///   to the next -- see #177.
+///   under any single leading qualifier (`"public.users"`). When the catalog
+///   has an explicit search path, schemas are probed in that order. Otherwise,
+///   the lexicographically smallest matching key preserves the deterministic
+///   legacy behavior from #177.
 /// - A qualified lookup (`"wrong_schema.users"`) matches *only* an exact,
 ///   equally-qualified entry. It must never fall back to a bare-registered
 ///   entry under a different qualifier than the one asked for: doing so
@@ -1233,13 +1424,18 @@ fn get_table_mut<'a>(tables: &'a mut AHashMap<String, Table>, key: &str) -> Opti
 /// `super::lookup_qualified`) `type_normalizer::normalize_data_type`'s own
 /// domain lookup -- keeping every domain-name resolution on one path is
 /// exactly what #184 (item 3) required.
-fn lookup_qualified<'a, T>(map: &'a AHashMap<String, T>, name: &str) -> Option<&'a T> {
+fn lookup_qualified<'a, T>(map: &'a AHashMap<String, T>, name: &str, search_path: Option<&[String]>) -> Option<&'a T> {
     let lower = name.to_lowercase();
     if let Some(value) = map.get(&lower) {
         return Some(value);
     }
     if lower.contains('.') {
         return None;
+    }
+    if let Some(search_path) = search_path {
+        return search_path
+            .iter()
+            .find_map(|schema| map.get(&format!("{schema}.{lower}")));
     }
     let suffix = format!(".{lower}");
     map.iter()
@@ -1304,6 +1500,188 @@ fn skip_ws(s: &str, from: usize) -> usize {
 /// `from`, or `s.len()` if none. Used by [`Catalog::try_parse_create_domain`].
 fn find_ws(s: &str, from: usize) -> usize {
     s[from..].find(char::is_whitespace).map_or(s.len(), |p| from + p)
+}
+
+fn matching_parenthesis(sql: &str, outside: &[bool], open: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    for (offset, character) in sql[open..].char_indices() {
+        if !outside[open + offset] {
+            continue;
+        }
+        match character {
+            '(' => depth += 1,
+            ')' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(open + offset);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn split_top_level_commas(value: &str) -> Vec<&str> {
+    let outside = sql_outside_mask(value);
+    let mut fields = Vec::new();
+    let mut start = 0usize;
+    let mut depth = 0usize;
+    for (offset, character) in value.char_indices() {
+        if !outside[offset] {
+            continue;
+        }
+        match character {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                fields.push(&value[start..offset]);
+                start = offset + 1;
+            }
+            _ => {}
+        }
+    }
+    fields.push(&value[start..]);
+    fields
+}
+
+fn find_keyword_sequence(sql: &str, outside: &[bool], keywords: &[&str]) -> Option<usize> {
+    let bytes = sql.as_bytes();
+    let first = keywords.first()?;
+    let mut index = 0usize;
+    while index + first.len() <= bytes.len() {
+        if outside[index] && keyword_at(bytes, index, first) {
+            let mut cursor = index + first.len();
+            let mut matched = true;
+            for keyword in &keywords[1..] {
+                while cursor < bytes.len() && (!outside[cursor] || bytes[cursor].is_ascii_whitespace()) {
+                    cursor += 1;
+                }
+                if !outside.get(cursor).copied().unwrap_or(false) || !keyword_at(bytes, cursor, keyword) {
+                    matched = false;
+                    break;
+                }
+                cursor += keyword.len();
+            }
+            if matched {
+                return Some(index);
+            }
+        }
+        index += 1;
+    }
+    None
+}
+
+fn keyword_at(bytes: &[u8], index: usize, keyword: &str) -> bool {
+    let end = index + keyword.len();
+    end <= bytes.len()
+        && bytes[index..end].eq_ignore_ascii_case(keyword.as_bytes())
+        && index
+            .checked_sub(1)
+            .is_none_or(|previous| !is_identifier_byte(bytes[previous]))
+        && bytes.get(end).is_none_or(|next| !is_identifier_byte(*next))
+}
+
+fn is_identifier_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+fn find_char_outside(sql: &str, outside: &[bool], target: char, from: usize) -> Option<usize> {
+    sql[from..]
+        .char_indices()
+        .find(|(offset, character)| *character == target && outside[from + offset])
+        .map(|(offset, _)| from + offset)
+}
+
+fn sql_outside_mask(sql: &str) -> Vec<bool> {
+    enum Delimiter {
+        Quote(u8),
+        LineComment,
+        BlockComment,
+        DollarQuote(usize),
+    }
+
+    let bytes = sql.as_bytes();
+    let mut outside = vec![true; bytes.len()];
+    let mut index = 0usize;
+    while index < bytes.len() {
+        let delimiter = match bytes[index] {
+            b'\'' => Some(Delimiter::Quote(b'\'')),
+            b'"' => Some(Delimiter::Quote(b'"')),
+            b'-' if bytes.get(index + 1) == Some(&b'-') => Some(Delimiter::LineComment),
+            b'/' if bytes.get(index + 1) == Some(&b'*') => Some(Delimiter::BlockComment),
+            b'$' => dollar_quote_delimiter(&sql[index..]).map(Delimiter::DollarQuote),
+            _ => None,
+        };
+        let Some(delimiter) = delimiter else {
+            index += 1;
+            continue;
+        };
+        let start = index;
+        match delimiter {
+            Delimiter::Quote(quote) => {
+                index += 1;
+                while index < bytes.len() {
+                    if quote == b'\'' && bytes[index] == b'\\' {
+                        index = (index + 2).min(bytes.len());
+                        continue;
+                    }
+                    if bytes[index] == quote {
+                        if bytes.get(index + 1) == Some(&quote) {
+                            index += 2;
+                            continue;
+                        }
+                        index += 1;
+                        break;
+                    }
+                    index += 1;
+                }
+            }
+            Delimiter::LineComment => {
+                index += 2;
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            Delimiter::BlockComment => {
+                index += 2;
+                let mut depth = 1usize;
+                while index + 1 < bytes.len() && depth > 0 {
+                    if bytes[index] == b'/' && bytes[index + 1] == b'*' {
+                        depth += 1;
+                        index += 2;
+                    } else if bytes[index] == b'*' && bytes[index + 1] == b'/' {
+                        depth -= 1;
+                        index += 2;
+                    } else {
+                        index += 1;
+                    }
+                }
+                if depth > 0 {
+                    index = bytes.len();
+                }
+            }
+            Delimiter::DollarQuote(delimiter_length) => {
+                let tag = &sql[start..start + delimiter_length];
+                index += delimiter_length;
+                if let Some(close) = sql[index..].find(tag) {
+                    index += close + delimiter_length;
+                } else {
+                    index = bytes.len();
+                }
+            }
+        }
+        outside[start..index].fill(false);
+    }
+    outside
+}
+
+fn dollar_quote_delimiter(value: &str) -> Option<usize> {
+    let closing = value[1..].find('$')? + 1;
+    value[1..closing]
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        .then_some(closing + 1)
 }
 
 /// Whether `keyword` (already ASCII-uppercase) appears in `haystack`
@@ -2526,5 +2904,87 @@ EXECUTE PROCEDURE audit_row('api_key');\n";
              now succeeds, sqlparser's grammar changed and this test should be updated to assert the new \
              behavior instead of just deleted"
         );
+    }
+
+    #[test]
+    fn should_catalog_function_overloads_modes_defaults_and_returns() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE FUNCTION item_count(prefix text DEFAULT '') RETURNS bigint LANGUAGE SQL AS 'SELECT 0';",
+            "CREATE FUNCTION item_count(INOUT value integer, OUT label text) LANGUAGE SQL AS 'SELECT';",
+            "CREATE FUNCTION items_named(prefix text) RETURNS SETOF text LANGUAGE SQL AS 'SELECT prefix';",
+        ])
+        .expect("function DDL should parse");
+
+        let overloads = catalog
+            .get_functions("item_count")
+            .expect("function should be cataloged");
+        assert_eq!(overloads.len(), 2);
+        assert!(overloads[0].arguments[0].has_default);
+        assert_eq!(overloads[1].arguments[0].mode, FunctionArgumentMode::InOut);
+        assert_eq!(overloads[1].arguments[1].mode, FunctionArgumentMode::Out);
+        assert!(matches!(&overloads[1].return_type, FunctionReturn::Table { columns } if columns.len() == 2));
+        assert!(matches!(
+            &catalog.get_functions("items_named").expect("set function")[0].return_type,
+            FunctionReturn::SetOf { sql_type } if sql_type == "text"
+        ));
+    }
+
+    #[test]
+    fn should_rewrite_returns_table_only_in_the_function_header() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE FUNCTION tricky(value text DEFAULT ') RETURNS TABLE(fake integer)') \
+             RETURNS /* result shape */\nTABLE(real_value numeric(10, 2), label text) LANGUAGE SQL AS $$ SELECT 1, value $$;",
+        ])
+        .expect("quoted header text must not confuse RETURNS TABLE preprocessing");
+
+        let function = &catalog.get_functions("tricky").expect("function should be cataloged")[0];
+        assert_eq!(function.arguments.len(), 3);
+        assert_eq!(function.arguments[0].name.as_deref(), Some("value"));
+        assert!(matches!(
+            &function.return_type,
+            FunctionReturn::Table { columns }
+                if columns.iter().map(|column| column.name.as_str()).collect::<Vec<_>>()
+                    == vec!["real_value", "label"]
+        ));
+    }
+
+    #[test]
+    fn should_preserve_domain_function_signatures_for_overload_resolution() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE DOMAIN user_id AS integer;",
+            "CREATE FUNCTION identify(value user_id) RETURNS bigint LANGUAGE SQL AS 'SELECT value';",
+            "CREATE FUNCTION identify(value integer) RETURNS text LANGUAGE SQL AS 'SELECT value::text';",
+        ])
+        .expect("domain and base-type overloads should remain distinct");
+
+        let overloads = catalog
+            .get_functions("identify")
+            .expect("overloads should be cataloged");
+        assert_eq!(overloads.len(), 2);
+        assert_eq!(overloads[0].arguments[0].sql_type, "user_id");
+        assert_eq!(overloads[1].arguments[0].sql_type, "integer");
+    }
+
+    #[test]
+    fn should_replace_only_an_identical_function_input_signature() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE FUNCTION f(value integer) RETURNS integer LANGUAGE SQL AS 'SELECT value';",
+            "CREATE OR REPLACE FUNCTION f(value integer) RETURNS text LANGUAGE SQL AS 'SELECT value::text';",
+            "CREATE FUNCTION f(value bigint) RETURNS bigint LANGUAGE SQL AS 'SELECT value';",
+        ])
+        .expect("replacement and overload should catalog");
+        let overloads = catalog.get_functions("f").expect("function should exist");
+        assert_eq!(overloads.len(), 2);
+        assert!(matches!(&overloads[0].return_type, FunctionReturn::Scalar { sql_type } if sql_type == "text"));
+    }
+
+    #[test]
+    fn should_include_functions_in_schema_fingerprint() {
+        let integer =
+            Catalog::from_ddl(&["CREATE FUNCTION f(value integer) RETURNS integer LANGUAGE SQL AS 'SELECT value';"])
+                .expect("integer function");
+        let text = Catalog::from_ddl(&["CREATE FUNCTION f(value text) RETURNS text LANGUAGE SQL AS 'SELECT value';"])
+            .expect("text function");
+        assert_ne!(integer.fingerprint(), text.fingerprint());
     }
 }

@@ -233,7 +233,7 @@ pub fn parse_registry() -> RuleRegistry {
     reg
 }
 
-/// Registry holding only the schema-drift rules (`SC-DRF01`–`SC-DRF07`).
+/// Registry holding only the schema-drift rules (`SC-DRF01`–`SC-DRF13`).
 ///
 /// Deliberately separate from [`default_registry`]. Drift rules can only fire
 /// when `scythe check` is given `--database-url`; folding them into the
@@ -256,6 +256,12 @@ pub fn drift_registry() -> RuleRegistry {
     reg.register(Box::new(rules::drift::ColumnTypeMismatch));
     reg.register(Box::new(rules::drift::ColumnNullabilityMismatch));
     reg.register(Box::new(rules::drift::EnumValuesMismatch));
+    reg.register(Box::new(rules::drift::CompositeMissingFromDatabase));
+    reg.register(Box::new(rules::drift::CompositeMissingFromDdl));
+    reg.register(Box::new(rules::drift::CompositeFieldMissingFromDatabase));
+    reg.register(Box::new(rules::drift::CompositeFieldMissingFromDdl));
+    reg.register(Box::new(rules::drift::CompositeFieldTypeMismatch));
+    reg.register(Box::new(rules::drift::CompositeFieldNullabilityMismatch));
 
     reg
 }

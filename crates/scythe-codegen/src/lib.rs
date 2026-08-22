@@ -1730,7 +1730,7 @@ mod tests {
 
     #[test]
     fn test_degrade_unsupported_nested_structs_uses_explicit_json_array_marker() {
-        let backend = get_backend("typescript-pg", "postgresql").unwrap();
+        let backend = get_backend("python-asyncpg", "postgresql").unwrap();
         let nested = a_nested_struct();
         let columns = vec![
             AnalyzedColumn {
@@ -1759,7 +1759,7 @@ mod tests {
         // finding needs to say what the column *became*.
         assert_eq!(degradations.len(), 2);
         assert_eq!(degradations[0].fallback_type, "json_array");
-        assert_eq!(degradations[0].backend, "typescript-pg");
+        assert_eq!(degradations[0].backend, "python-asyncpg");
         assert_eq!(degradations[1].fallback_type, "json");
     }
 
@@ -1841,7 +1841,7 @@ mod tests {
     /// `json[]` value and can select a typed SQL-array reader.
     #[test]
     fn test_structural_backends_match_json_array_baseline() {
-        for backend_name in ["typescript-pg", "python-asyncpg", "elixir-postgrex", "ruby-pg"] {
+        for backend_name in ["python-asyncpg", "elixir-postgrex", "ruby-pg"] {
             let backend = get_backend(backend_name, "postgresql").unwrap();
 
             let baseline = make_query(
@@ -2049,6 +2049,7 @@ mod tests {
             fields: vec![CompositeFieldInfo {
                 name: "street".to_string(),
                 neutral_type: "string".to_string(),
+                nullable: false,
             }],
         }];
 
@@ -2105,6 +2106,7 @@ mod tests {
                 fields: vec![CompositeFieldInfo {
                     name: "origin".to_string(),
                     neutral_type: "composite::inner_point".to_string(),
+                    nullable: false,
                 }],
             },
             CompositeInfo {
@@ -2112,6 +2114,7 @@ mod tests {
                 fields: vec![CompositeFieldInfo {
                     name: "x".to_string(),
                     neutral_type: "int32".to_string(),
+                    nullable: false,
                 }],
             },
         ];
@@ -2154,6 +2157,7 @@ mod tests {
             fields: vec![CompositeFieldInfo {
                 name: "street".to_string(),
                 neutral_type: "string".to_string(),
+                nullable: false,
             }],
         }];
         let nested_names = AHashSet::from_iter(["user_address".to_string()]);
@@ -2187,6 +2191,7 @@ mod tests {
                 fields: vec![CompositeFieldInfo {
                     name: "origin".to_string(),
                     neutral_type: "array<composite::inner_point>".to_string(),
+                    nullable: false,
                 }],
             },
             CompositeInfo {
@@ -2194,6 +2199,7 @@ mod tests {
                 fields: vec![CompositeFieldInfo {
                     name: "unit".to_string(),
                     neutral_type: "composite::scale".to_string(),
+                    nullable: false,
                 }],
             },
             CompositeInfo {
@@ -2201,6 +2207,7 @@ mod tests {
                 fields: vec![CompositeFieldInfo {
                     name: "factor".to_string(),
                     neutral_type: "int32".to_string(),
+                    nullable: false,
                 }],
             },
         ];
@@ -2229,6 +2236,7 @@ mod tests {
                 fields: vec![CompositeFieldInfo {
                     name: "b".to_string(),
                     neutral_type: "composite::b".to_string(),
+                    nullable: false,
                 }],
             },
             CompositeInfo {
@@ -2236,6 +2244,7 @@ mod tests {
                 fields: vec![CompositeFieldInfo {
                     name: "a".to_string(),
                     neutral_type: "composite::a".to_string(),
+                    nullable: false,
                 }],
             },
         ];

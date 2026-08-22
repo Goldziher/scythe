@@ -144,10 +144,10 @@ fn py_composite_needs_bytes_helper(composite: &CompositeInfo) -> bool {
 /// Whether any field falls through [`py_composite_field_from_text`]'s final arm -- the only one
 /// that emits a `_require_composite_field` call.
 fn py_composite_needs_require_helper(composite: &CompositeInfo) -> bool {
-    composite
-        .fields
-        .iter()
-        .any(|f| py_composite_field_from_text(&f.neutral_type, "", "raw", &f.name).contains("_require_composite_field"))
+    composite.fields.iter().any(|field| {
+        py_composite_field_from_text(&field.neutral_type, "", "raw", &field.name, field.nullable)
+            .contains("_require_composite_field")
+    })
 }
 
 fn py_composite_needs_offset_datetime_helper(composite: &CompositeInfo) -> bool {
@@ -172,31 +172,42 @@ fn py_composite_needs_offset_time_helper(composite: &CompositeInfo) -> bool {
 /// assignable to `str`), and silencing it with a cast would trade a type error for a value
 /// that lies at runtime. The converting arms below (`int(...)`, `uuid.UUID(...)`, ...) raise
 /// on `None` of their own accord.
-fn py_composite_field_from_text(neutral_type: &str, field_type: &str, raw: &str, field_name: &str) -> String {
-    if neutral_type.starts_with("composite::") {
-        return format!("{field_type}._from_text({raw})");
-    }
-    if neutral_type.starts_with("enum::") {
-        return format!("{field_type}({raw})");
-    }
-    match neutral_type {
-        "bool" => format!("{raw} == \"t\""),
-        "int16" | "int32" | "int64" => format!("int({raw})"),
-        "float32" | "float64" => format!("float({raw})"),
-        "decimal" => format!("decimal.Decimal({raw})"),
-        "uuid" => format!("uuid.UUID({raw})"),
-        "date" => format!("datetime.date.fromisoformat({raw})"),
-        "time" => format!("datetime.time.fromisoformat({raw})"),
-        "datetime" => format!("datetime.datetime.fromisoformat({raw}.replace(\" \", \"T\"))"),
-        "datetime_tz" => format!("cls._parse_composite_offset_datetime({raw})"),
-        "time_tz" => format!("cls._parse_composite_offset_time({raw})"),
-        "bytes" => format!("cls._parse_composite_bytes({raw})"),
-        // "string"/"json"/"inet"/"interval" all resolve to Python `str`, so the already-parsed
-        // text needs no conversion -- only the NULL guard, since the declared field type is
-        // `str`. Any neutral type not named above (e.g. an array-typed composite field) falls
-        // through here too; handing the raw text back is the least-wrong fallback available at
-        // generate time rather than a hard error.
-        _ => format!("cls._require_composite_field({raw}, \"{field_name}\")"),
+fn py_composite_field_from_text(
+    neutral_type: &str,
+    base_type: &str,
+    raw: &str,
+    field_name: &str,
+    nullable: bool,
+) -> String {
+    let converted = if neutral_type.starts_with("composite::") {
+        format!("{base_type}._from_text({raw})")
+    } else if neutral_type.starts_with("enum::") {
+        format!("{base_type}({raw})")
+    } else {
+        match neutral_type {
+            "bool" => format!("{raw} == \"t\""),
+            "int16" | "int32" | "int64" => format!("int({raw})"),
+            "float32" | "float64" => format!("float({raw})"),
+            "decimal" => format!("decimal.Decimal({raw})"),
+            "uuid" => format!("uuid.UUID({raw})"),
+            "date" => format!("datetime.date.fromisoformat({raw})"),
+            "time" => format!("datetime.time.fromisoformat({raw})"),
+            "datetime" => format!("datetime.datetime.fromisoformat({raw}.replace(\" \", \"T\"))"),
+            "datetime_tz" => format!("cls._parse_composite_offset_datetime({raw})"),
+            "time_tz" => format!("cls._parse_composite_offset_time({raw})"),
+            "bytes" => format!("cls._parse_composite_bytes({raw})"),
+            // "string"/"json"/"inet"/"interval" all resolve to Python `str`, so the already-parsed
+            // text needs no conversion -- only the NULL guard, since the declared field type is
+            // `str`. Any neutral type not named above (e.g. an array-typed composite field) falls
+            // through here too; handing the raw text back is the least-wrong fallback available at
+            // generate time rather than a hard error.
+            _ => format!("cls._require_composite_field({raw}, \"{field_name}\")"),
+        }
+    };
+    if nullable {
+        format!("None if {raw} is None else {converted}")
+    } else {
+        converted
     }
 }
 
@@ -671,15 +682,20 @@ impl CodegenBackend for PythonPsycopg3Backend {
             return Ok(out);
         }
         let _ = writeln!(out);
-        let mut field_types: Vec<String> = Vec::with_capacity(composite.fields.len());
+        let mut base_field_types: Vec<String> = Vec::with_capacity(composite.fields.len());
         for field in &composite.fields {
-            let py_type = resolve_type(&field.neutral_type, &self.manifest, false)
+            let py_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
                 .map(|t| t.into_owned())
                 .map_err(|e| {
                     ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
                 })?;
             let _ = writeln!(out, "    {}: {}", to_snake_case(&field.name), py_type);
-            field_types.push(py_type);
+            let base_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                .map(|value| value.into_owned())
+                .map_err(|error| {
+                    ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {error}"))
+                })?;
+            base_field_types.push(base_type);
         }
 
         let _ = writeln!(out);
@@ -698,9 +714,10 @@ impl CodegenBackend for PythonPsycopg3Backend {
         let _ = writeln!(out, "            return None");
         let _ = writeln!(out, "        f = cls._parse_composite_fields(text)");
         let _ = writeln!(out, "        return cls(");
-        for (i, (field, field_type)) in composite.fields.iter().zip(&field_types).enumerate() {
+        for (i, (field, base_type)) in composite.fields.iter().zip(&base_field_types).enumerate() {
             let raw = format!("f[{i}]");
-            let value_expr = py_composite_field_from_text(&field.neutral_type, field_type, &raw, &field.name);
+            let value_expr =
+                py_composite_field_from_text(&field.neutral_type, base_type, &raw, &field.name, field.nullable);
             let _ = writeln!(out, "            {}={value_expr},", to_snake_case(&field.name));
         }
         let _ = writeln!(out, "        )");

@@ -311,7 +311,7 @@ impl CodegenBackend for PythonPyodbcBackend {
         } else {
             let _ = writeln!(out);
             for field in &composite.fields {
-                let py_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                let py_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
                     .map(|t| t.into_owned())
                     .map_err(|e| {
                         ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))

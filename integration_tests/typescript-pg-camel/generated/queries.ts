@@ -1,4 +1,4 @@
-// scythe:provenance v=0.17.0 backend=typescript-pg engine=postgresql schema=sch2:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:304531517b9a94ef
+// scythe:provenance v=0.18.0 backend=typescript-pg engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:861cdfc5df3ece62 options=opt1:304531517b9a94ef
 import type { PoolClient } from "pg";
 
 
@@ -9,6 +9,38 @@ export const UserStatusValues = {
 } as const;
 
 export type UserStatus = typeof UserStatusValues[keyof typeof UserStatusValues];
+
+/** JSON object produced for get_user_as_json_row_payload. */
+export interface GetUserAsJsonRowPayload {
+	id: number;
+	name: string;
+	email: string | null;
+	status: UserStatus;
+	secondary_status: UserStatus | null;
+	address: UserAddressJson | null;
+	created_at: string;
+}
+
+/** JSON object produced for get_users_as_json_row_payload. */
+export interface GetUsersAsJsonRowPayload {
+	id: number;
+	name: string;
+	email: string | null;
+	status: UserStatus;
+	secondary_status: UserStatus | null;
+	address: UserAddressJson | null;
+	created_at: string;
+}
+
+/** JSON object produced for get_user_orders_as_json_row_payload. */
+export interface GetUserOrdersAsJsonRowPayload {
+	id: number;
+	user_id: number;
+	total: number;
+	weight_kg: number | null;
+	notes: string | null;
+	created_at: string;
+}
 
 /** Row type for CreateOrder queries. */
 export interface CreateOrderRow {
@@ -338,9 +370,9 @@ export async function searchUsers(
 
 /** Composite type user_address. */
 export interface UserAddress {
-	street: string;
-	city: string;
-	zip: string;
+	street: string | null;
+	city: string | null;
+	zip: string | null;
 }
 
 // ~keep board #204: pg has no adapter for a user-defined composite -- it hands back
@@ -351,9 +383,9 @@ export function parseUserAddress(raw: unknown): UserAddress | null {
 	}
 	const f = parseUserAddressFields(raw as string);
 	return {
-		street: f[0] as string,
-		city: f[1] as string,
-		zip: f[2] as string,
+		street: f[0] === null ? null : f[0] as string,
+		city: f[1] === null ? null : f[1] as string,
+		zip: f[2] === null ? null : f[2] as string,
 	};
 }
 
@@ -412,6 +444,7 @@ function parseUserAddressFields(text: string): (string | null)[] {
 function encodeUserAddress(value: UserAddress | null): string | null {
 	if (value === null) return null;
 	const encode = (field: unknown): string => {
+		if (field === null || field === undefined) return "";
 		const text = String(field);
 		if (text === "" || /[(),\"\\\s]/.test(text)) {
 			return `"${text.replaceAll("\\", "\\\\").replaceAll('\"', '\"\"')}"`;
@@ -419,6 +452,13 @@ function encodeUserAddress(value: UserAddress | null): string | null {
 		return text;
 	};
 	return `(${encode(value.street)},${encode(value.city)},${encode(value.zip)})`;
+}
+
+/** JSON representation of composite type user_address. */
+export interface UserAddressJson {
+	street: string | null;
+	city: string | null;
+	zip: string | null;
 }
 
 /** Row type for GetUserProfile queries. */
@@ -475,7 +515,7 @@ RETURNING address`,
 
 /** Row type for GetUserAsJson queries. */
 export interface GetUserAsJsonRow {
-	payload: Record<string, unknown> | null;
+	payload: GetUserAsJsonRowPayload | null;
 }
 
 /** Fetch a single GetUserAsJsonRow. */
@@ -492,13 +532,13 @@ export async function getUserAsJson(
 		throw new Error("no row found for query: GetUserAsJson");
 	}
 	return {
-		payload: row.payload as Record<string, unknown> | null,
+		payload: row.payload as GetUserAsJsonRowPayload | null,
 	};
 }
 
 /** Row type for GetUsersAsJson queries. */
 export interface GetUsersAsJsonRow {
-	payload: Record<string, unknown>[] | null;
+	payload: Array<GetUsersAsJsonRowPayload> | null;
 }
 
 /** Fetch a single GetUsersAsJsonRow. */
@@ -513,13 +553,13 @@ export async function getUsersAsJson(
 		throw new Error("no row found for query: GetUsersAsJson");
 	}
 	return {
-		payload: row.payload as Record<string, unknown>[] | null,
+		payload: row.payload as Array<GetUsersAsJsonRowPayload> | null,
 	};
 }
 
 /** Row type for GetUserOrdersAsJson queries. */
 export interface GetUserOrdersAsJsonRow {
-	payload: Record<string, unknown>[] | null;
+	payload: Array<GetUserOrdersAsJsonRowPayload | null> | null;
 }
 
 /** Fetch a single GetUserOrdersAsJsonRow. */
@@ -540,6 +580,6 @@ GROUP BY u.id`,
 		throw new Error("no row found for query: GetUserOrdersAsJson");
 	}
 	return {
-		payload: row.payload as Record<string, unknown>[] | null,
+		payload: row.payload as Array<GetUserOrdersAsJsonRowPayload | null> | null,
 	};
 }

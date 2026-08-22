@@ -164,9 +164,10 @@ impl Catalog {
                 .iter()
                 .map(|field| {
                     format!(
-                        "{}:{}",
+                        "{}:{}:{}",
                         escape_component(&field.name),
-                        escape_component(&field.sql_type)
+                        escape_component(&field.sql_type),
+                        field.nullable
                     )
                 })
                 .collect::<Vec<_>>()
@@ -183,6 +184,14 @@ impl Catalog {
             ));
         }
 
+        for (key, functions) in canonical_entries(&self.functions) {
+            let mut overloads = functions.iter().map(canonical_function).collect::<Vec<_>>();
+            overloads.sort();
+            for overload in overloads {
+                lines.push(format!("function\t{}\t{overload}", escape_component(&key)));
+            }
+        }
+
         self.append_inspection_metadata(&mut lines);
 
         lines.join("\n")
@@ -196,6 +205,49 @@ impl Catalog {
         append_preserved_names(lines, "domain", &self.domain_names);
         append_raw_domain_types(self, lines);
     }
+}
+
+fn canonical_function(function: &super::Function) -> String {
+    use super::{FunctionArgumentMode, FunctionReturn};
+
+    let arguments = function
+        .arguments
+        .iter()
+        .map(|argument| {
+            let mode = match argument.mode {
+                FunctionArgumentMode::In => "in",
+                FunctionArgumentMode::Out => "out",
+                FunctionArgumentMode::InOut => "inout",
+                FunctionArgumentMode::Variadic => "variadic",
+            };
+            format!(
+                "{}:{}:{}:{}",
+                escape_component(argument.name.as_deref().unwrap_or("")),
+                escape_component(&argument.sql_type),
+                mode,
+                argument.has_default
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("|");
+    let return_type = match &function.return_type {
+        FunctionReturn::Scalar { sql_type } => format!("scalar:{}", escape_component(sql_type)),
+        FunctionReturn::SetOf { sql_type } => format!("setof:{}", escape_component(sql_type)),
+        FunctionReturn::Table { columns } => format!(
+            "table:{}",
+            columns
+                .iter()
+                .map(|column| format!(
+                    "{}:{}:{}",
+                    escape_component(&column.name),
+                    escape_component(&column.sql_type),
+                    column.nullable
+                ))
+                .collect::<Vec<_>>()
+                .join("|")
+        ),
+    };
+    format!("{}:{arguments}:{return_type}", function.arguments.len())
 }
 
 fn append_relation_metadata(catalog: &Catalog, lines: &mut Vec<String>) {
@@ -426,8 +478,8 @@ fn escape_component(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::catalog::{
-        CatalogBuilder, CatalogObjectName, ColumnDefinition, CompositeDefinition, DomainDefinition, EnumDefinition,
-        GeneratedColumnKind, RelationDefinition,
+        CatalogBuilder, CatalogObjectName, ColumnDefinition, CompositeDefinition, CompositeFieldDefinition,
+        DomainDefinition, EnumDefinition, GeneratedColumnKind, RelationDefinition,
     };
     use crate::dialect::SqlDialect;
 
@@ -654,6 +706,20 @@ mod tests {
         let c = Catalog::from_ddl(&["CREATE TYPE address AS (street TEXT, city TEXT);"]).unwrap();
         let d = Catalog::from_ddl(&["CREATE TYPE address AS (street TEXT, city TEXT, zip INTEGER);"]).unwrap();
         assert_ne!(c.fingerprint(), d.fingerprint());
+    }
+
+    #[test]
+    fn test_composite_field_nullability_participates() {
+        let build = |nullable| {
+            CatalogBuilder::new(SqlDialect::PostgreSQL)
+                .composite(CompositeDefinition::new(
+                    CatalogObjectName::new("address"),
+                    vec![CompositeFieldDefinition::new("zip", "text", nullable)],
+                ))
+                .build()
+                .expect("valid catalog")
+        };
+        assert_ne!(build(false).fingerprint(), build(true).fingerprint());
     }
 
     #[test]
@@ -908,7 +974,7 @@ mod tests {
             (
                 "CREATE TYPE address AS (street TEXT, city TEXT, zip INTEGER);",
                 SqlDialect::PostgreSQL,
-                "sch2:08277bec474dde8b",
+                "sch2:d6d144db11d41ec2",
             ),
             (
                 "CREATE TABLE public.users (id INTEGER PRIMARY KEY);",

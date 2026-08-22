@@ -4,7 +4,7 @@ use sqlparser::ast::{
 };
 
 use crate::dialect::SqlDialect;
-use crate::errors::ScytheError;
+use crate::errors::{ErrorCode, ScytheError};
 
 use super::types::{AnalyzedColumn, AnalyzedParam, Scope, TypeInfo};
 
@@ -40,6 +40,8 @@ pub(super) const UNKNOWN_COLUMN_MARKER: &str = "__unknown_col__:";
 /// has no return type for. See [`AMBIGUOUS_COLUMN_MARKER`].
 pub(super) const UNKNOWN_FUNCTION_MARKER: &str = "__unknown_func__:";
 
+pub(super) const AMBIGUOUS_FUNCTION_MARKER: &str = "__ambiguous_func__:";
+
 /// Marker written into a `TypeInfo::neutral_type` for a set-returning
 /// function's anonymous `record` column referenced in select-list position
 /// (`json_each`/`jsonb_each`/`json_each_text`/`jsonb_each_text`,
@@ -48,6 +50,8 @@ pub(super) const UNKNOWN_FUNCTION_MARKER: &str = "__unknown_func__:";
 /// Carries the function name so [`unresolved_type_error`] can name it. See
 /// [`AMBIGUOUS_COLUMN_MARKER`] and #223.
 pub(super) const UNTYPEABLE_RECORD_MARKER: &str = "__untypeable_record__:";
+
+pub(super) const UNTYPEABLE_CATALOG_RECORD_MARKER: &str = "__untypeable_catalog_record__:";
 
 /// Marker written into a `TypeInfo::neutral_type` for a multi-element
 /// `ROW(...)`/tuple constructor -- `(a, b)` (`Expr::Tuple`) or the explicit
@@ -103,8 +107,21 @@ pub(super) fn unresolved_type_error(neutral_type: &str, subject: &str, column_na
     if let Some(name) = find_marker_payload(neutral_type, UNKNOWN_FUNCTION_MARKER) {
         return Some(ScytheError::unknown_function(name));
     }
+    if let Some(name) = find_marker_payload(neutral_type, AMBIGUOUS_FUNCTION_MARKER) {
+        return Some(ScytheError::ambiguous_function(name));
+    }
     if let Some(function) = find_marker_payload(neutral_type, UNTYPEABLE_RECORD_MARKER) {
         return Some(ScytheError::untypeable_record(subject, column_name, function));
+    }
+    if let Some(function) = find_marker_payload(neutral_type, UNTYPEABLE_CATALOG_RECORD_MARKER) {
+        return Some(ScytheError::new(
+            ErrorCode::UnresolvedType,
+            format!(
+                "{subject} \"{column_name}\": function {function}(...) returns PostgreSQL's anonymous `record` type; \
+                 declare a named composite return type or explicit RETURNS TABLE/OUT columns so scythe can resolve \
+                 the result fields"
+            ),
+        ));
     }
     if neutral_type.contains(UNTYPEABLE_ROW_MARKER) {
         return Some(ScytheError::untypeable_row_constructor(subject, column_name));
@@ -1533,6 +1550,10 @@ mod tests {
             "got: {}",
             unknown_func.message
         );
+
+        let ambiguous_func = unresolved_type_error(&format!("{AMBIGUOUS_FUNCTION_MARKER}choose"), "column", "result")
+            .expect("marker recognised");
+        assert_eq!(ambiguous_func.code, ErrorCode::AmbiguousFunction);
 
         let record = unresolved_type_error(&format!("{UNTYPEABLE_RECORD_MARKER}jsonb_each"), "column", "kv")
             .expect("marker recognised");

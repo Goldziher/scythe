@@ -671,9 +671,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // which runs through the generated `GetUserProfileRow`.
 {%- if driver == "sqlx" %}
     let composite_address = UserAddress {
-        street: r#"12 "Main", Apt \3"#.to_string(),
-        city: String::new(),
-        zip: "10115".to_string(),
+        street: Some(r#"12 "Main", Apt \3"#.to_string()),
+        city: Some(String::new()),
+        zip: Some("10115".to_string()),
     };
     let round_tripped_address: RoundTripUserAddressRow = sqlx::query_as(
         "INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', $1) RETURNING address",
@@ -722,9 +722,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_test!(profile.secondary_status == Some(UserStatus::Inactive), "GetUserProfile secondary_status present");
     // Fails if a nullable composite reader errors or returns zero fields on a present value.
     let address = profile.address.expect("GetUserProfile address should be present");
-    assert_test!(address.street == "1 Main St", "GetUserProfile address.street");
-    assert_test!(address.city == "Springfield", "GetUserProfile address.city");
-    assert_test!(address.zip == "12345", "GetUserProfile address.zip");
+    assert_test!(address.street.as_deref() == Some("1 Main St"), "GetUserProfile address.street");
+    assert_test!(address.city.as_deref() == Some("Springfield"), "GetUserProfile address.city");
+    assert_test!(address.zip.as_deref() == Some("12345"), "GetUserProfile address.zip");
 
     let null_profile: GetUserProfileRow =
         sqlx::query_as("SELECT id, secondary_status, address FROM users WHERE id = $1")
@@ -737,9 +737,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_test!(null_profile.address.is_none(), "GetUserProfile address null");
 {%- elif driver == "tokio-postgres" %}
     let composite_address = UserAddress {
-        street: r#"12 "Main", Apt \3"#.to_string(),
-        city: String::new(),
-        zip: "10115".to_string(),
+        street: Some(r#"12 "Main", Apt \3"#.to_string()),
+        city: Some(String::new()),
+        zip: Some("10115".to_string()),
     };
     let round_tripped_address = queries::round_trip_user_address(&client, Some(&composite_address)).await?;
     let returned_address = round_tripped_address.address.expect("RoundTripUserAddress address present");
@@ -778,9 +778,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_test!(profile.secondary_status == Some(UserStatus::Inactive), "GetUserProfile secondary_status present");
     // Fails if a nullable composite reader errors or returns zero fields on a present value.
     let address = profile.address.expect("GetUserProfile address should be present");
-    assert_test!(address.street == "1 Main St", "GetUserProfile address.street");
-    assert_test!(address.city == "Springfield", "GetUserProfile address.city");
-    assert_test!(address.zip == "12345", "GetUserProfile address.zip");
+    assert_test!(address.street.as_deref() == Some("1 Main St"), "GetUserProfile address.street");
+    assert_test!(address.city.as_deref() == Some("Springfield"), "GetUserProfile address.city");
+    assert_test!(address.zip.as_deref() == Some("12345"), "GetUserProfile address.zip");
 
     let null_row = client
         .query_one(

@@ -44,10 +44,12 @@ fn torture_address() -> CompositeInfo {
             CompositeFieldInfo {
                 name: "street".to_string(),
                 neutral_type: "string".to_string(),
+                nullable: false,
             },
             CompositeFieldInfo {
                 name: "unit_count".to_string(),
                 neutral_type: "int32".to_string(),
+                nullable: false,
             },
         ],
     }

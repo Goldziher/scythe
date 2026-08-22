@@ -1,4 +1,4 @@
-// scythe:provenance v=0.17.0 backend=typescript-postgres engine=postgresql schema=sch2:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.18.0 backend=typescript-postgres engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:861cdfc5df3ece62 options=opt1:cbf29ce484222325
 type PostgresJsonValue = null | string | number | boolean | Date | readonly PostgresJsonValue[] | { readonly [key: string]: undefined | PostgresJsonValue };
 import type { Sql } from "postgres";
 
@@ -7,6 +7,38 @@ export enum UserStatus {
 	Active = "active",
 	Inactive = "inactive",
 	Banned = "banned",
+}
+
+/** JSON object produced for get_user_as_json_row_payload. */
+export interface GetUserAsJsonRowPayload {
+	id: number;
+	name: string;
+	email: string | null;
+	status: UserStatus;
+	secondary_status: UserStatus | null;
+	address: UserAddressJson | null;
+	created_at: string;
+}
+
+/** JSON object produced for get_users_as_json_row_payload. */
+export interface GetUsersAsJsonRowPayload {
+	id: number;
+	name: string;
+	email: string | null;
+	status: UserStatus;
+	secondary_status: UserStatus | null;
+	address: UserAddressJson | null;
+	created_at: string;
+}
+
+/** JSON object produced for get_user_orders_as_json_row_payload. */
+export interface GetUserOrdersAsJsonRowPayload {
+	id: number;
+	user_id: number;
+	total: number;
+	weight_kg: number | null;
+	notes: string | null;
+	created_at: string;
 }
 
 /** Row type for CreateOrder queries. */
@@ -276,9 +308,9 @@ export async function searchUsers(
 
 /** Composite type user_address. */
 export interface UserAddress {
-	street: string;
-	city: string;
-	zip: string;
+	street: string | null;
+	city: string | null;
+	zip: string | null;
 }
 
 // ~keep board #204: postgres.js has no adapter for a user-defined composite -- it
@@ -289,9 +321,9 @@ export function parseUserAddress(raw: unknown): UserAddress | null {
 	}
 	const f = parseUserAddressFields(raw as string);
 	return {
-		street: f[0] as string,
-		city: f[1] as string,
-		zip: f[2] as string,
+		street: f[0] === null ? null : f[0] as string,
+		city: f[1] === null ? null : f[1] as string,
+		zip: f[2] === null ? null : f[2] as string,
 	};
 }
 
@@ -347,6 +379,13 @@ function parseUserAddressFields(text: string): (string | null)[] {
 	return fields;
 }
 
+/** JSON representation of composite type user_address. */
+export interface UserAddressJson {
+	street: string | null;
+	city: string | null;
+	zip: string | null;
+}
+
 /** Row type for GetUserProfile queries. */
 export interface GetUserProfileRow {
 	id: number;
@@ -399,7 +438,7 @@ RETURNING address
 
 /** Row type for GetUserAsJson queries. */
 export interface GetUserAsJsonRow {
-	payload: PostgresJsonValue | null;
+	payload: GetUserAsJsonRowPayload | null;
 }
 
 /** Fetch a single GetUserAsJsonRow. */
@@ -419,7 +458,7 @@ export async function getUserAsJson(
 
 /** Row type for GetUsersAsJson queries. */
 export interface GetUsersAsJsonRow {
-	payload: Record<string, unknown>[] | null;
+	payload: Array<GetUsersAsJsonRowPayload> | null;
 }
 
 /** Fetch a single GetUsersAsJsonRow. */
@@ -436,7 +475,7 @@ export async function getUsersAsJson(sql: Sql): Promise<GetUsersAsJsonRow> {
 
 /** Row type for GetUserOrdersAsJson queries. */
 export interface GetUserOrdersAsJsonRow {
-	payload: Record<string, unknown>[] | null;
+	payload: Array<GetUserOrdersAsJsonRowPayload | null> | null;
 }
 
 /** Fetch a single GetUserOrdersAsJsonRow. */

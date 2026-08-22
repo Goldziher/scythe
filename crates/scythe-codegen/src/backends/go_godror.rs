@@ -497,7 +497,7 @@ impl CodegenBackend for GoGodrorBackend {
         let mut out = String::new();
         let _ = writeln!(out, "type {} struct {{", name);
         for field in &composite.fields {
-            let go_type = resolve_type(&field.neutral_type, &self.manifest, false)
+            let go_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
                 .map(|t| t.into_owned())
                 .unwrap_or_else(|_| "any".to_string());
             let _ = writeln!(out, "\t{} {}", to_pascal_case(&field.name), go_type);

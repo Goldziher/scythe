@@ -9,10 +9,22 @@ fn address_composite() -> CompositeInfo {
             CompositeFieldInfo {
                 name: "street".to_string(),
                 neutral_type: "string".to_string(),
+                nullable: false,
             },
             CompositeFieldInfo {
                 name: "city".to_string(),
                 neutral_type: "string".to_string(),
+                nullable: true,
+            },
+            CompositeFieldInfo {
+                name: "state".to_string(),
+                neutral_type: "enum::state".to_string(),
+                nullable: true,
+            },
+            CompositeFieldInfo {
+                name: "delivery".to_string(),
+                neutral_type: "composite::delivery_details".to_string(),
+                nullable: true,
             },
         ],
     }
@@ -55,6 +67,19 @@ fn csharp_npgsql_encodes_nullable_composite_params_as_text() {
     assert!(
         composite.contains("EncodeCompositeField(Street), EncodeCompositeField(City)"),
         "encoder must preserve declared field order:\n{composite}"
+    );
+    assert!(composite.contains("f[1] is null ? null : f[1]"), "{composite}");
+    assert!(
+        composite.contains("f[2] is null ? null : Enum.Parse<State>(f[2], true)"),
+        "{composite}"
+    );
+    assert!(
+        composite.contains("f[3] is null ? null : DeliveryDetails.FromText(f[3])!"),
+        "{composite}"
+    );
+    assert!(
+        !composite.contains("State?.FromText"),
+        "nullable spelling leaked into static call:\n{composite}"
     );
 }
 

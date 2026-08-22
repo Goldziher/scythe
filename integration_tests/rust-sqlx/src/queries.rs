@@ -1,4 +1,4 @@
-// scythe:provenance v=0.17.0 backend=rust-sqlx engine=postgresql schema=sch2:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:57af1d7acc85e6c7
+// scythe:provenance v=0.18.0 backend=rust-sqlx engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:861cdfc5df3ece62 options=opt1:57af1d7acc85e6c7
 #![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type, serde::Serialize, serde::Deserialize)]
@@ -127,9 +127,9 @@ pub struct SearchUsersRow {
 #[derive(Debug, Clone, sqlx::Type, serde::Serialize, serde::Deserialize)]
 #[sqlx(type_name = "user_address")]
 pub struct UserAddress {
-    pub street: String,
-    pub city: String,
-    pub zip: String,
+    pub street: Option<String>,
+    pub city: Option<String>,
+    pub zip: Option<String>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]

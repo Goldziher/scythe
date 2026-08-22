@@ -1082,14 +1082,32 @@ fn test_json_agg_left_join_nullable_elements() {
                         generated.degraded_nested_structs
                     );
                 }
+                if *backend_name == "typescript-kysely" {
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
+                    assert_eq!(
+                        generated.degraded_nested_structs,
+                        expected_degradations,
+                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
+                        backend_name,
+                        "json_agg_left_join_nullable_elements",
+                        expected_degradations,
+                        generated.degraded_nested_structs
+                    );
+                }
                 if *backend_name == "typescript-pg" {
-                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> =
-                        vec![scythe_codegen::NestedStructDegradation {
-                            column: "orders".to_string(),
-                            struct_name: "GetUserOrdersOuterRowOrders".to_string(),
-                            fallback_type: "json_array",
-                            backend: (*backend_name).to_string(),
-                        }];
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
+                    assert_eq!(
+                        generated.degraded_nested_structs,
+                        expected_degradations,
+                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
+                        backend_name,
+                        "json_agg_left_join_nullable_elements",
+                        expected_degradations,
+                        generated.degraded_nested_structs
+                    );
+                }
+                if *backend_name == "typescript-postgres" {
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
                     assert_eq!(
                         generated.degraded_nested_structs,
                         expected_degradations,
@@ -1934,14 +1952,32 @@ fn test_json_agg_wildcard_nested_struct() {
                         generated.degraded_nested_structs
                     );
                 }
+                if *backend_name == "typescript-kysely" {
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
+                    assert_eq!(
+                        generated.degraded_nested_structs,
+                        expected_degradations,
+                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
+                        backend_name,
+                        "json_agg_wildcard_nested_struct",
+                        expected_degradations,
+                        generated.degraded_nested_structs
+                    );
+                }
                 if *backend_name == "typescript-pg" {
-                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> =
-                        vec![scythe_codegen::NestedStructDegradation {
-                            column: "orders".to_string(),
-                            struct_name: "GetUserOrdersRowOrders".to_string(),
-                            fallback_type: "json_array",
-                            backend: (*backend_name).to_string(),
-                        }];
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
+                    assert_eq!(
+                        generated.degraded_nested_structs,
+                        expected_degradations,
+                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
+                        backend_name,
+                        "json_agg_wildcard_nested_struct",
+                        expected_degradations,
+                        generated.degraded_nested_structs
+                    );
+                }
+                if *backend_name == "typescript-postgres" {
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
                     assert_eq!(
                         generated.degraded_nested_structs,
                         expected_degradations,
@@ -1968,6 +2004,261 @@ fn test_json_agg_wildcard_nested_struct() {
                 None => panic!(
                     "backend {} failed to generate code for engine {} in fixture {}: {}",
                     backend_name, engine, "json_agg_wildcard_nested_struct", e
+                ),
+            },
+        }
+    }
+}
+
+#[test]
+fn test_jsonb_agg_wildcard_nested_struct() {
+    // From: testing_data/aggregates/nested_json/10_jsonb_agg_wildcard_nested_struct.json
+    // "jsonb_agg over a relation wildcard preserves JSON runtime scalar and composite shapes"
+    let schema_sql = &[
+        "CREATE TYPE shipping_address AS (street TEXT, zip_code INTEGER);",
+        "CREATE TABLE orders (id SERIAL PRIMARY KEY, amount NUMERIC NOT NULL, created_at TIMESTAMPTZ NOT NULL, address shipping_address);",
+    ];
+
+    let query_sql = "-- @name GetOrdersJsonb\n-- @returns :many\nSELECT jsonb_agg(o.*) AS orders FROM orders o;";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "GetOrdersJsonb", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 1, "column count");
+    assert_eq!(analyzed.columns[0].name, "orders", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "json_nested<array<GetOrdersJsonbRowOrders>>",
+        "column neutral_type for orders"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for orders");
+    assert_eq!(analyzed.nested_structs.len(), 1, "nested struct count");
+    assert_eq!(
+        analyzed.nested_structs[0].name, "get_orders_jsonb_row_orders",
+        "nested struct name"
+    );
+    assert_eq!(
+        analyzed.nested_structs[0].fields.len(),
+        4,
+        "nested field count for get_orders_jsonb_row_orders"
+    );
+    assert_eq!(analyzed.nested_structs[0].fields[0].name, "id", "nested field name");
+    assert_eq!(
+        analyzed.nested_structs[0].fields[0].neutral_type, "int32",
+        "nested field neutral_type for id"
+    );
+    assert!(
+        !analyzed.nested_structs[0].fields[0].nullable,
+        "nested field nullable for id"
+    );
+    assert_eq!(analyzed.nested_structs[0].fields[1].name, "amount", "nested field name");
+    assert_eq!(
+        analyzed.nested_structs[0].fields[1].neutral_type, "decimal",
+        "nested field neutral_type for amount"
+    );
+    assert!(
+        !analyzed.nested_structs[0].fields[1].nullable,
+        "nested field nullable for amount"
+    );
+    assert_eq!(
+        analyzed.nested_structs[0].fields[2].name, "created_at",
+        "nested field name"
+    );
+    assert_eq!(
+        analyzed.nested_structs[0].fields[2].neutral_type, "datetime_tz",
+        "nested field neutral_type for created_at"
+    );
+    assert!(
+        !analyzed.nested_structs[0].fields[2].nullable,
+        "nested field nullable for created_at"
+    );
+    assert_eq!(
+        analyzed.nested_structs[0].fields[3].name, "address",
+        "nested field name"
+    );
+    assert_eq!(
+        analyzed.nested_structs[0].fields[3].neutral_type, "composite::shipping_address",
+        "nested field neutral_type for address"
+    );
+    assert!(
+        analyzed.nested_structs[0].fields[3].nullable,
+        "nested field nullable for address"
+    );
+
+    // Codegen verification: every backend that supports this fixture's engine
+    // should produce valid output. The list below is derived at generation
+    // time from the fixture's engine via the real `get_backend` registry, so
+    // every entry here is expected to construct -- a construction failure
+    // below is a real regression, not an expected engine mismatch. See #156.
+    let engine = "postgresql";
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, engine) {
+            Ok(b) => b,
+            Err(e) => panic!(
+                "backend {} failed to construct for engine {} in fixture {}: {}",
+                backend_name, engine, "jsonb_agg_wildcard_nested_struct", e
+            ),
+        };
+        let declared_codegen_failure: Option<&str> = None;
+        match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            Ok(generated) => {
+                if let Some(expected_message) = declared_codegen_failure {
+                    panic!(
+                        "backend {} was declared under expected.codegen_errors to fail codegen for fixture {} (declared message {:?}), but codegen succeeded -- delete the stale entry",
+                        backend_name, "jsonb_agg_wildcard_nested_struct", expected_message
+                    );
+                }
+                let preamble = backend.file_preamble();
+                let header = backend.file_header();
+                let mut body = String::new();
+                if header.is_empty() {
+                    body.push_str("#![allow(dead_code, unused_imports)]\n");
+                } else {
+                    body.push_str(&header);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.enum_def {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                for def in &generated.nested_struct_defs {
+                    body.push_str(&def.code);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.model_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.row_struct {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                if let Some(ref s) = generated.query_fn {
+                    body.push_str(s);
+                    body.push('\n');
+                }
+                let code = scythe_codegen::provenance::assemble_file(
+                    &preamble,
+                    &scythe_codegen::provenance::header_line(
+                        &*backend,
+                        env!("CARGO_PKG_VERSION"),
+                        engine,
+                        "sch1:0123456789abcdef",
+                        "q1:fedcba9876543210",
+                    ),
+                    &body,
+                );
+                if body.lines().count() > 1 {
+                    // Only validate Rust syntax with syn for Rust backends
+                    if matches!(
+                        *backend_name,
+                        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl"
+                    ) {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "jsonb_agg_wildcard_nested_struct"
+                        );
+                    } else {
+                        // Structural validation for non-Rust backends
+                        let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                        assert!(
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
+                            backend_name,
+                            "jsonb_agg_wildcard_nested_struct",
+                            errors
+                        );
+                    }
+                }
+                assert!(
+                    generated.row_struct.is_some() || generated.model_struct.is_some(),
+                    "backend {} should produce a struct for {}",
+                    backend_name,
+                    "jsonb_agg_wildcard_nested_struct"
+                );
+                assert!(
+                    generated.query_fn.is_some(),
+                    "backend {} should produce query_fn for {}",
+                    backend_name,
+                    "jsonb_agg_wildcard_nested_struct"
+                );
+                if *backend_name == "typescript-kysely" {
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
+                    assert_eq!(
+                        generated.degraded_nested_structs,
+                        expected_degradations,
+                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
+                        backend_name,
+                        "jsonb_agg_wildcard_nested_struct",
+                        expected_degradations,
+                        generated.degraded_nested_structs
+                    );
+                }
+                if *backend_name == "typescript-pg" {
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
+                    assert_eq!(
+                        generated.degraded_nested_structs,
+                        expected_degradations,
+                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
+                        backend_name,
+                        "jsonb_agg_wildcard_nested_struct",
+                        expected_degradations,
+                        generated.degraded_nested_structs
+                    );
+                }
+                if *backend_name == "typescript-postgres" {
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
+                    assert_eq!(
+                        generated.degraded_nested_structs,
+                        expected_degradations,
+                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
+                        backend_name,
+                        "jsonb_agg_wildcard_nested_struct",
+                        expected_degradations,
+                        generated.degraded_nested_structs
+                    );
+                }
+            }
+            Err(e) => match declared_codegen_failure {
+                Some(expected_message) => {
+                    let message = e.to_string();
+                    assert!(
+                        message.contains(expected_message),
+                        "backend {} codegen error for fixture {} did not match the declared expected.codegen_errors message\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
+                        backend_name,
+                        "jsonb_agg_wildcard_nested_struct",
+                        expected_message,
+                        message
+                    );
+                }
+                None => panic!(
+                    "backend {} failed to generate code for engine {} in fixture {}: {}",
+                    backend_name, engine, "jsonb_agg_wildcard_nested_struct", e
                 ),
             },
         }
@@ -2264,14 +2555,32 @@ fn test_row_to_json_wildcard_nested_struct() {
                         generated.degraded_nested_structs
                     );
                 }
+                if *backend_name == "typescript-kysely" {
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
+                    assert_eq!(
+                        generated.degraded_nested_structs,
+                        expected_degradations,
+                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
+                        backend_name,
+                        "row_to_json_wildcard_nested_struct",
+                        expected_degradations,
+                        generated.degraded_nested_structs
+                    );
+                }
                 if *backend_name == "typescript-pg" {
-                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> =
-                        vec![scythe_codegen::NestedStructDegradation {
-                            column: "payload".to_string(),
-                            struct_name: "GetOrderPayloadRowPayload".to_string(),
-                            fallback_type: "json",
-                            backend: (*backend_name).to_string(),
-                        }];
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
+                    assert_eq!(
+                        generated.degraded_nested_structs,
+                        expected_degradations,
+                        "backend {} degraded_nested_structs mismatch for {}\n--- expected ---\n{:?}\n--- actual ---\n{:?}",
+                        backend_name,
+                        "row_to_json_wildcard_nested_struct",
+                        expected_degradations,
+                        generated.degraded_nested_structs
+                    );
+                }
+                if *backend_name == "typescript-postgres" {
+                    let expected_degradations: Vec<scythe_codegen::NestedStructDegradation> = vec![];
                     assert_eq!(
                         generated.degraded_nested_structs,
                         expected_degradations,

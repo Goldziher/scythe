@@ -9,6 +9,9 @@ import {
 	deleteUser,
 	getUserProfile,
 	roundTripUserAddress,
+	getUserAsJson,
+	getUsersAsJson,
+	getUserOrdersAsJson,
 	type UserAddress,
 	UserStatus,
 } from "./generated/queries.js";
@@ -34,6 +37,39 @@ function pass(testName: string, label: string = testName): void {
 	if (!failedTests.has(testName)) {
 		console.log(`PASS: ${label}`);
 	}
+}
+
+function assertNestedJson(
+	single: Awaited<ReturnType<typeof getUserAsJson>>,
+	many: Awaited<ReturnType<typeof getUsersAsJson>>,
+	orders: Awaited<ReturnType<typeof getUserOrdersAsJson>>,
+	emptyOrders: Awaited<ReturnType<typeof getUserOrdersAsJson>>,
+	expectedUserId: number,
+): void {
+	assert(single.payload?.id === expectedUserId, "NestedJson", "row_to_json id must be typed and decoded");
+	assert(
+		single.payload?.address?.street === "1 Main St",
+		"NestedJson",
+		"row_to_json composite must use its JSON DTO",
+	);
+	assert(
+		typeof single.payload?.created_at === "string",
+		"NestedJson",
+		"JSON timestamps must use their serialized string representation",
+	);
+	const aggregateUser = many.payload?.find((candidate) => candidate.id === expectedUserId);
+	assert(aggregateUser?.secondary_status === "inactive", "NestedJson", "jsonb_agg enum must stay typed");
+	assert(
+		typeof orders.payload?.[0]?.total === "number",
+		"NestedJson",
+		"JSON numeric values must use their decoded number representation",
+	);
+	assert(
+		emptyOrders.payload?.length === 1 && emptyOrders.payload[0] === null,
+		"NestedJson",
+		"LEFT JOIN json_agg must preserve a nullable array element",
+	);
+	pass("NestedJson", "Nested JSON runtime shapes");
 }
 
 // Splits a SQL script into individual statements on top-level `;` only --
@@ -289,6 +325,12 @@ async function main(): Promise<void> {
 		const roundTrippedNull = await roundTripUserAddress(sql, null);
 		assert(roundTrippedNull.address === null, "RoundTripUserAddress", "expected null composite");
 		pass("RoundTripUserAddress", "RoundTripUserAddress (escaped fields + null)");
+
+		const nestedSingle = await getUserAsJson(sql, presentId);
+		const nestedMany = await getUsersAsJson(sql);
+		const nestedOrders = await getUserOrdersAsJson(sql, userId);
+		const nestedEmptyOrders = await getUserOrdersAsJson(sql, absentId);
+		assertNestedJson(nestedSingle, nestedMany, nestedOrders, nestedEmptyOrders, presentId);
 
 		await deleteUser(sql, presentId);
 		await deleteUser(sql, absentId);

@@ -254,38 +254,43 @@ fn composite_needs_time_only_helper(composite: &CompositeInfo) -> bool {
 /// genuinely NULL sub-field converted through a non-string arm (`int.Parse(null)`, ...) throws
 /// at runtime. That is a pre-existing gap in what `CompositeFieldInfo` tracks (matching
 /// `java_jdbc.rs`'s identical note), not one this fix introduces or can close from here.
-fn composite_field_from_text(neutral_type: &str, field_type: &str, raw: &str) -> String {
-    if neutral_type.starts_with("composite::") {
-        return format!("{field_type}.FromText({raw})!");
-    }
-    if neutral_type.starts_with("enum::") {
-        return format!("Enum.Parse<{field_type}>({raw}, true)");
-    }
-    match neutral_type {
-        "bool" => format!("{raw} == \"t\""),
-        "int16" => format!("short.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
-        "int32" => format!("int.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
-        "int64" => format!("long.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
-        "float32" => format!("float.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
-        "float64" => format!("double.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
-        "decimal" => format!("decimal.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
-        "uuid" => format!("Guid.Parse({raw})"),
-        "date" => format!("DateOnly.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
-        "time" => format!("TimeOnly.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
-        "time_tz" => format!("ParseCompositeTimeOnly({raw})"),
-        // ~keep Verified against live PostgreSQL 16: unlike Java's `LocalDateTime`/`OffsetDateTime`,
-        // `DateTime.Parse`/`DateTimeOffset.Parse` accept the space-separated form and an offset
-        // with no minutes ("2024-01-15 10:30:00+00") natively -- no normalization needed.
-        "datetime" => format!("DateTime.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
-        "datetime_tz" => format!("DateTimeOffset.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
-        "bytes" => format!("ParseCompositeBytes({raw})"),
-        "inet" => format!("System.Net.IPAddress.Parse({raw})"),
-        "interval" => format!("TimeSpan.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
-        // ~keep "string"/"json" both resolve to C# `string`, so the already-parsed text needs no
-        // further conversion. Any neutral type not named above (e.g. an array-typed composite
-        // field) falls through here too; passing the raw text through is the least-wrong
-        // fallback available at generate time rather than a hard error.
-        _ => raw.to_string(),
+fn composite_field_from_text(neutral_type: &str, base_type: &str, raw: &str, nullable: bool) -> String {
+    let converted = if neutral_type.starts_with("composite::") {
+        format!("{base_type}.FromText({raw})!")
+    } else if neutral_type.starts_with("enum::") {
+        format!("Enum.Parse<{base_type}>({raw}, true)")
+    } else {
+        match neutral_type {
+            "bool" => format!("{raw} == \"t\""),
+            "int16" => format!("short.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+            "int32" => format!("int.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+            "int64" => format!("long.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+            "float32" => format!("float.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+            "float64" => format!("double.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+            "decimal" => format!("decimal.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+            "uuid" => format!("Guid.Parse({raw})"),
+            "date" => format!("DateOnly.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+            "time" => format!("TimeOnly.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+            "time_tz" => format!("ParseCompositeTimeOnly({raw})"),
+            // ~keep Verified against live PostgreSQL 16: unlike Java's `LocalDateTime`/`OffsetDateTime`,
+            // `DateTime.Parse`/`DateTimeOffset.Parse` accept the space-separated form and an offset
+            // with no minutes ("2024-01-15 10:30:00+00") natively -- no normalization needed.
+            "datetime" => format!("DateTime.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+            "datetime_tz" => format!("DateTimeOffset.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+            "bytes" => format!("ParseCompositeBytes({raw})"),
+            "inet" => format!("System.Net.IPAddress.Parse({raw})"),
+            "interval" => format!("TimeSpan.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+            // ~keep "string"/"json" both resolve to C# `string`, so the already-parsed text needs no
+            // further conversion. Any neutral type not named above (e.g. an array-typed composite
+            // field) falls through here too; passing the raw text through is the least-wrong
+            // fallback available at generate time rather than a hard error.
+            _ => raw.to_string(),
+        }
+    };
+    if nullable {
+        format!("{raw} is null ? null : {converted}")
+    } else {
+        converted
     }
 }
 
@@ -737,8 +742,17 @@ impl CodegenBackend for CsharpNpgsqlBackend {
             .fields
             .iter()
             .map(|f| {
-                resolve_type(&f.neutral_type, &self.manifest, false)
+                resolve_type(&f.neutral_type, &self.manifest, f.nullable)
                     .map(|t| t.into_owned())
+                    .unwrap_or_else(|_| "object".to_string())
+            })
+            .collect();
+        let base_field_types: Vec<String> = composite
+            .fields
+            .iter()
+            .map(|field| {
+                resolve_type(&field.neutral_type, &self.manifest, false)
+                    .map(|value| value.into_owned())
                     .unwrap_or_else(|_| "object".to_string())
             })
             .collect();
@@ -774,8 +788,12 @@ impl CodegenBackend for CsharpNpgsqlBackend {
         let _ = writeln!(out, "        var f = ParseCompositeFields(text);");
         let _ = writeln!(out, "        return new {}(", name);
         for (i, field) in composite.fields.iter().enumerate() {
-            let raw = format!("f[{}]!", i);
-            let value_expr = composite_field_from_text(&field.neutral_type, &field_types[i], &raw);
+            let raw = if field.nullable {
+                format!("f[{i}]")
+            } else {
+                format!("f[{i}]!")
+            };
+            let value_expr = composite_field_from_text(&field.neutral_type, &base_field_types[i], &raw, field.nullable);
             let sep = if i + 1 < composite.fields.len() { "," } else { "" };
             let _ = writeln!(out, "            {}{}", value_expr, sep);
         }
@@ -788,9 +806,17 @@ impl CodegenBackend for CsharpNpgsqlBackend {
             .map(|field| {
                 let field_name = to_pascal_case(&field.name);
                 if field.neutral_type.starts_with("composite::") {
-                    format!("EncodeCompositeField({field_name}.ToPgText())")
+                    if field.nullable {
+                        format!("EncodeCompositeField({field_name} is null ? null : {field_name}.ToPgText())")
+                    } else {
+                        format!("EncodeCompositeField({field_name}.ToPgText())")
+                    }
                 } else if field.neutral_type.starts_with("enum::") {
-                    format!("EncodeCompositeField({field_name}.ToDbValue())")
+                    if field.nullable {
+                        format!("EncodeCompositeField({field_name} is null ? null : {field_name}.Value.ToDbValue())")
+                    } else {
+                        format!("EncodeCompositeField({field_name}.ToDbValue())")
+                    }
                 } else {
                     format!("EncodeCompositeField({field_name})")
                 }

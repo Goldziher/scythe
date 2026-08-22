@@ -1,4 +1,4 @@
-# scythe:provenance v=0.17.0 backend=python-psycopg3 engine=postgresql schema=sch2:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:44be2db4ed87131f  # noqa: E501
+# scythe:provenance v=0.18.0 backend=python-psycopg3 engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:861cdfc5df3ece62 options=opt1:44be2db4ed87131f  # noqa: E501
 import datetime  # noqa: F401
 import decimal  # noqa: F401
 import uuid  # noqa: F401
@@ -25,9 +25,9 @@ class UserStatus(str, Enum):
 class UserAddress(msgspec.Struct):
     """Composite type user_address."""
 
-    street: str
-    city: str
-    zip: str
+    street: str | None
+    city: str | None
+    zip: str | None
 
     @classmethod
     def _from_text(cls, text: str | None) -> "UserAddress | None":
@@ -38,9 +38,9 @@ class UserAddress(msgspec.Struct):
             return None
         f = cls._parse_composite_fields(text)
         return cls(
-            street=cls._require_composite_field(f[0], "street"),
-            city=cls._require_composite_field(f[1], "city"),
-            zip=cls._require_composite_field(f[2], "zip"),
+            street=None if f[0] is None else cls._require_composite_field(f[0], "street"),
+            city=None if f[1] is None else cls._require_composite_field(f[1], "city"),
+            zip=None if f[2] is None else cls._require_composite_field(f[2], "zip"),
         )
 
     def _to_pg_text(self) -> str:

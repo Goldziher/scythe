@@ -165,9 +165,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pass!("GetUserAsJson");
 
     let address = UserAddress {
-        street: r#"12 "Main", Apt \3"#.to_string(),
-        city: String::new(),
-        zip: "10115".to_string(),
+        street: Some(r#"12 "Main", Apt \3"#.to_string()),
+        city: Some(String::new()),
+        zip: Some("10115".to_string()),
     };
     let present: RoundTripUserAddressRow = sqlx::query_as(
         "INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', $1) RETURNING address",

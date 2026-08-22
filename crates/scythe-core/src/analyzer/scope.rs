@@ -1,9 +1,13 @@
 use ahash::AHashMap;
 use sqlparser::ast::{self, JoinOperator, TableFactor};
 
+use crate::catalog::FunctionReturn;
 use crate::errors::ScytheError;
 
-use super::helpers::{UNRESOLVED_EXPR_MARKER, function_arg_exprs, object_name_to_string, widen_neutral_type};
+use super::expressions::{catalog_call_arguments_from_args, catalog_function_return_neutral, match_catalog_function};
+use super::helpers::{
+    UNRESOLVED_EXPR_MARKER, function_arg_exprs, object_name_to_string, unresolved_type_error, widen_neutral_type,
+};
 use super::type_conversion::sql_type_to_neutral;
 use super::types::*;
 
@@ -95,14 +99,22 @@ impl<'a> Analyzer<'a> {
                         .columns
                         .iter()
                         .map(|c| {
+                            let raw_sql_type = self
+                                .catalog
+                                .column_raw_sql_type(&table_name, &c.name)
+                                .unwrap_or(&c.sql_type);
                             ScopeColumn::from_catalog(
                                 c.name.clone(),
-                                c.sql_type.clone(),
+                                raw_sql_type,
                                 sql_type_to_neutral(&c.sql_type, self.catalog).into_owned(),
                                 c.nullable,
                             )
                         })
                         .collect()
+                } else if let Some(function_args) = args
+                    && self.catalog.get_functions(&table_name).is_some()
+                {
+                    self.catalog_function_columns(&table_name, &function_args.args, scope, alias.as_ref())?
                 } else {
                     let known_functions = [
                         "generate_series",
@@ -245,6 +257,7 @@ impl<'a> Analyzer<'a> {
                     .unwrap_or_else(|| object_name_to_string(name).to_lowercase());
 
                 let func_name = object_name_to_string(name).to_lowercase();
+                let is_catalog_function = self.catalog.get_functions(&func_name).is_some();
                 let cols = match func_name.as_str() {
                     "generate_series" => {
                         let result_type = self.generate_series_result_type(args, &*scope);
@@ -268,10 +281,12 @@ impl<'a> Analyzer<'a> {
                     "jsonb_object_keys" | "json_object_keys" => {
                         vec![ScopeColumn::new("jsonb_object_keys", "string", false)]
                     }
-                    _ => Vec::new(),
+                    _ => self.catalog_function_columns(&func_name, args, scope, alias.as_ref())?,
                 };
 
-                let cols = if let Some(a) = alias {
+                let cols = if let Some(a) = alias
+                    && !is_catalog_function
+                {
                     if !a.columns.is_empty() {
                         // An explicit column-alias list on a table function
                         // scythe has no per-column type mapping for (or a
@@ -322,9 +337,13 @@ impl<'a> Analyzer<'a> {
                 .columns
                 .iter()
                 .map(|c| {
+                    let raw_sql_type = self
+                        .catalog
+                        .column_raw_sql_type(table_name, &c.name)
+                        .unwrap_or(&c.sql_type);
                     ScopeColumn::from_catalog(
                         c.name.clone(),
-                        c.sql_type.clone(),
+                        raw_sql_type,
                         sql_type_to_neutral(&c.sql_type, self.catalog).into_owned(),
                         c.nullable,
                     )
@@ -361,6 +380,89 @@ impl<'a> Analyzer<'a> {
             return col.nullable;
         }
         false
+    }
+
+    fn catalog_function_columns(
+        &mut self,
+        function_name: &str,
+        args: &[ast::FunctionArg],
+        scope: &Scope,
+        alias: Option<&ast::TableAlias>,
+    ) -> Result<Vec<ScopeColumn>, ScytheError> {
+        let Some(overloads) = self.catalog.get_functions(function_name) else {
+            return Err(ScytheError::unknown_function(function_name));
+        };
+        let Some(call_arguments) = catalog_call_arguments_from_args(args) else {
+            return Err(ScytheError::type_mismatch(format!(
+                "function \"{function_name}\" has unsupported wildcard arguments"
+            )));
+        };
+        let inferred = call_arguments
+            .iter()
+            .map(|(_, expression)| self.infer_expr_type(expression, scope))
+            .collect::<Vec<_>>();
+        let mut matches = overloads
+            .iter()
+            .filter_map(|function| match_catalog_function(function, &call_arguments, &inferred, self.catalog))
+            .collect::<Vec<_>>();
+        matches.sort_by_key(|matched| matched.score);
+        let Some(best) = matches.first() else {
+            return Err(ScytheError::type_mismatch(format!(
+                "no overload of function \"{function_name}\" accepts the supplied argument types"
+            )));
+        };
+        if matches.get(1).is_some_and(|other| other.score == best.score) {
+            return Err(ScytheError::ambiguous_function(function_name));
+        }
+        self.register_catalog_function_params(best, &call_arguments);
+
+        let bare_name = function_name.rsplit('.').next().unwrap_or(function_name);
+        let mut columns = match &best.function.return_type {
+            FunctionReturn::Scalar { sql_type } | FunctionReturn::SetOf { sql_type } => {
+                if let Some(composite) = self.catalog.get_composite(sql_type) {
+                    composite
+                        .fields
+                        .iter()
+                        .map(|field| {
+                            ScopeColumn::from_catalog(
+                                field.name.clone(),
+                                field.sql_type.clone(),
+                                sql_type_to_neutral(&field.sql_type, self.catalog).into_owned(),
+                                field.nullable,
+                            )
+                        })
+                        .collect()
+                } else {
+                    let neutral_type = catalog_function_return_neutral(function_name, sql_type, self.catalog);
+                    if let Some(error) = unresolved_type_error(&neutral_type, "function result", bare_name) {
+                        return Err(error);
+                    }
+                    vec![ScopeColumn::from_catalog(bare_name, sql_type, neutral_type, true)]
+                }
+            }
+            FunctionReturn::Table { columns } => columns
+                .iter()
+                .map(|column| {
+                    ScopeColumn::from_catalog(
+                        column.name.clone(),
+                        column.sql_type.clone(),
+                        sql_type_to_neutral(&column.sql_type, self.catalog).into_owned(),
+                        column.nullable,
+                    )
+                })
+                .collect(),
+        };
+        if let Some(alias) = alias
+            && !alias.columns.is_empty()
+        {
+            if alias.columns.len() != columns.len() {
+                return Err(ScytheError::column_count_mismatch(alias.columns.len(), columns.len()));
+            }
+            for (column, alias) in columns.iter_mut().zip(&alias.columns) {
+                column.name = alias.name.value.to_lowercase();
+            }
+        }
+        Ok(columns)
     }
 }
 

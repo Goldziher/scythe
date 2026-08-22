@@ -189,9 +189,9 @@ fn psycopg3_nested_composite_field_recurses_through_inner_from_text() {
     assert_contains(
         "python-psycopg3",
         &code,
-        "tag=InnerThing._from_text(f[2]),",
-        "a composite-typed field must recurse through the inner type's own _from_text, not \
-         attempt to parse the (already-unescaped) nested text form itself",
+        "tag=None if f[2] is None else InnerThing._from_text(f[2]),",
+        "a nullable composite-typed field must preserve NULL and recurse through the inner \
+         type's own _from_text for non-NULL values",
     );
 }
 
@@ -201,14 +201,15 @@ fn psycopg3_composite_scalar_fields_are_converted_not_left_as_strings() {
     assert_contains(
         "python-psycopg3",
         &code,
-        "n=int(f[0]),",
-        "an int32 composite field (`n`) must be parsed, not assigned the raw text token",
+        "n=None if f[0] is None else int(f[0]),",
+        "a nullable int32 composite field (`n`) must preserve NULL and parse non-NULL text",
     );
     assert_contains(
         "python-psycopg3",
         &code,
-        "flag=f[2] == \"t\",",
-        "PostgreSQL's boolean text output is \"t\"/\"f\", not \"True\"/\"False\"",
+        "flag=None if f[2] is None else f[2] == \"t\",",
+        "a nullable boolean field must preserve NULL; PostgreSQL's non-NULL text output is \
+         \"t\"/\"f\", not \"True\"/\"False\"",
     );
 }
 
@@ -324,12 +325,14 @@ fn asyncpg_nested_composite_field_recurses_through_inner_from_record() {
     assert_contains(
         "python-asyncpg",
         &code,
-        "tag=InnerThing._from_record(record[\"tag\"]),",
-        "a composite-typed field must recurse through the inner type's own _from_record",
+        "tag=None if record[\"tag\"] is None else InnerThing._from_record(record[\"tag\"]),",
+        "a nullable composite-typed field must preserve NULL and recurse through the inner \
+         type's own _from_record for non-NULL values",
     );
 }
 
-/// asyncpg decodes every scalar sub-field of a composite to its native Python type already
+/// asyncpg decodes every non-NULL scalar sub-field of a composite to its native Python type
+/// already, while nullable fields still need to preserve `None`
 /// (verified from `asyncpg/protocol/codecs/base.pyx`'s `decode_composite`, which dispatches
 /// through each attribute's own element codec) -- re-parsing `n`/`flag` as text, the way
 /// psycopg3 must, would be redundant *and* wrong (`int("3")` on an already-`int` value is fine,
@@ -341,14 +344,16 @@ fn asyncpg_composite_scalar_fields_pass_through_the_drivers_native_decode() {
     assert_contains(
         "python-asyncpg",
         &code,
-        "n=record[\"n\"],",
-        "asyncpg already decodes an int32 composite field to a native Python int",
+        "n=None if record[\"n\"] is None else record[\"n\"],",
+        "a nullable int32 field must preserve NULL; asyncpg already decodes non-NULL values \
+         to native Python ints",
     );
     assert_contains(
         "python-asyncpg",
         &code,
-        "flag=record[\"flag\"],",
-        "asyncpg already decodes a bool composite field to a native Python bool",
+        "flag=None if record[\"flag\"] is None else record[\"flag\"],",
+        "a nullable bool field must preserve NULL; asyncpg already decodes non-NULL values \
+         to native Python bools",
     );
     assert_absent(
         "python-asyncpg",

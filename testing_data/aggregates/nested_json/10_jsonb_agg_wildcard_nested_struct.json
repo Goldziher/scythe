@@ -1,0 +1,44 @@
+{
+  "category": "aggregates/nested_json",
+  "config": { "engine": "postgresql" },
+  "description": "jsonb_agg over a relation wildcard preserves JSON runtime scalar and composite shapes",
+  "expected": {
+    "generated_code": {
+      "typescript-pg": { "degraded_nested_structs": [] },
+      "typescript-postgres": { "degraded_nested_structs": [] },
+      "typescript-kysely": { "degraded_nested_structs": [] }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "orders",
+          "nullable": true,
+          "type": "json_nested<array<GetOrdersJsonbRowOrders>>"
+        }
+      ],
+      "command": "many",
+      "name": "GetOrdersJsonb",
+      "nested_structs": [
+        {
+          "fields": [
+            { "name": "id", "nullable": false, "type": "int32" },
+            { "name": "amount", "nullable": false, "type": "decimal" },
+            { "name": "created_at", "nullable": false, "type": "datetime_tz" },
+            { "name": "address", "nullable": true, "type": "composite::shipping_address" }
+          ],
+          "name": "get_orders_jsonb_row_orders"
+        }
+      ],
+      "params": []
+    },
+    "success": true
+  },
+  "name": "jsonb_agg_wildcard_nested_struct",
+  "query_sql": "-- @name GetOrdersJsonb\n-- @returns :many\nSELECT jsonb_agg(o.*) AS orders FROM orders o;",
+  "schema_sql": [
+    "CREATE TYPE shipping_address AS (street TEXT, zip_code INTEGER);",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, amount NUMERIC NOT NULL, created_at TIMESTAMPTZ NOT NULL, address shipping_address);"
+  ],
+  "source": "original",
+  "tags": ["aggregate", "jsonb_agg", "nested", "composite", "runtime_shape"]
+}

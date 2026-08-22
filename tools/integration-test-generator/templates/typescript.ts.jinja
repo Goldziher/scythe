@@ -138,6 +138,9 @@ import {
 {%- if engine == "postgresql" and (driver == "pg" or driver == "kysely-pg" or driver == "postgres") %}
 	getUserProfile,
 	roundTripUserAddress,
+	getUserAsJson,
+	getUsersAsJson,
+	getUserOrdersAsJson,
 	type UserAddress,
 {%- endif %}
 {%- if engine == "postgresql" %}
@@ -241,6 +244,40 @@ function pass(testName: string, label: string = testName): void {
 		console.log(`PASS: ${label}`);
 	}
 }
+{% if engine == "postgresql" and (driver == "pg" or driver == "kysely-pg" or driver == "postgres") %}
+function assertNestedJson(
+	single: Awaited<ReturnType<typeof getUserAsJson>>,
+	many: Awaited<ReturnType<typeof getUsersAsJson>>,
+	orders: Awaited<ReturnType<typeof getUserOrdersAsJson>>,
+	emptyOrders: Awaited<ReturnType<typeof getUserOrdersAsJson>>,
+	expectedUserId: number,
+): void {
+	assert(single.payload?.id === expectedUserId, "NestedJson", "row_to_json id must be typed and decoded");
+	assert(
+		single.payload?.address?.street === "1 Main St",
+		"NestedJson",
+		"row_to_json composite must use its JSON DTO",
+	);
+	assert(
+		typeof single.payload?.created_at === "string",
+		"NestedJson",
+		"JSON timestamps must use their serialized string representation",
+	);
+	const aggregateUser = many.payload?.find((candidate) => candidate.id === expectedUserId);
+	assert(aggregateUser?.secondary_status === "inactive", "NestedJson", "jsonb_agg enum must stay typed");
+	assert(
+		typeof orders.payload?.[0]?.total === "number",
+		"NestedJson",
+		"JSON numeric values must use their decoded number representation",
+	);
+	assert(
+		emptyOrders.payload?.length === 1 && emptyOrders.payload[0] === null,
+		"NestedJson",
+		"LEFT JOIN json_agg must preserve a nullable array element",
+	);
+	pass("NestedJson", "Nested JSON runtime shapes");
+}
+{%- endif %}
 
 // Splits a SQL script into individual statements on top-level `;` only --
 // unlike a naive `.split(";")`, this tracks single-quoted and
@@ -649,6 +686,12 @@ async function main(): Promise<void> {
 		assert(roundTrippedNull.address === null, "RoundTripUserAddress", "expected null composite");
 		pass("RoundTripUserAddress", "RoundTripUserAddress (escaped fields + null)");
 
+		const nestedSingle = await getUserAsJson(client, presentId);
+		const nestedMany = await getUsersAsJson(client);
+		const nestedOrders = await getUserOrdersAsJson(client, userId);
+		const nestedEmptyOrders = await getUserOrdersAsJson(client, absentId);
+		assertNestedJson(nestedSingle, nestedMany, nestedOrders, nestedEmptyOrders, presentId);
+
 		await deleteUser(client, presentId);
 		await deleteUser(client, absentId);
 		await deleteUser(client, quotedId);
@@ -1019,6 +1062,12 @@ async function main(): Promise<void> {
 		assert(roundTrippedNull.address === null, "RoundTripUserAddress", "expected null composite");
 		pass("RoundTripUserAddress", "RoundTripUserAddress (escaped fields + null)");
 
+		const nestedSingle = await getUserAsJson(db, presentId);
+		const nestedMany = await getUsersAsJson(db);
+		const nestedOrders = await getUserOrdersAsJson(db, userId);
+		const nestedEmptyOrders = await getUserOrdersAsJson(db, absentId);
+		assertNestedJson(nestedSingle, nestedMany, nestedOrders, nestedEmptyOrders, presentId);
+
 		await deleteUser(db, presentId);
 		await deleteUser(db, absentId);
 		await deleteUser(db, quotedId);
@@ -1240,6 +1289,12 @@ async function main(): Promise<void> {
 		const roundTrippedNull = await roundTripUserAddress(sql, null);
 		assert(roundTrippedNull.address === null, "RoundTripUserAddress", "expected null composite");
 		pass("RoundTripUserAddress", "RoundTripUserAddress (escaped fields + null)");
+
+		const nestedSingle = await getUserAsJson(sql, presentId);
+		const nestedMany = await getUsersAsJson(sql);
+		const nestedOrders = await getUserOrdersAsJson(sql, userId);
+		const nestedEmptyOrders = await getUserOrdersAsJson(sql, absentId);
+		assertNestedJson(nestedSingle, nestedMany, nestedOrders, nestedEmptyOrders, presentId);
 
 		await deleteUser(sql, presentId);
 		await deleteUser(sql, absentId);

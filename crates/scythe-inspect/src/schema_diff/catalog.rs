@@ -11,7 +11,10 @@ use scythe_core::catalog::Catalog;
 use crate::error::InspectError;
 use crate::neutral::normalize_neutral_type;
 
-use super::model::{ColumnDescription, EnumDescription, SchemaDescription, TableDescription, object_key};
+use super::model::{
+    ColumnDescription, CompositeDescription, CompositeFieldDescription, EnumDescription, SchemaDescription,
+    TableDescription, object_key,
+};
 
 /// Describe the schema scythe parsed from committed DDL.
 ///
@@ -29,11 +32,6 @@ use super::model::{ColumnDescription, EnumDescription, SchemaDescription, TableD
 ///
 /// # Errors
 ///
-/// [`InspectError::AmbiguousSchemaObject`] when two tables or two enum types
-/// in the DDL reduce to the same bare comparison key — `tenant_a.orders` and
-/// `tenant_b.orders`, say. The live side breaks that tie by search-path
-/// position; the DDL has no search path, so picking one would be a guess that
-/// silently reports the loser's columns as drift.
 pub fn describe_catalog(catalog: &Catalog) -> Result<SchemaDescription, InspectError> {
     let mut description = SchemaDescription::new();
 
@@ -48,17 +46,18 @@ pub fn describe_catalog(catalog: &Catalog) -> Result<SchemaDescription, InspectE
     for (name, table) in tables {
         let mut described = TableDescription::new(name.clone());
         for column in &table.columns {
-            described = described.with_column(ColumnDescription::new(
+            let mut described_column = ColumnDescription::new(
                 column.name.clone(),
                 column_neutral_type(&column.sql_type, catalog),
                 column.nullable,
-            ));
+            );
+            if column.primary_key {
+                described_column = described_column.as_primary_key();
+            }
+            described = described.with_column(described_column);
         }
 
-        let key = object_key(name);
-        if let Some(existing) = description.tables.get(&key) {
-            return Err(ambiguous("tables", &key, &existing.display_name, name));
-        }
+        let key = description_key(name);
         description.tables.insert(key, described);
     }
 
@@ -66,13 +65,26 @@ pub fn describe_catalog(catalog: &Catalog) -> Result<SchemaDescription, InspectE
     enums.sort_unstable_by_key(|(name, _)| *name);
 
     for (name, enum_type) in enums {
-        let key = object_key(name);
-        if let Some(existing) = description.enums.get(&key) {
-            return Err(ambiguous("enum types", &key, &existing.display_name, name));
-        }
+        let key = description_key(name);
         description
             .enums
             .insert(key, EnumDescription::new(name.clone(), enum_type.values.clone()));
+    }
+
+    let mut composites: Vec<_> = catalog.composites_iter().collect();
+    composites.sort_unstable_by_key(|(name, _)| *name);
+
+    for (name, composite) in composites {
+        let key = description_key(name);
+        let mut described = CompositeDescription::new(name.clone());
+        for field in &composite.fields {
+            described = described.with_field(CompositeFieldDescription::new(
+                field.name.clone(),
+                column_neutral_type(&field.sql_type, catalog),
+                field.nullable,
+            ));
+        }
+        description.composites.insert(key, described);
     }
 
     Ok(description)
@@ -115,12 +127,11 @@ fn column_neutral_type(sql_type: &str, catalog: &Catalog) -> String {
     normalize_neutral_type(&neutral).into_owned()
 }
 
-fn ambiguous(kind: &'static str, key: &str, first: &str, second: &str) -> InspectError {
-    InspectError::AmbiguousSchemaObject {
-        kind,
-        key: key.to_string(),
-        first: first.to_string(),
-        second: second.to_string(),
+fn description_key(name: &str) -> String {
+    if name.contains('.') {
+        name.to_lowercase()
+    } else {
+        object_key(name)
     }
 }
 
@@ -146,6 +157,7 @@ mod tests {
 
         let users = &description.tables["users"];
         assert_eq!(users.columns["id"].neutral_type.as_deref(), Some("int32"));
+        assert!(users.columns["id"].primary_key);
         assert!(!users.columns["email"].nullable);
         assert!(users.columns["bio"].nullable);
     }
@@ -154,12 +166,12 @@ mod tests {
     /// `public`.`users` does, or the table is reported as missing from both
     /// sides at once.
     #[test]
-    fn schema_qualified_tables_key_on_the_bare_name() {
+    fn schema_qualified_tables_keep_the_qualified_identity() {
         let description =
             describe_catalog(&catalog_from("CREATE TABLE public.users (id integer);")).expect("describe catalog");
-        assert!(description.tables.contains_key("users"));
+        assert!(description.tables.contains_key("public.users"));
         assert_eq!(
-            description.tables["users"].display_name, "public.users",
+            description.tables["public.users"].display_name, "public.users",
             "the message must still show the qualified name the DDL wrote"
         );
     }
@@ -297,65 +309,28 @@ mod tests {
     /// a *different* table's columns on the next run, because the catalog's
     /// `AHashMap` seed is randomised per process.
     #[test]
-    fn same_named_tables_in_two_schemas_are_reported_as_ambiguous() {
+    fn same_named_tables_in_two_schemas_keep_distinct_qualified_identities() {
         let catalog = catalog_from(
             "CREATE TABLE tenant_a.orders (id integer);
              CREATE TABLE tenant_b.orders (id integer);",
         );
 
-        let error = describe_catalog(&catalog).expect_err("a collision must not be resolved by guessing");
-
-        let InspectError::AmbiguousSchemaObject {
-            kind,
-            key,
-            first,
-            second,
-        } = error
-        else {
-            panic!("expected AmbiguousSchemaObject, got {error:?}");
-        };
-        assert_eq!(kind, "tables");
-        assert_eq!(key, "orders");
-        assert_eq!(first, "tenant_a.orders");
-        assert_eq!(second, "tenant_b.orders");
+        let description = describe_catalog(&catalog).expect("qualified objects are distinct");
+        assert!(description.tables.contains_key("tenant_a.orders"));
+        assert!(description.tables.contains_key("tenant_b.orders"));
     }
 
     /// The same collision among enum types, which SC-DRF07 compares on the
     /// same bare key.
     #[test]
-    fn same_named_enums_in_two_schemas_are_reported_as_ambiguous() {
+    fn same_named_enums_in_two_schemas_keep_distinct_qualified_identities() {
         let catalog = catalog_from(
             "CREATE TYPE tenant_a.status AS ENUM ('active');
              CREATE TYPE tenant_b.status AS ENUM ('banned');",
         );
 
-        let error = describe_catalog(&catalog).expect_err("a collision must not be resolved by guessing");
-        assert!(
-            matches!(&error, InspectError::AmbiguousSchemaObject { kind, key, .. }
-                if *kind == "enum types" && key == "status"),
-            "got {error:?}"
-        );
-    }
-
-    /// The error must name the same two objects in the same order on every
-    /// run, or a collision surfaces as an intermittently-worded CI failure.
-    /// Sorting before the walk is what guarantees it; the catalog's own
-    /// iteration order does not.
-    #[test]
-    fn the_ambiguity_error_is_identical_across_repeated_runs() {
-        let ddl = "CREATE TABLE tenant_b.orders (id integer);
-                   CREATE TABLE tenant_a.orders (id integer);
-                   CREATE TABLE tenant_c.orders (id integer);";
-
-        let rendered: Vec<String> = (0..8)
-            .map(|_| describe_catalog(&catalog_from(ddl)).expect_err("collision").to_string())
-            .collect();
-
-        assert!(
-            rendered.windows(2).all(|pair| pair[0] == pair[1]),
-            "the message varied between runs: {rendered:?}"
-        );
-        assert!(rendered[0].contains("tenant_a.orders"), "{}", rendered[0]);
-        assert!(rendered[0].contains("tenant_b.orders"), "{}", rendered[0]);
+        let description = describe_catalog(&catalog).expect("qualified objects are distinct");
+        assert!(description.enums.contains_key("tenant_a.status"));
+        assert!(description.enums.contains_key("tenant_b.status"));
     }
 }

@@ -9,10 +9,22 @@ fn address_composite() -> CompositeInfo {
             CompositeFieldInfo {
                 name: "street".to_string(),
                 neutral_type: "string".to_string(),
+                nullable: false,
             },
             CompositeFieldInfo {
                 name: "city".to_string(),
                 neutral_type: "string".to_string(),
+                nullable: true,
+            },
+            CompositeFieldInfo {
+                name: "state".to_string(),
+                neutral_type: "enum::state".to_string(),
+                nullable: true,
+            },
+            CompositeFieldInfo {
+                name: "delivery".to_string(),
+                neutral_type: "composite::delivery_details".to_string(),
+                nullable: true,
             },
         ],
     }
@@ -53,7 +65,19 @@ fn go_pgx_encodes_nullable_composite_params_as_text() {
         "missing encoder:\n{composite}"
     );
     assert!(
-        composite.contains("encodeCompositeField(v.Street), encodeCompositeField(v.City)"),
+        composite.contains("encodeCompositeField(v.Street), encodeCompositeFieldPtr(v.City)"),
         "encoder must preserve declared field order:\n{composite}"
+    );
+    assert!(
+        composite.contains("if f[1] != nil"),
+        "nullable text must accept NULL:\n{composite}"
+    );
+    assert!(
+        composite.contains("fieldValue = State(raw)"),
+        "nullable enums must use their base type:\n{composite}"
+    );
+    assert!(
+        composite.contains("DeliveryDetailsFromText(raw)"),
+        "nullable nested composites must use their base type:\n{composite}"
     );
 }

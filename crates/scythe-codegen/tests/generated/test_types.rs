@@ -1062,9 +1062,9 @@ fn test_composite_column() {
                     );
                     let actual = generated.model_struct.clone().unwrap_or_default();
                     assert!(
-                        normalize_whitespace(&actual).contains(&normalize_whitespace("#[derive(Debug, Clone, sqlx::Type)]\n#[sqlx(type_name = \"address\")]\npub struct Address {\n    pub street: String,\n    pub city: String,\n    pub zip: String,\n}")),
+                        normalize_whitespace(&actual).contains(&normalize_whitespace("#[derive(Debug, Clone, sqlx::Type)]\n#[sqlx(type_name = \"address\")]\npub struct Address {\n    pub street: Option<String>,\n    pub city: Option<String>,\n    pub zip: Option<String>,\n}")),
                         "backend {} model_struct mismatch for {}\n--- expected (substring) ---\n{}\n--- actual ---\n{}",
-                        backend_name, "composite_column", "#[derive(Debug, Clone, sqlx::Type)]\n#[sqlx(type_name = \"address\")]\npub struct Address {\n    pub street: String,\n    pub city: String,\n    pub zip: String,\n}", actual
+                        backend_name, "composite_column", "#[derive(Debug, Clone, sqlx::Type)]\n#[sqlx(type_name = \"address\")]\npub struct Address {\n    pub street: Option<String>,\n    pub city: Option<String>,\n    pub zip: Option<String>,\n}", actual
                     );
                 }
             }

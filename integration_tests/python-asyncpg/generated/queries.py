@@ -1,4 +1,4 @@
-# scythe:provenance v=0.17.0 backend=python-asyncpg engine=postgresql schema=sch2:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:cbf29ce484222325  # noqa: E501
+# scythe:provenance v=0.18.0 backend=python-asyncpg engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:861cdfc5df3ece62 options=opt1:cbf29ce484222325  # noqa: E501
 import datetime  # noqa: F401
 import decimal  # noqa: F401
 import uuid  # noqa: F401
@@ -26,9 +26,9 @@ class UserStatus(str, Enum):
 class UserAddress:
     """Composite type user_address."""
 
-    street: str
-    city: str
-    zip: str
+    street: str | None
+    city: str | None
+    zip: str | None
 
     @classmethod
     def _from_record(cls, record: Any) -> "UserAddress | None":
@@ -37,9 +37,9 @@ class UserAddress:
         if record is None:
             return None
         return cls(
-            street=record["street"],
-            city=record["city"],
-            zip=record["zip"],
+            street=None if record["street"] is None else record["street"],
+            city=None if record["city"] is None else record["city"],
+            zip=None if record["zip"] is None else record["zip"],
         )
 
     def _to_record(self) -> tuple[Any, ...]:

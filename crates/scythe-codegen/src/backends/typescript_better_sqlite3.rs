@@ -541,7 +541,7 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
         let _ = writeln!(out, "/** Composite type {}. */", composite.sql_name);
         let _ = writeln!(out, "export interface {} {{", name);
         for field in &composite.fields {
-            let ts_type = resolve_type(&field.neutral_type, &self.manifest, false)
+            let ts_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
                 .map(|t| t.into_owned())
                 .map_err(|e| {
                     ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
@@ -959,7 +959,7 @@ impl TypescriptBetterSqlite3Backend {
         let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
         let mut fields = Vec::with_capacity(composite.fields.len());
         for field in &composite.fields {
-            let ts_type = resolve_type(&field.neutral_type, &self.manifest, false)
+            let ts_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
                 .map(|t| t.into_owned())
                 .map_err(|e| {
                     ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))

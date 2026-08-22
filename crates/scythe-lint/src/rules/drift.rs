@@ -1,4 +1,4 @@
-//! Schema-drift rules (`SC-DRF01`–`SC-DRF07`).
+//! Schema-drift rules (`SC-DRF01`–`SC-DRF13`).
 //!
 //! These rules never fire from `scythe lint`: they describe disagreements
 //! between the committed DDL and a *live* database, which only
@@ -123,13 +123,62 @@ drift_rule!(
     "Enum type's DDL value set does not match the live database"
 );
 
+drift_rule!(
+    CompositeMissingFromDatabase,
+    "SC-DRF08",
+    "composite-missing-from-database",
+    Severity::Error,
+    "Composite type declared in the DDL does not exist in the live database"
+);
+
+drift_rule!(
+    CompositeMissingFromDdl,
+    "SC-DRF09",
+    "composite-missing-from-ddl",
+    Severity::Warn,
+    "Composite type exists in the live database but is not declared in the DDL"
+);
+
+drift_rule!(
+    CompositeFieldMissingFromDatabase,
+    "SC-DRF10",
+    "composite-field-missing-from-database",
+    Severity::Error,
+    "Composite field declared in the DDL does not exist in the live database"
+);
+
+drift_rule!(
+    CompositeFieldMissingFromDdl,
+    "SC-DRF11",
+    "composite-field-missing-from-ddl",
+    Severity::Error,
+    "Composite field exists in the live database but is not declared in the DDL"
+);
+
+drift_rule!(
+    CompositeFieldTypeMismatch,
+    "SC-DRF12",
+    "composite-field-type-mismatch",
+    Severity::Error,
+    "Composite field's DDL type does not match the live database"
+);
+
+drift_rule!(
+    CompositeFieldNullabilityMismatch,
+    "SC-DRF13",
+    "composite-field-nullability-mismatch",
+    Severity::Error,
+    "Composite field's DDL nullability does not match the live database"
+);
+
 /// Every drift rule ID, in rule-number order.
 ///
 /// Exposed so consumers can assert the set is complete and so drift findings
 /// can be resolved against a registry without hard-coding the list a second
 /// time.
-pub const DRIFT_RULE_IDS: [&str; 7] = [
-    "SC-DRF01", "SC-DRF02", "SC-DRF03", "SC-DRF04", "SC-DRF05", "SC-DRF06", "SC-DRF07",
+pub const DRIFT_RULE_IDS: [&str; 13] = [
+    "SC-DRF01", "SC-DRF02", "SC-DRF03", "SC-DRF04", "SC-DRF05", "SC-DRF06", "SC-DRF07", "SC-DRF08", "SC-DRF09",
+    "SC-DRF10", "SC-DRF11", "SC-DRF12", "SC-DRF13",
 ];
 
 #[cfg(test)]
@@ -164,10 +213,10 @@ mod tests {
     /// Everything except SC-DRF02 describes the DDL promising something the
     /// database does not deliver, which is what breaks generated code.
     #[test]
-    fn every_rule_except_table_missing_from_ddl_defaults_to_error() {
+    fn every_rule_except_extra_live_objects_defaults_to_error() {
         let registry = drift_registry();
         for (rule, severity) in registry.active_rules() {
-            if rule.id() == "SC-DRF02" {
+            if matches!(rule.id(), "SC-DRF02" | "SC-DRF09") {
                 continue;
             }
             assert_eq!(severity, Severity::Error, "rule {} should default to Error", rule.id());

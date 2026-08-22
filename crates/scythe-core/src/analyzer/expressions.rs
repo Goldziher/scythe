@@ -1,5 +1,6 @@
 use sqlparser::ast::{self, BinaryOperator, Expr, FunctionArg, FunctionArgExpr, UnaryOperator};
 
+use crate::catalog::{Function, FunctionArgumentMode, FunctionReturn};
 use crate::dialect::SqlDialect;
 
 use super::helpers::*;
@@ -969,9 +970,68 @@ impl<'a> Analyzer<'a> {
             "nextval" | "currval" | "lastval" | "setval" => TypeInfo::new("int64", false),
             "pg_typeof" => TypeInfo::new("string", false),
 
-            _ => {
+            _ => self.infer_catalog_function_type(func, scope).unwrap_or_else(|| {
                 let ti = first_arg_ti.unwrap_or_else(TypeInfo::unknown);
                 TypeInfo::new(format!("{UNKNOWN_FUNCTION_MARKER}{func_name}"), ti.nullable)
+            }),
+        }
+    }
+
+    fn infer_catalog_function_type(&mut self, func: &ast::Function, scope: &Scope) -> Option<TypeInfo> {
+        let function_name = object_name_to_string(&func.name).to_lowercase();
+        let overloads = self.catalog.get_functions(&function_name)?;
+        let call_arguments = catalog_call_arguments(func)?;
+        let inferred = call_arguments
+            .iter()
+            .map(|(_, expression)| self.infer_expr_type(expression, scope))
+            .collect::<Vec<_>>();
+
+        let mut matches = overloads
+            .iter()
+            .filter_map(|function| match_catalog_function(function, &call_arguments, &inferred, self.catalog))
+            .collect::<Vec<_>>();
+        matches.sort_by_key(|matched| matched.score);
+        let Some(best) = matches.first() else {
+            self.type_errors.push(format!(
+                "no overload of function \"{function_name}\" accepts the supplied argument types"
+            ));
+            return Some(TypeInfo::unknown());
+        };
+        if matches.get(1).is_some_and(|other| other.score == best.score) {
+            return Some(TypeInfo::new(
+                format!("{AMBIGUOUS_FUNCTION_MARKER}{function_name}"),
+                true,
+            ));
+        }
+
+        self.register_catalog_function_params(best, &call_arguments);
+
+        Some(match &best.function.return_type {
+            FunctionReturn::Scalar { sql_type } | FunctionReturn::SetOf { sql_type } => TypeInfo::new(
+                catalog_function_return_neutral(&function_name, sql_type, self.catalog),
+                true,
+            ),
+            FunctionReturn::Table { .. } => TypeInfo::new(UNRESOLVED_EXPR_MARKER, true),
+        })
+    }
+
+    pub(super) fn register_catalog_function_params(
+        &mut self,
+        matched: &CatalogFunctionMatch<'_>,
+        call_arguments: &[(Option<String>, &Expr)],
+    ) {
+        for (call_index, declaration_index) in &matched.bindings {
+            let expression = call_arguments[*call_index].1;
+            let declaration = &matched.function.arguments[*declaration_index];
+            if let Expr::Value(value) = expression
+                && let Some(placeholder) = value_is_placeholder(value)
+                && let Some(position) = self.resolve_placeholder_position(placeholder, value.span)
+            {
+                let mut neutral_type = sql_type_to_neutral(&declaration.sql_type, self.catalog).into_owned();
+                if declaration.mode == FunctionArgumentMode::Variadic {
+                    neutral_type = array_element_type(&neutral_type).unwrap_or(&neutral_type).to_string();
+                }
+                self.register_param(position, declaration.name.clone(), Some(neutral_type), true, None);
             }
         }
     }
@@ -1318,6 +1378,175 @@ impl<'a> Analyzer<'a> {
         }
         Some(fields)
     }
+}
+
+pub(super) struct CatalogFunctionMatch<'a> {
+    pub(super) function: &'a Function,
+    pub(super) score: u32,
+    pub(super) bindings: Vec<(usize, usize)>,
+}
+
+fn catalog_call_arguments(func: &ast::Function) -> Option<Vec<(Option<String>, &Expr)>> {
+    let ast::FunctionArguments::List(arguments) = &func.args else {
+        return Some(Vec::new());
+    };
+    catalog_call_arguments_from_args(&arguments.args)
+}
+
+pub(super) fn catalog_call_arguments_from_args(arguments: &[FunctionArg]) -> Option<Vec<(Option<String>, &Expr)>> {
+    arguments
+        .iter()
+        .map(|argument| match argument {
+            FunctionArg::Unnamed(FunctionArgExpr::Expr(expression)) => Some((None, expression)),
+            FunctionArg::Named {
+                name,
+                arg: FunctionArgExpr::Expr(expression),
+                ..
+            } => Some((Some(name.value.to_lowercase()), expression)),
+            FunctionArg::ExprNamed {
+                name: Expr::Identifier(name),
+                arg: FunctionArgExpr::Expr(expression),
+                ..
+            } => Some((Some(name.value.to_lowercase()), expression)),
+            _ => None,
+        })
+        .collect()
+}
+
+pub(super) fn match_catalog_function<'a>(
+    function: &'a Function,
+    call_arguments: &[(Option<String>, &Expr)],
+    inferred: &[TypeInfo],
+    catalog: &crate::catalog::Catalog,
+) -> Option<CatalogFunctionMatch<'a>> {
+    let declaration_indices = function
+        .arguments
+        .iter()
+        .enumerate()
+        .filter(|(_, argument)| argument.mode != FunctionArgumentMode::Out)
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let variadic = declaration_indices
+        .last()
+        .copied()
+        .filter(|index| function.arguments[*index].mode == FunctionArgumentMode::Variadic);
+    let mut used = vec![false; function.arguments.len()];
+    let mut next_positional = 0usize;
+    let mut bindings = Vec::with_capacity(call_arguments.len());
+    for (call_index, (name, _)) in call_arguments.iter().enumerate() {
+        let declaration_index = if let Some(name) = name {
+            declaration_indices
+                .iter()
+                .copied()
+                .find(|index| !used[*index] && function.arguments[*index].name.as_deref() == Some(name.as_str()))?
+        } else if next_positional < declaration_indices.len() {
+            let index = declaration_indices[next_positional];
+            if Some(index) != variadic {
+                next_positional += 1;
+            }
+            index
+        } else {
+            variadic?
+        };
+        if Some(declaration_index) != variadic && used[declaration_index] {
+            return None;
+        }
+        used[declaration_index] = true;
+        bindings.push((call_index, declaration_index));
+    }
+    if declaration_indices.iter().copied().any(|index| {
+        !used[index]
+            && function.arguments[index].mode != FunctionArgumentMode::Variadic
+            && !function.arguments[index].has_default
+    }) {
+        return None;
+    }
+
+    let mut score = 0u32;
+    for (call_index, declaration_index) in &bindings {
+        let actual_type = &inferred[*call_index];
+        let actual = &actual_type.neutral_type;
+        if actual == "unknown" {
+            continue;
+        }
+        let declaration = &function.arguments[*declaration_index];
+        let declared = sql_type_to_neutral(&declaration.sql_type, catalog);
+        let declared = if declaration.mode == FunctionArgumentMode::Variadic {
+            array_element_type(&declared).unwrap_or(&declared)
+        } else {
+            declared.as_ref()
+        };
+        let neutral_score = numeric_promotion_distance(actual, declared)?;
+        score += neutral_score;
+        if neutral_score == 0
+            && let Some(actual_sql_type) = actual_type.sql_type.as_deref()
+        {
+            let declared_sql_type = if declaration.mode == FunctionArgumentMode::Variadic {
+                sql_array_element_type(&declaration.sql_type).unwrap_or(&declaration.sql_type)
+            } else {
+                declaration.sql_type.as_str()
+            };
+            if normalize_sql_type_name(actual_sql_type) != normalize_sql_type_name(declared_sql_type) {
+                score += 1;
+            }
+        }
+    }
+    Some(CatalogFunctionMatch {
+        function,
+        score,
+        bindings,
+    })
+}
+
+fn array_element_type(neutral_type: &str) -> Option<&str> {
+    neutral_type.strip_prefix("array<")?.strip_suffix('>')
+}
+
+fn sql_array_element_type(sql_type: &str) -> Option<&str> {
+    sql_type.trim().strip_suffix("[]").map(str::trim)
+}
+
+fn normalize_sql_type_name(sql_type: &str) -> String {
+    sql_type
+        .split_ascii_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+pub(super) fn catalog_function_return_neutral(
+    function_name: &str,
+    sql_type: &str,
+    catalog: &crate::catalog::Catalog,
+) -> String {
+    if sql_type.eq_ignore_ascii_case("record") {
+        format!("{UNTYPEABLE_CATALOG_RECORD_MARKER}{function_name}")
+    } else {
+        sql_type_to_neutral(sql_type, catalog).into_owned()
+    }
+}
+
+fn numeric_promotion_distance(actual: &str, declared: &str) -> Option<u32> {
+    const NUMERIC_PROMOTION_PENALTY: u32 = 100;
+    if actual == declared {
+        return Some(0);
+    }
+    const NUMERIC_TYPES: &[&str] = &["int16", "int32", "int64", "decimal", "float32", "float64"];
+    if !NUMERIC_TYPES.contains(&actual)
+        || !NUMERIC_TYPES.contains(&declared)
+        || widen_type(actual, declared) != declared
+    {
+        return None;
+    }
+    let distance = match (actual, declared) {
+        ("int16", "int32") => 1,
+        ("int16", "int64") | ("int32", "int64") => 2,
+        ("int16" | "int32" | "int64", "decimal") => 3,
+        ("float32", "float64") => 1,
+        (_, "float64") => 4,
+        _ => return None,
+    };
+    Some(NUMERIC_PROMOTION_PENALTY + distance)
 }
 
 /// Whether nested-aggregate inference is available for this catalog.

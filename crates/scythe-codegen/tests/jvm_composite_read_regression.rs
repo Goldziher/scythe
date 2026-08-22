@@ -42,17 +42,19 @@ use scythe_core::parser::parse_query_with_dialect;
 /// composite reachable only as another composite's field never gets its definition emitted. That
 /// gap is real but pre-existing and out of scope here; this schema sidesteps it rather than
 /// exercising it.
-const SCHEMA: &str = "CREATE TYPE inner_thing AS (n INTEGER, label TEXT, flag BOOLEAN); \
+const SCHEMA: &str = "CREATE TYPE widget_state AS ENUM ('ready', 'blocked'); \
+    CREATE TYPE inner_thing AS (n INTEGER, label TEXT, flag BOOLEAN, state widget_state); \
     CREATE TYPE widget_address AS (street TEXT, city TEXT, tag inner_thing); \
     CREATE TABLE widgets (\
     id SERIAL PRIMARY KEY, \
     home_address widget_address, \
     home_address_required widget_address NOT NULL, \
-    tag_only inner_thing NOT NULL\
+    tag_only inner_thing NOT NULL, \
+    state_only widget_state NOT NULL\
 );";
 
 const QUERY: &str = "-- @name GetWidget\n-- @returns :one\n\
-    SELECT id, home_address, home_address_required, tag_only FROM widgets WHERE id = $1;";
+    SELECT id, home_address, home_address_required, tag_only, state_only FROM widgets WHERE id = $1;";
 
 fn generate(backend: &dyn CodegenBackend) -> GeneratedCode {
     let catalog = Catalog::from_ddl_with_dialect(&[SCHEMA], &SqlDialect::PostgreSQL).expect("schema must parse");
@@ -268,7 +270,7 @@ fn java_jdbc_nested_composite_field_recurses_through_inner_fromtext() {
     assert_contains(
         "java-jdbc",
         &code,
-        "public record WidgetAddress(String street, String city, InnerThing tag) {",
+        "public record WidgetAddress(@Nullable String street, @Nullable String city, @Nullable InnerThing tag) {",
         "the nested field is declared as the inner composite's own record type",
     );
     assert_contains(
@@ -286,13 +288,13 @@ fn kotlin_jdbc_nested_composite_field_recurses_through_inner_fromtext() {
     assert_contains(
         "kotlin-jdbc",
         &code,
-        "val tag: InnerThing,",
+        "val tag: InnerThing?,",
         "the nested field is declared as the inner composite's own data class type",
     );
     assert_contains(
         "kotlin-jdbc",
         &code,
-        "InnerThing.fromText(f[2])!!",
+        "f[2]?.let { value -> InnerThing.fromText(value)!! }",
         "a composite-typed field must recurse through the inner type's own fromText",
     );
 }
@@ -400,15 +402,52 @@ fn kotlin_jdbc_composite_scalar_fields_are_converted_not_left_as_strings() {
     assert_contains(
         "kotlin-jdbc",
         &code,
-        "f[0]!!.toInt()",
+        "f[0]?.let { value -> value.toInt() }",
         "an int32 composite field (`n`) must be parsed, not assigned the raw text token",
     );
     assert_contains(
         "kotlin-jdbc",
         &code,
-        "f[2]!! == \"t\"",
+        "f[2]?.let { value -> value == \"t\" }",
         "PostgreSQL's boolean text output is \"t\"/\"f\", not \"true\"/\"false\"",
     );
+}
+
+#[test]
+fn kotlin_composite_nullable_fields_use_null_safe_base_type_conversions() {
+    for backend in ["kotlin-jdbc", "kotlin-r2dbc", "kotlin-exposed"] {
+        let code = generated_text(backend);
+        assert_contains(
+            backend,
+            &code,
+            "val n: Int?,",
+            "PostgreSQL composite attributes are nullable unless live metadata proves otherwise",
+        );
+        assert_contains(
+            backend,
+            &code,
+            "f[0]?.let { value -> value.toInt() }",
+            "a NULL scalar token must remain null instead of reaching a parser",
+        );
+        assert_contains(
+            backend,
+            &code,
+            "f[2]?.let { value -> InnerThing.fromText(value)!! }",
+            "a NULL nested-composite token must remain null instead of reaching fromText",
+        );
+        assert_contains(
+            backend,
+            &code,
+            "f[3]?.let { value -> WidgetState.fromValue(value) }",
+            "enum conversion must use the non-null base type and skip NULL tokens",
+        );
+        assert_absent(
+            backend,
+            &code,
+            "WidgetState?.fromValue",
+            "a nullable declaration spelling is not a valid Kotlin static receiver",
+        );
+    }
 }
 
 // -- the compilers, additively (mirrors jvm_reader_type_regression.rs) ------------------------

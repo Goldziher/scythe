@@ -17,7 +17,7 @@
 //! third tuple element or forgets to assign the field fails loudly here.
 
 use scythe_codegen::{GeneratedCode, generate_with_backend, get_backend};
-use scythe_core::analyzer::analyze;
+use scythe_core::analyzer::{NestedFieldInfo, NestedStructInfo, analyze};
 use scythe_core::catalog::Catalog;
 use scythe_core::dialect::SqlDialect;
 use scythe_core::errors::ScytheError;
@@ -67,17 +67,63 @@ fn unsupported_backend_reports_the_degraded_column_struct_and_backend() {
     assert!(code.row_struct.is_some(), "codegen must still produce a row struct");
 }
 
-/// `typescript-pg` does not implement `generate_nested_struct_def` either,
-/// but its manifest declares the `json_array` scalar, so the array-shaped
-/// aggregate degrades to `json_array` instead of plain `json`. The
-/// diagnostic must report the fallback that was actually chosen.
 #[test]
-fn backend_with_json_array_marker_reports_that_fallback_not_plain_json() {
-    let code = generate("typescript-pg").expect("degradation is not a hard error by default");
+fn typescript_postgresql_backends_emit_native_nested_structs() {
+    for backend in ["typescript-pg", "typescript-postgres", "typescript-kysely"] {
+        let code = generate(backend).expect("TypeScript nested JSON codegen must succeed");
+        assert!(
+            code.degraded_nested_structs.is_empty(),
+            "{backend} must preserve nested JSON structure: {:?}",
+            code.degraded_nested_structs
+        );
+        assert_eq!(
+            code.nested_struct_defs.len(),
+            1,
+            "{backend} must emit one nested interface"
+        );
+        assert!(
+            code.nested_struct_defs[0].code.contains("status: OrderStatus;"),
+            "{backend} must preserve an enum inside the JSON object"
+        );
+        assert!(
+            code.row_struct
+                .as_deref()
+                .is_some_and(|row| row.contains("orders: Array<GetUserOrdersRowOrders> | null;")),
+            "{backend} must use Array<T> around the nested interface"
+        );
+    }
+}
 
-    assert_eq!(code.degraded_nested_structs.len(), 1);
-    assert_eq!(code.degraded_nested_structs[0].fallback_type, "json_array");
-    assert_eq!(code.degraded_nested_structs[0].backend, "typescript-pg");
+#[test]
+fn javascript_aliases_keep_the_plain_json_fallback() {
+    for backend in ["javascript-pg", "javascript-postgres"] {
+        let code = generate(backend).expect("JavaScript fallback codegen must succeed");
+        assert_eq!(code.degraded_nested_structs.len(), 1);
+        assert_eq!(code.degraded_nested_structs[0].fallback_type, "json_array");
+        assert!(code.nested_struct_defs.is_empty());
+    }
+}
+
+#[test]
+fn unsupported_future_json_field_degrades_the_entire_nested_struct() {
+    let nested = NestedStructInfo {
+        name: "future_payload".to_string(),
+        fields: vec![NestedFieldInfo {
+            name: "location".to_string(),
+            neutral_type: "future_geography".to_string(),
+            nullable: false,
+        }],
+    };
+    for backend_name in ["typescript-pg", "typescript-postgres", "typescript-kysely"] {
+        let backend = get_backend(backend_name, "postgresql").expect("backend must support PostgreSQL");
+        assert!(
+            backend
+                .generate_nested_struct_def(&nested)
+                .expect("unsupported nested field must not be a hard error")
+                .is_none(),
+            "{backend_name} must request deterministic plain-JSON degradation"
+        );
+    }
 }
 
 /// `rust-sqlx` implements `generate_nested_struct_def`, so nothing here was

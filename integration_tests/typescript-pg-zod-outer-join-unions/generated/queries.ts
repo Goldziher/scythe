@@ -1,4 +1,4 @@
-// scythe:provenance v=0.17.0 backend=typescript-pg engine=postgresql schema=sch2:c247390d575b8f71 queries=q1:b6aca93cc722fe32 options=opt1:a33ec5812d75d376
+// scythe:provenance v=0.18.0 backend=typescript-pg engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:861cdfc5df3ece62 options=opt1:a33ec5812d75d376
 import type { PoolClient } from "pg";
 import { z } from "zod";
 
@@ -12,6 +12,38 @@ export const UserStatus = {
 	Inactive: "inactive",
 	Banned: "banned",
 } as const;
+
+/** JSON object produced for get_user_as_json_row_payload. */
+export interface GetUserAsJsonRowPayload {
+	id: number;
+	name: string;
+	email: string | null;
+	status: UserStatus;
+	secondary_status: UserStatus | null;
+	address: UserAddressJson | null;
+	created_at: string;
+}
+
+/** JSON object produced for get_users_as_json_row_payload. */
+export interface GetUsersAsJsonRowPayload {
+	id: number;
+	name: string;
+	email: string | null;
+	status: UserStatus;
+	secondary_status: UserStatus | null;
+	address: UserAddressJson | null;
+	created_at: string;
+}
+
+/** JSON object produced for get_user_orders_as_json_row_payload. */
+export interface GetUserOrdersAsJsonRowPayload {
+	id: number;
+	user_id: number;
+	total: number;
+	weight_kg: number | null;
+	notes: string | null;
+	created_at: string;
+}
 
 /** Row type for CreateOrder queries. */
 export const CreateOrderRowSchema = z.object({
@@ -314,9 +346,9 @@ export async function searchUsers(
 
 /** Composite type user_address. */
 export interface UserAddress {
-	street: string;
-	city: string;
-	zip: string;
+	street: string | null;
+	city: string | null;
+	zip: string | null;
 }
 
 // ~keep board #204: pg has no adapter for a user-defined composite -- it hands back
@@ -327,9 +359,9 @@ export function parseUserAddress(raw: unknown): UserAddress | null {
 	}
 	const f = parseUserAddressFields(raw as string);
 	return {
-		street: f[0] as string,
-		city: f[1] as string,
-		zip: f[2] as string,
+		street: f[0] === null ? null : f[0] as string,
+		city: f[1] === null ? null : f[1] as string,
+		zip: f[2] === null ? null : f[2] as string,
 	};
 }
 
@@ -388,6 +420,7 @@ function parseUserAddressFields(text: string): (string | null)[] {
 function encodeUserAddress(value: UserAddress | null): string | null {
 	if (value === null) return null;
 	const encode = (field: unknown): string => {
+		if (field === null || field === undefined) return "";
 		const text = String(field);
 		if (text === "" || /[(),\"\\\s]/.test(text)) {
 			return `"${text.replaceAll("\\", "\\\\").replaceAll('\"', '\"\"')}"`;
@@ -395,6 +428,13 @@ function encodeUserAddress(value: UserAddress | null): string | null {
 		return text;
 	};
 	return `(${encode(value.street)},${encode(value.city)},${encode(value.zip)})`;
+}
+
+/** JSON representation of composite type user_address. */
+export interface UserAddressJson {
+	street: string | null;
+	city: string | null;
+	zip: string | null;
 }
 
 /** Row type for GetUserProfile queries. */
@@ -455,7 +495,7 @@ RETURNING address`,
 
 /** Row type for GetUserAsJson queries. */
 export const GetUserAsJsonRowSchema = z.object({
-	payload: z.record(z.string(), z.unknown()).nullable(),
+	payload: z.custom<GetUserAsJsonRowPayload>().nullable(),
 });
 
 export type GetUserAsJsonRow = z.infer<typeof GetUserAsJsonRowSchema>;
@@ -478,7 +518,7 @@ export async function getUserAsJson(
 
 /** Row type for GetUsersAsJson queries. */
 export const GetUsersAsJsonRowSchema = z.object({
-	payload: z.array(z.record(z.string(), z.unknown())).nullable(),
+	payload: z.array(z.custom<GetUsersAsJsonRowPayload>()).nullable(),
 });
 
 export type GetUsersAsJsonRow = z.infer<typeof GetUsersAsJsonRowSchema>;
@@ -499,7 +539,7 @@ export async function getUsersAsJson(
 
 /** Row type for GetUserOrdersAsJson queries. */
 export const GetUserOrdersAsJsonRowSchema = z.object({
-	payload: z.array(z.record(z.string(), z.unknown())).nullable(),
+	payload: z.array(z.custom<GetUserOrdersAsJsonRowPayload>().nullable()).nullable(),
 });
 
 export type GetUserOrdersAsJsonRow = z.infer<typeof GetUserOrdersAsJsonRowSchema>;

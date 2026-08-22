@@ -17,6 +17,7 @@ pub enum ErrorCode {
     UnknownTable,
     UnknownColumn,
     UnknownFunction,
+    AmbiguousFunction,
     AmbiguousColumn,
     TypeMismatch,
     MissingAnnotation,
@@ -51,6 +52,7 @@ impl fmt::Display for ErrorCode {
             ErrorCode::UnknownTable => write!(f, "UNKNOWN_TABLE"),
             ErrorCode::UnknownColumn => write!(f, "UNKNOWN_COLUMN"),
             ErrorCode::UnknownFunction => write!(f, "UNKNOWN_FUNCTION"),
+            ErrorCode::AmbiguousFunction => write!(f, "AMBIGUOUS_FUNCTION"),
             ErrorCode::AmbiguousColumn => write!(f, "AMBIGUOUS_COLUMN"),
             ErrorCode::TypeMismatch => write!(f, "TYPE_MISMATCH"),
             ErrorCode::MissingAnnotation => write!(f, "MISSING_ANNOTATION"),
@@ -97,6 +99,13 @@ impl ScytheError {
         Self::new(
             ErrorCode::UnknownFunction,
             format!("function \"{name}\" does not exist"),
+        )
+    }
+
+    pub fn ambiguous_function(name: &str) -> Self {
+        Self::new(
+            ErrorCode::AmbiguousFunction,
+            format!("function call \"{name}\" is ambiguous"),
         )
     }
 

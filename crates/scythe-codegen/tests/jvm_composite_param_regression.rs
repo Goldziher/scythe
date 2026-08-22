@@ -17,13 +17,43 @@ fn address_composite() -> CompositeInfo {
             CompositeFieldInfo {
                 name: "street".to_string(),
                 neutral_type: "string".to_string(),
+                nullable: false,
             },
             CompositeFieldInfo {
                 name: "city".to_string(),
                 neutral_type: "string".to_string(),
+                nullable: true,
+            },
+            CompositeFieldInfo {
+                name: "state".to_string(),
+                neutral_type: "enum::state".to_string(),
+                nullable: true,
+            },
+            CompositeFieldInfo {
+                name: "delivery".to_string(),
+                neutral_type: "composite::delivery_details".to_string(),
+                nullable: true,
             },
         ],
     }
+}
+
+#[test]
+fn java_jdbc_decodes_nullable_composite_fields() {
+    let backend = get_backend("java-jdbc", "postgresql").expect("backend must exist");
+    let composite = backend
+        .generate_composite_def(&address_composite())
+        .expect("composite generation must succeed");
+
+    assert!(composite.contains("f.get(1) == null ? null : f.get(1)"), "{composite}");
+    assert!(
+        composite.contains("f.get(2) == null ? null : State.fromValue(f.get(2))"),
+        "{composite}"
+    );
+    assert!(
+        composite.contains("f.get(3) == null ? null : DeliveryDetails.fromText(f.get(3))"),
+        "{composite}"
+    );
 }
 
 fn composite_query(command: QueryCommand) -> AnalyzedQuery {

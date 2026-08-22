@@ -27,10 +27,11 @@ json_array = "Record<string, unknown>[]"
 inet = "string"
 
 [types.containers]
-array = "{T}[]"
+array = "Array<{T}>"
 nullable = "{T} | null"
 range = "string"
 json_typed = "{T}"
+json_nested = "{T}"
 
 [naming]
 struct_case = "PascalCase"

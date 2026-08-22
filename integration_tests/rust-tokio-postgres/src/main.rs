@@ -147,9 +147,9 @@ let rows = client
     // generator's parameter-binding surface; the point is the *read* path,
     // which runs through the generated `GetUserProfileRow`.
     let composite_address = UserAddress {
-        street: r#"12 "Main", Apt \3"#.to_string(),
-        city: String::new(),
-        zip: "10115".to_string(),
+        street: Some(r#"12 "Main", Apt \3"#.to_string()),
+        city: Some(String::new()),
+        zip: Some("10115".to_string()),
     };
     let round_tripped_address = queries::round_trip_user_address(&client, Some(&composite_address)).await?;
     let returned_address = round_tripped_address.address.expect("RoundTripUserAddress address present");
@@ -188,9 +188,9 @@ let rows = client
     assert_test!(profile.secondary_status == Some(UserStatus::Inactive), "GetUserProfile secondary_status present");
     // Fails if a nullable composite reader errors or returns zero fields on a present value.
     let address = profile.address.expect("GetUserProfile address should be present");
-    assert_test!(address.street == "1 Main St", "GetUserProfile address.street");
-    assert_test!(address.city == "Springfield", "GetUserProfile address.city");
-    assert_test!(address.zip == "12345", "GetUserProfile address.zip");
+    assert_test!(address.street.as_deref() == Some("1 Main St"), "GetUserProfile address.street");
+    assert_test!(address.city.as_deref() == Some("Springfield"), "GetUserProfile address.city");
+    assert_test!(address.zip.as_deref() == Some("12345"), "GetUserProfile address.zip");
 
     let null_row = client
         .query_one(

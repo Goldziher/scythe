@@ -139,9 +139,9 @@ let orders: Vec<GetOrdersByUserRow> = sqlx::query_as(
     // generator's parameter-binding surface; the point is the *read* path,
     // which runs through the generated `GetUserProfileRow`.
     let composite_address = UserAddress {
-        street: r#"12 "Main", Apt \3"#.to_string(),
-        city: String::new(),
-        zip: "10115".to_string(),
+        street: Some(r#"12 "Main", Apt \3"#.to_string()),
+        city: Some(String::new()),
+        zip: Some("10115".to_string()),
     };
     let round_tripped_address: RoundTripUserAddressRow = sqlx::query_as(
         "INSERT INTO users (name, status, address) VALUES ('Composite Parameter Round Trip', 'active', $1) RETURNING address",
@@ -190,9 +190,9 @@ let orders: Vec<GetOrdersByUserRow> = sqlx::query_as(
     assert_test!(profile.secondary_status == Some(UserStatus::Inactive), "GetUserProfile secondary_status present");
     // Fails if a nullable composite reader errors or returns zero fields on a present value.
     let address = profile.address.expect("GetUserProfile address should be present");
-    assert_test!(address.street == "1 Main St", "GetUserProfile address.street");
-    assert_test!(address.city == "Springfield", "GetUserProfile address.city");
-    assert_test!(address.zip == "12345", "GetUserProfile address.zip");
+    assert_test!(address.street.as_deref() == Some("1 Main St"), "GetUserProfile address.street");
+    assert_test!(address.city.as_deref() == Some("Springfield"), "GetUserProfile address.city");
+    assert_test!(address.zip.as_deref() == Some("12345"), "GetUserProfile address.zip");
 
     let null_profile: GetUserProfileRow =
         sqlx::query_as("SELECT id, secondary_status, address FROM users WHERE id = $1")

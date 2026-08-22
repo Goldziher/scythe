@@ -13,7 +13,9 @@ use scythe_lint::reporters::Finding;
 use scythe_lint::rules::drift::DRIFT_RULE_IDS;
 use scythe_lint::types::Severity;
 
-use super::model::{ColumnDescription, SchemaDescription, TableDescription};
+use super::model::{
+    ColumnDescription, CompositeDescription, CompositeFieldDescription, SchemaDescription, TableDescription, object_key,
+};
 
 /// A table declared in the DDL that the live database does not have.
 pub const SC_DRF01: &str = "SC-DRF01";
@@ -29,6 +31,18 @@ pub const SC_DRF05: &str = "SC-DRF05";
 pub const SC_DRF06: &str = "SC-DRF06";
 /// An enum whose DDL value set disagrees with the live value set.
 pub const SC_DRF07: &str = "SC-DRF07";
+/// A composite declared in DDL but absent from the database.
+pub const SC_DRF08: &str = "SC-DRF08";
+/// A live composite absent from the DDL.
+pub const SC_DRF09: &str = "SC-DRF09";
+/// A declared composite field absent from the database.
+pub const SC_DRF10: &str = "SC-DRF10";
+/// A live composite field absent from the DDL.
+pub const SC_DRF11: &str = "SC-DRF11";
+/// A composite field whose types disagree.
+pub const SC_DRF12: &str = "SC-DRF12";
+/// A composite field whose nullability disagrees.
+pub const SC_DRF13: &str = "SC-DRF13";
 
 /// Tag applied to `Finding::source` so reporters and CI filters can tell
 /// drift findings apart from lint, audit, inspect and verify findings.
@@ -140,6 +154,7 @@ pub fn diff(
 
     diff_tables(&mut sink, ddl, live);
     diff_enums(&mut sink, ddl, live);
+    diff_composites(&mut sink, ddl, live);
 
     sink.findings
 }
@@ -164,7 +179,20 @@ fn diff_tables(sink: &mut FindingSink<'_>, ddl: &SchemaDescription, live: &Schem
     }
 
     for (key, live_table) in &live.tables {
-        if ddl.tables.contains_key(key) {
+        if is_bare_alias(
+            key,
+            &live_table.display_name,
+            live.tables.iter().map(|(key, value)| (key, &value.display_name)),
+        ) {
+            continue;
+        }
+        let bare_key = object_key(&live_table.display_name);
+        let bare_declaration_matches_winner = ddl.tables.contains_key(&bare_key)
+            && live
+                .tables
+                .get(&bare_key)
+                .is_some_and(|winner| winner.display_name == live_table.display_name);
+        if ddl.tables.contains_key(key) || bare_declaration_matches_winner {
             continue;
         }
         sink.push(
@@ -357,6 +385,123 @@ fn diff_enums(sink: &mut FindingSink<'_>, ddl: &SchemaDescription, live: &Schema
             ),
         );
     }
+}
+
+fn diff_composites(sink: &mut FindingSink<'_>, ddl: &SchemaDescription, live: &SchemaDescription) {
+    for (key, ddl_composite) in &ddl.composites {
+        match live.composites.get(key) {
+            Some(live_composite) => diff_composite_fields(sink, ddl_composite, live_composite),
+            None => sink.push(
+                SC_DRF08,
+                "composite-missing-from-database",
+                format!(
+                    "composite `{}` is declared in the schema but does not exist in the database",
+                    ddl_composite.display_name
+                ),
+            ),
+        }
+    }
+
+    for (key, live_composite) in &live.composites {
+        if is_bare_alias(
+            key,
+            &live_composite.display_name,
+            live.composites.iter().map(|(key, value)| (key, &value.display_name)),
+        ) {
+            continue;
+        }
+        let bare_key = object_key(&live_composite.display_name);
+        let bare_declaration_matches_winner = ddl.composites.contains_key(&bare_key)
+            && live
+                .composites
+                .get(&bare_key)
+                .is_some_and(|winner| winner.display_name == live_composite.display_name);
+        if !ddl.composites.contains_key(key) && !bare_declaration_matches_winner {
+            sink.push(
+                SC_DRF09,
+                "composite-missing-from-ddl",
+                format!(
+                    "composite `{}` exists in the database but is not declared in the schema",
+                    live_composite.display_name
+                ),
+            );
+        }
+    }
+}
+
+fn is_bare_alias<'a>(
+    key: &str,
+    display_name: &str,
+    mut entries: impl Iterator<Item = (&'a String, &'a String)>,
+) -> bool {
+    !key.contains('.') && entries.any(|(other_key, other_name)| other_key.contains('.') && other_name == display_name)
+}
+
+fn diff_composite_fields(
+    sink: &mut FindingSink<'_>,
+    ddl_composite: &CompositeDescription,
+    live_composite: &CompositeDescription,
+) {
+    for (key, ddl_field) in &ddl_composite.fields {
+        let Some(live_field) = live_composite.fields.get(key) else {
+            sink.push(
+                SC_DRF10,
+                "composite-field-missing-from-database",
+                format!(
+                    "field `{}.{}` is declared in the schema but does not exist in the database",
+                    ddl_composite.display_name, ddl_field.name
+                ),
+            );
+            continue;
+        };
+
+        diff_composite_field_type(sink, ddl_composite, ddl_field, live_field);
+        if ddl_field.nullable != live_field.nullable {
+            sink.push(
+                SC_DRF13,
+                "composite-field-nullability-mismatch",
+                format!(
+                    "field `{}.{}` is nullable={} in the schema but nullable={} in the database",
+                    ddl_composite.display_name, ddl_field.name, ddl_field.nullable, live_field.nullable
+                ),
+            );
+        }
+    }
+
+    for (key, live_field) in &live_composite.fields {
+        if !ddl_composite.fields.contains_key(key) {
+            sink.push(
+                SC_DRF11,
+                "composite-field-missing-from-ddl",
+                format!(
+                    "field `{}.{}` exists in the database but is not declared in the schema",
+                    live_composite.display_name, live_field.name
+                ),
+            );
+        }
+    }
+}
+
+fn diff_composite_field_type(
+    sink: &mut FindingSink<'_>,
+    composite: &CompositeDescription,
+    ddl_field: &CompositeFieldDescription,
+    live_field: &CompositeFieldDescription,
+) {
+    let (Some(ddl_type), Some(live_type)) = (&ddl_field.neutral_type, &live_field.neutral_type) else {
+        return;
+    };
+    if types_match_for_drift(ddl_type, live_type) {
+        return;
+    }
+    sink.push(
+        SC_DRF12,
+        "composite-field-type-mismatch",
+        format!(
+            "field `{}.{}` is declared as `{}` in the schema but the database reports `{}`",
+            composite.display_name, ddl_field.name, ddl_type, live_type
+        ),
+    );
 }
 
 /// Values present in `left` but not in `right`, in `left`'s order.
@@ -822,6 +967,8 @@ mod tests {
         assert_eq!(severities.severity_for(SC_DRF01), Severity::Error);
         assert_eq!(severities.severity_for(SC_DRF02), Severity::Warn);
         assert_eq!(severities.severity_for(SC_DRF06), Severity::Error);
+        assert_eq!(severities.severity_for(SC_DRF09), Severity::Warn);
+        assert_eq!(severities.severity_for(SC_DRF13), Severity::Error);
     }
 
     /// An unknown rule ID resolves to `Off` rather than a default, so a typo
@@ -860,5 +1007,127 @@ mod tests {
         assert_eq!(SC_DRF05, "SC-DRF05");
         assert_eq!(SC_DRF06, "SC-DRF06");
         assert_eq!(SC_DRF07, "SC-DRF07");
+        assert_eq!(SC_DRF08, "SC-DRF08");
+        assert_eq!(SC_DRF09, "SC-DRF09");
+        assert_eq!(SC_DRF10, "SC-DRF10");
+        assert_eq!(SC_DRF11, "SC-DRF11");
+        assert_eq!(SC_DRF12, "SC-DRF12");
+        assert_eq!(SC_DRF13, "SC-DRF13");
+    }
+
+    #[test]
+    fn composite_drift_reports_every_shape_difference() {
+        let mut ddl = SchemaDescription::new();
+        ddl.composites.insert(
+            "address".to_string(),
+            CompositeDescription::new("address")
+                .with_field(CompositeFieldDescription::new("street", "string", false))
+                .with_field(CompositeFieldDescription::new("zip", "string", true))
+                .with_field(CompositeFieldDescription::new("country", "string", true)),
+        );
+        let mut live = SchemaDescription::new();
+        live.composites.insert(
+            "address".to_string(),
+            CompositeDescription::new("public.address")
+                .with_field(CompositeFieldDescription::new("street", "uuid", true))
+                .with_field(CompositeFieldDescription::new("zip", "string", true))
+                .with_field(CompositeFieldDescription::new("region", "string", true)),
+        );
+
+        let findings = diff(&ddl, &live, &severities(), "block");
+        assert_eq!(rule_ids(&findings), vec![SC_DRF10, SC_DRF12, SC_DRF13, SC_DRF11]);
+    }
+
+    #[test]
+    fn composite_drift_reports_missing_types_in_both_directions() {
+        let mut ddl = SchemaDescription::new();
+        ddl.composites
+            .insert("only_ddl".to_string(), CompositeDescription::new("only_ddl"));
+        let mut live = SchemaDescription::new();
+        live.composites
+            .insert("only_live".to_string(), CompositeDescription::new("only_live"));
+
+        let findings = diff(&ddl, &live, &severities(), "block");
+        assert_eq!(rule_ids(&findings), vec![SC_DRF08, SC_DRF09]);
+    }
+
+    #[test]
+    fn composite_type_drift_skips_unmappable_fields() {
+        let mut ddl = SchemaDescription::new();
+        ddl.composites.insert(
+            "shape".to_string(),
+            CompositeDescription::new("shape").with_field(CompositeFieldDescription::unmappable("value", true)),
+        );
+        let mut live = SchemaDescription::new();
+        live.composites.insert(
+            "shape".to_string(),
+            CompositeDescription::new("shape").with_field(CompositeFieldDescription::new("value", "string", true)),
+        );
+
+        assert!(diff(&ddl, &live, &severities(), "block").is_empty());
+    }
+
+    #[test]
+    fn qualified_composite_matches_its_schema_instead_of_the_search_path_winner() {
+        let mut ddl = SchemaDescription::new();
+        ddl.composites.insert(
+            "tenant.address".to_string(),
+            CompositeDescription::new("tenant.address").with_field(CompositeFieldDescription::new(
+                "postal_code",
+                "string",
+                true,
+            )),
+        );
+
+        let preferred = CompositeDescription::new("public.address").with_field(CompositeFieldDescription::new(
+            "postal_code",
+            "uuid",
+            true,
+        ));
+        let declared = CompositeDescription::new("tenant.address").with_field(CompositeFieldDescription::new(
+            "postal_code",
+            "string",
+            true,
+        ));
+        let mut live = SchemaDescription::new();
+        live.composites.insert("address".to_string(), preferred.clone());
+        live.composites.insert("public.address".to_string(), preferred);
+        live.composites.insert("tenant.address".to_string(), declared);
+
+        let findings = diff(&ddl, &live, &severities(), "block");
+        assert_eq!(rule_ids(&findings), vec![SC_DRF09]);
+        assert!(findings[0].message.contains("public.address"));
+    }
+
+    #[test]
+    fn bare_composite_matches_only_the_search_path_winner() {
+        let mut ddl = SchemaDescription::new();
+        ddl.composites.insert(
+            "address".to_string(),
+            CompositeDescription::new("address").with_field(CompositeFieldDescription::new(
+                "postal_code",
+                "uuid",
+                true,
+            )),
+        );
+
+        let preferred = CompositeDescription::new("public.address").with_field(CompositeFieldDescription::new(
+            "postal_code",
+            "uuid",
+            true,
+        ));
+        let shadowed = CompositeDescription::new("tenant.address").with_field(CompositeFieldDescription::new(
+            "postal_code",
+            "string",
+            true,
+        ));
+        let mut live = SchemaDescription::new();
+        live.composites.insert("address".to_string(), preferred.clone());
+        live.composites.insert("public.address".to_string(), preferred);
+        live.composites.insert("tenant.address".to_string(), shadowed);
+
+        let findings = diff(&ddl, &live, &severities(), "block");
+        assert_eq!(rule_ids(&findings), vec![SC_DRF09]);
+        assert!(findings[0].message.contains("tenant.address"));
     }
 }

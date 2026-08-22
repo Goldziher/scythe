@@ -111,15 +111,19 @@ fn ruby_composite_column_expr(col: &ResolvedColumn, raw: &str) -> Option<String>
 ///
 /// Reuses `ruby_coercion` -- the same table every top-level column already goes through --
 /// rather than a bespoke per-field table, so a scalar composite field behaves identically to a
-/// column of that same neutral type (including the existing gaps in that table, e.g. no
-/// `date`/`time` parsing: not something this fix introduces or can close from here). A nested
-/// `composite::` field recurses through that nested type's own `from_text`, which is already
-/// nil-safe on a genuinely NULL sub-field.
+/// column of that same neutral type. Nullable fields return `nil` before coercion, while a
+/// nested `composite::` field recurses through that nested type's own `from_text`.
 fn ruby_composite_field_from_text(field: &CompositeFieldInfo, raw: &str, manifest: &BackendManifest) -> String {
-    if let Some(sql_name) = field.neutral_type.strip_prefix("composite::") {
-        return format!("{}.from_text({})", composite_type_name(sql_name, &manifest.naming), raw);
+    let converted = if let Some(sql_name) = field.neutral_type.strip_prefix("composite::") {
+        format!("{}.from_text({})", composite_type_name(sql_name, &manifest.naming), raw)
+    } else {
+        ruby_coercion(&field.neutral_type, manifest).apply(raw)
+    };
+    if field.nullable {
+        format!("{raw}.nil? ? nil : {converted}")
+    } else {
+        converted
     }
-    ruby_coercion(&field.neutral_type, manifest).apply(raw)
 }
 
 /// Splits a PostgreSQL composite's text form (`"(a,b,c)"`) into its raw field tokens, honoring

@@ -30,11 +30,12 @@
 //! primary keys — is a separate, narrower concern from the health checks
 //! above, and it is not PostgreSQL-only.** [`schema_diff::SchemaCatalogDriver`]
 //! is the engine-agnostic trait for reading a live database into a
-//! [`SchemaDescription`]; [`sqlite::SqliteCatalogSource`] and
-//! [`mysql::MySqlCatalogSource`] implement it alongside PostgreSQL's existing
-//! [`fetch_live_schema`]. See [`schema_diff`]'s module docs for why the two
-//! concerns are split and what implementing one gets an engine that
-//! implementing the other does not.
+//! [`SchemaDescription`]; [`PostgresCatalogSource`],
+//! [`sqlite::SqliteCatalogSource`], and [`mysql::MySqlCatalogSource`] implement
+//! it. PostgreSQL also exposes [`fetch_live_catalog`] for code-generation
+//! callers. See [`schema_diff`]'s module docs for why the two concerns are
+//! split and what implementing one gets an engine that implementing the other
+//! does not.
 
 pub mod config;
 pub mod driver;
@@ -60,8 +61,8 @@ pub use neutral::normalize_neutral_type;
 pub use postgres::PostgresDriver;
 pub use registry::CheckRegistry;
 pub use schema_diff::{
-    DriftSeverities, SchemaCatalogDriver, SchemaDescription, describe_catalog, diff_schemas, drift_findings,
-    fetch_live_schema,
+    CompositeDescription, CompositeFieldDescription, DriftSeverities, PostgresCatalogSource, SchemaCatalogDriver,
+    SchemaDescription, describe_catalog, diff_schemas, drift_findings, fetch_live_catalog, fetch_live_schema,
 };
 pub use spec::{CheckCategory, CheckSpec, ConfigError, load_checks_from_file, parse_check_file};
 pub use sqlite::{SqliteCatalogSource, execute_sqlite_schema_files};

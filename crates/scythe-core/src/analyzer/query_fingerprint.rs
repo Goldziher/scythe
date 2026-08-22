@@ -31,7 +31,7 @@
 
 use sha2::{Digest, Sha256};
 
-use super::types::{AnalyzedColumn, AnalyzedParam, AnalyzedQuery, NestedFieldInfo, NestedStructInfo};
+use super::types::{AnalyzedColumn, AnalyzedParam, AnalyzedQuery, CompositeInfo, NestedFieldInfo, NestedStructInfo};
 
 /// Version tag for the query fingerprint algorithm itself, mirroring
 /// `FINGERPRINT_ALGORITHM_TAG`'s role for the schema fingerprint in
@@ -118,7 +118,7 @@ impl AnalyzedQuery {
     ///   it, and for the same reason: it is reported as an independent
     ///   `v=` field in the provenance header, not folded into this hash.
     /// - Metadata unrelated to the generated signature or row type
-    ///   (`deprecated`, `source_table`, `composites`, `enums`,
+    ///   (`deprecated`, `source_table`, `enums`,
     ///   `optional_params`, `group_by`, `custom`): none of these change the
     ///   *shape* of the generated query function's signature or row type in
     ///   a way not already captured by the parameter, column and
@@ -179,6 +179,24 @@ where
             lines.push(nested_struct_line(&name, idx, nested));
             for (field_idx, field) in nested.fields.iter().enumerate() {
                 lines.push(nested_field_line(&name, idx, field_idx, field));
+            }
+        }
+
+        let mut composites: Vec<&CompositeInfo> = query.composites.iter().collect();
+        composites.sort_by(|left, right| left.sql_name.cmp(&right.sql_name));
+        for composite in composites {
+            let composite_name = escape_field(&composite.sql_name);
+            lines.push(format!(
+                "composite\t{name}\t{composite_name}\t{}",
+                composite.fields.len()
+            ));
+            for (field_idx, field) in composite.fields.iter().enumerate() {
+                lines.push(format!(
+                    "cfield\t{name}\t{composite_name}\t{field_idx}\t{}\t{}\t{}",
+                    escape_field(&field.name),
+                    escape_field(&field.neutral_type),
+                    field.nullable
+                ));
             }
         }
     }
@@ -560,6 +578,28 @@ mod tests {
                 "{label} must change the fingerprint"
             );
         }
+    }
+
+    #[test]
+    fn test_composite_field_nullability_participates() {
+        let with_nullability = |nullable| {
+            AnalyzedQuery::build(|query| {
+                query.name = "Q".to_string();
+                query.composites = vec![crate::analyzer::CompositeInfo {
+                    sql_name: "address".to_string(),
+                    fields: vec![crate::analyzer::CompositeFieldInfo {
+                        name: "zip".to_string(),
+                        neutral_type: "string".to_string(),
+                        nullable,
+                    }],
+                }];
+            })
+        };
+
+        assert_ne!(
+            AnalyzedQuery::fingerprint_set([&with_nullability(false)]),
+            AnalyzedQuery::fingerprint_set([&with_nullability(true)])
+        );
     }
 
     /// The nested lines are emitted only when there are nested structs, so a
