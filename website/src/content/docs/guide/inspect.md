@@ -210,7 +210,7 @@ set fail loudly with the same error as the CLI.
 
 ```yaml
 - repo: https://github.com/Goldziher/scythe
-  rev: v0.17.0
+  rev: v0.18.0
   hooks:
     - id: scythe-inspect
       # args: [--exit-zero]    # uncomment for advisory CI integration
@@ -236,7 +236,7 @@ Also not implemented (by `scythe inspect` specifically):
 
 :::note[Schema drift shipped, but in `scythe check`, not here]
 Schema drift (declared `scythe.toml` catalog vs. live database) is implemented as of v0.14.0, as
-`SC-DRF01`–`SC-DRF07` under [`scythe check --database-url`](/scythe/guide/cli-reference/#schema-drift),
+`SC-DRF01`–`SC-DRF13` under [`scythe check --database-url`](/scythe/guide/cli-reference/#schema-drift),
 not as a `scythe inspect` check. It reads `pg_catalog` the same way `scythe inspect`'s checks do, but
 answers a different question ("does my committed schema still match the database?") than `scythe
 inspect` does ("does my live database have an operational problem?").
@@ -248,7 +248,7 @@ inspect` does ("does my live database have an operational problem?").
 |---|---|---|---|---|
 | **0** | v0.10.0 (shipped) | MVP — three Postgres checks | PG (MySQL stub) | SC-INS01..03 |
 | **1** | v0.11.0 (shipped) | Full PG check pack + TOML rule registry + `--explain` + `[inspect]` config | PG | SC-INS04..13 |
-| **2** | v0.14.0 (shipped, as `scythe check --database-url`) | Schema drift — declared catalog vs live | PG | SC-DRF01..07 |
+| **2** | v0.14.0 (expanded in v0.18.0) | Schema drift — declared catalog vs live | PG | SC-DRF01..13 |
 | **3** | shipped | MySQL/MariaDB driver + initial check pack | PG + MySQL/MariaDB | SC-INS-MY01..04 |
 | **4** | not yet shipped | Stats-based — unused indexes, slow queries via `pg_stat_*` | PG | SC-INS-STAT01..04 |
 

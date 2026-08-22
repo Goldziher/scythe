@@ -256,11 +256,19 @@ generated field names. Each backend spells the mapping out:
 | `go-pgx` | `T` | `json:"..."` struct tag |
 | `python-psycopg3` | `T` | a `_from_json` classmethod |
 | `php-pdo`, `php-amphp` | `T` | a `fromJson` static factory |
+| `typescript-pg`, `typescript-postgres`, PostgreSQL `typescript-kysely` | `T` | raw SQL keys in an exported interface |
 
 PHP nested JSON maps PostgreSQL `numeric` fields to `float`. PHP's native JSON decoder produces a
 floating-point value for a JSON number, so the generated property states that runtime type instead
 of presenting the already-rounded value as an exact decimal string. Select the value as JSON text
 when decimal precision must be preserved exactly.
+
+The TypeScript PostgreSQL backends follow the decoded JSON value rather than their native wire
+mapping: `numeric` is `number`, timestamps and bytea are `string`, and a composite uses a separate
+`*Json` interface. Nested properties keep their raw PostgreSQL keys even when outer result fields use
+`field_case = "camelCase"`. Zod row schemas use `z.custom<Nested>()`; this preserves the static type
+but does not recursively validate the JSON object's fields. Kysely's `CamelCasePlugin` behavior
+inside JSON objects is outside this contract. Select precision-sensitive numerics as JSON text.
 
 A quoted mixed-case column keeps its key and renames the field:
 
@@ -287,7 +295,7 @@ pub enum UserStatus {
 
 ### Where it does not apply
 
-Only the six backends in the table above emit nested structs. Every other backend rewrites the column
+Only the nine backends in the table above emit nested structs. Every other backend rewrites the column
 to plain `json`, byte-identical to what it produced before nested inference existed -- including the
 enums and composites reachable only through the discarded struct, which are not emitted.
 

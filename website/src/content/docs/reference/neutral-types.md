@@ -36,7 +36,7 @@ Neutral types are scythe's intermediate representation between SQL types and lan
 | `nullable` | `Option<T>` | `T \| None` | `T \| null` | `*T` | `@Nullable T` | `T?` | `T?` | `T \| nil` | `T` |
 | `range<T>` | `sqlx::postgres::types::PgRange<T>` | `tuple[T, T]` | `string` | `string` | `String` | `String` | `string` | `string()` | `String` |
 | `json_typed<T>` | `sqlx::types::Json<T>` | `T` | `T` | `T` | `T` | `T` | `T` | `T` | `T` |
-| `json_nested<T>` | `sqlx::types::Json<T>` | `T` | -- | `T` | -- | -- | -- | -- | -- |
+| `json_nested<T>` | `sqlx::types::Json<T>` | `T` | `T`¹ | `T` | -- | -- | -- | -- | -- |
 
 `array<T>` maps to `String` on Java and Kotlin, not to a list. Neither backend has
 an array reader -- every non-scalar column is read through the untyped accessor
@@ -52,13 +52,19 @@ declared and scythe knows nothing about its shape.
 produce over an `alias.*` argument on PostgreSQL: `T` is a struct scythe synthesizes
 from the aggregated relation, field by field.
 
-Six backends decode it -- `rust-sqlx` (`sqlx::types::Json<T>`),
+Nine backends decode it -- `rust-sqlx` (`sqlx::types::Json<T>`),
 `rust-tokio-postgres` (`postgres_types::Json<T>`), `go-pgx` (`T`) and
 `python-psycopg3` (`T`), plus `php-pdo` and `php-amphp` (`T` through a `fromJson`
-factory). Every other backend degrades the column to plain `json`,
+factory), `typescript-pg`, `typescript-postgres`, and PostgreSQL `typescript-kysely`.
+The TypeScript backends emit `Array<T>` for array-shaped results so nullable elements remain
+`Array<T | null>`. Their JSON DTOs use raw SQL keys and JSON runtime scalar representations;
+Zod uses `z.custom<T>()` rather than recursively validating them. Every other backend degrades the column to plain `json`,
 so its output is byte-identical to what it produced before this existed. Redshift
-is excluded even on those four: it maps to the PostgreSQL dialect but has no
+is excluded even on those nine: it maps to the PostgreSQL dialect but has no
 `json_agg`.
+
+¹ TypeScript support is limited to `typescript-pg`, `typescript-postgres`, and PostgreSQL
+`typescript-kysely`; other TypeScript and JavaScript targets retain their plain-JSON fallback.
 
 `json_agg`/`jsonb_agg` over an outer join yield `json_nested<array<nullable<T>>>`, because
 PostgreSQL makes the whole-row variable NULL for a non-matching row and the

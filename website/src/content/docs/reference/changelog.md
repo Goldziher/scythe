@@ -7,6 +7,35 @@ Scythe follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Ver
 
 For the latest changes, see the [CHANGELOG.md](https://github.com/Goldziher/scythe/blob/main/CHANGELOG.md) in the repository root.
 
+## [0.18.0] - 2026-08-22
+
+**Upgrading**: pass the field nullability as the third argument to
+`CompositeFieldDefinition::new`, add `nullable` to `CompositeFieldInfo` values and serialized
+metadata, and initialize the new `SchemaDescription.composites` field. Prefer
+`SchemaDescription::new()` or `..SchemaDescription::new()` for forward-compatible construction.
+
+### Added
+
+- Schema-defined SQL functions participate in catalog analysis, overload resolution, fingerprints,
+  placeholder typing, and set-returning function expansion.
+- PostgreSQL live catalogs include standalone composite types and report composite schema drift via
+  `SC-DRF08` through `SC-DRF13`.
+- `typescript-pg`, `typescript-postgres`, and PostgreSQL Kysely generate typed nested JSON result
+  interfaces for whole-row JSON aggregates.
+- Release automation verifies every platform archive and checksum before advancing the floating
+  `v0` tag.
+
+### Changed
+
+- Composite fields carry required nullability metadata through catalogs, analyzed queries, generated
+  models, and provenance fingerprints. Serialized metadata without `nullable` is rejected.
+- Repository builds use the pinned Rust 1.97.1 toolchain across all five release targets.
+
+### Fixed
+
+- Removed dormant vulnerable Rust dependency chains from MSSQL conformance without changing its
+  TLS coverage.
+
 ## [0.17.0] - 2026-08-20
 
 This release adds execution-backed catalogs for embedded databases, expands typed PostgreSQL

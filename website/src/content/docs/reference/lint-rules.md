@@ -10,7 +10,7 @@ from -- also carries the 35 `scythe audit` rules (`SC-SEC*`, `SC-RLS*`, `SC-MIG*
 catalog.
 
 Two further families ship in their own registries and are **not** counted in that 58: the 11 `SC-PRV*`
-[provenance rules](#provenance-rules-11) and the 7 `SC-DRF*` [schema drift rules](#schema-drift-rules-7).
+[provenance rules](#provenance-rules-11) and the 13 `SC-DRF*` [schema drift rules](#schema-drift-rules-13).
 Both fire only from `scythe check`, never from `scythe lint` or `scythe audit --list-rules`, so adding
 them to the 58 would advertise rules those commands can never report. Every rule count elsewhere in
 these docs refers to the 58; the two check-time families are always stated separately.
@@ -125,7 +125,7 @@ whole family is disableable.
 provenance = "off"      # skip provenance verification entirely
 ```
 
-## Schema drift rules (7)
+## Schema drift rules (13)
 
 `SC-DRF*` rules compare the committed DDL against a live database's catalog. They run only from
 [`scythe check --database-url`](/scythe/guide/cli-reference/#schema-drift) (PostgreSQL only) and are
@@ -140,11 +140,15 @@ likewise excluded from `scythe lint` and `scythe audit --list-rules`, and from t
 | `SC-DRF05` | `column-type-mismatch` | Column's DDL type does not match the type the live database reports | Error |
 | `SC-DRF06` | `column-nullability-mismatch` | Column's DDL nullability does not match the live database | Error |
 | `SC-DRF07` | `enum-values-mismatch` | Enum type's DDL value set does not match the live database | Error |
+| `SC-DRF08` | `composite-missing-from-database` | Composite declared in the DDL does not exist in the live database | Error |
+| `SC-DRF09` | `composite-missing-from-ddl` | Composite exists in the live database but is not declared in the DDL | Warn |
+| `SC-DRF10` | `composite-field-missing-from-database` | Composite field declared in the DDL does not exist in the live database | Error |
+| `SC-DRF11` | `composite-field-missing-from-ddl` | Composite field exists in the live database but is not declared in the DDL | Error |
+| `SC-DRF12` | `composite-field-type-mismatch` | Composite field's DDL type does not match the live database | Error |
+| `SC-DRF13` | `composite-field-nullability-mismatch` | Composite field's DDL nullability does not match the live database | Error |
 
-`SC-DRF02` is the one `Warn`: every real database carries objects the committed DDL never declares
-(migration ledgers such as `schema_migrations`, extension bookkeeping), so defaulting it to `Error`
-would fail the first run against a production database. Every other rule describes the DDL promising
-something the database does not deliver, which breaks generated code, so it errors.
+`SC-DRF02` and `SC-DRF09` warn because live databases commonly carry objects the committed DDL never
+declares. Every other rule describes a mismatch that can invalidate generated code, so it errors.
 
 Drift severities come from the same `[lint]` table as every other rule:
 
