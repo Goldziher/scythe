@@ -39,7 +39,7 @@ scythe-core = { path = "../scythe-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sibyl = { version = "0.7", features = ["tokio", "nonblocking"], optional = true }
-sqlparser = "0.62"
+sqlparser = "0.63"
 thiserror = "2"
 tiberius = { version = "0.12", default-features = false, features = [
     "tds73",

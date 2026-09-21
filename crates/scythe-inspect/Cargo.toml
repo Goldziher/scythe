@@ -24,7 +24,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 scythe-core = { path = "../scythe-core", version = "0.18.1" }
 scythe-lint = { path = "../scythe-lint", version = "0.18.1" }
 serde = { version = "1", features = ["derive"] }
-sqlparser = { version = "0.62", features = ["visitor"] }
+sqlparser = { version = "0.63", features = ["visitor"] }
 thiserror = "2"
 tokio = { version = "1", features = ["rt"] }
 tokio-postgres = "0.7"
