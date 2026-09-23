@@ -374,6 +374,7 @@ pub(super) fn datatype_to_neutral(dt: &DataType, catalog: &Catalog) -> String {
                 ast::ArrayElemTypeDef::SquareBracket(inner_dt, _) => datatype_to_neutral(inner_dt, catalog),
                 ast::ArrayElemTypeDef::AngleBracket(inner_dt) => datatype_to_neutral(inner_dt, catalog),
                 ast::ArrayElemTypeDef::Parenthesis(inner_dt) => datatype_to_neutral(inner_dt, catalog),
+                ast::ArrayElemTypeDef::Qualified(inner_dt, _) => datatype_to_neutral(inner_dt, catalog),
                 ast::ArrayElemTypeDef::None => "unknown".to_string(),
             };
             format!("array<{}>", inner)

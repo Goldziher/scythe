@@ -1370,7 +1370,8 @@ fn function_sql_type(data_type: &DataType, domains: &AHashMap<String, DomainDef>
             let inner = match element {
                 sqlparser::ast::ArrayElemTypeDef::SquareBracket(inner, _)
                 | sqlparser::ast::ArrayElemTypeDef::AngleBracket(inner)
-                | sqlparser::ast::ArrayElemTypeDef::Parenthesis(inner) => inner.as_ref(),
+                | sqlparser::ast::ArrayElemTypeDef::Parenthesis(inner)
+                | sqlparser::ast::ArrayElemTypeDef::Qualified(inner, _) => inner.as_ref(),
                 sqlparser::ast::ArrayElemTypeDef::None => return "unknown[]".to_string(),
             };
             if let DataType::Custom(name, _) = inner

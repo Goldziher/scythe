@@ -193,6 +193,10 @@ pub(crate) fn normalize_data_type(
                     let (inner_type, _) = normalize_data_type(inner_dt, domains, dialect);
                     inner_type
                 }
+                ArrayElemTypeDef::Qualified(inner_dt, _) => {
+                    let (inner_type, _) = normalize_data_type(inner_dt, domains, dialect);
+                    inner_type
+                }
                 ArrayElemTypeDef::None => "unknown".to_string(),
             };
             let short = match inner.as_str() {
