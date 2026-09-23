@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.2] - 2026-09-23
+
+### Fixed
+
+- Array element types written in the qualified form (for example `INT ARRAY`) are normalized
+  correctly after the sqlparser 0.63 upgrade.
+
+### Security
+
+- Updated `rustls` to 0.23.45 to resolve RUSTSEC-2026-0285.
+
 ## [0.18.1] - 2026-08-22
 
 ### Added

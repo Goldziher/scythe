@@ -15,7 +15,7 @@ Add scythe to your `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.18.1  # use the latest release tag
+    rev: v0.18.2  # use the latest release tag
     hooks:
       - id: scythe-fmt
       - id: scythe-lint
@@ -40,7 +40,7 @@ Add Scythe's producer catalog to the `[hooks]` configuration in `poly.toml`:
 [[hooks.sources]]
 id = "scythe"
 git = "https://github.com/Goldziher/scythe.git"
-revision = "v0.18.1"
+revision = "v0.18.2"
 hooks = ["scythe-fmt", "scythe-lint", "scythe-audit"]
 ```
 
@@ -119,7 +119,7 @@ Override default arguments in your `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.18.1
+    rev: v0.18.2
     hooks:
       # Format with a specific SQL dialect
       - id: scythe-fmt
