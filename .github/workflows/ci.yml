@@ -395,7 +395,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: "stable"
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           distribution: "temurin"
           java-version: "21"
@@ -422,7 +422,7 @@ jobs:
       # root -- every project under integration_tests/ runs its own
       # `pnpm install --frozen-lockfile`, and the cache key is keyed off those
       # per-project lockfiles rather than a root one that does not exist.
-      - uses: pnpm/setup@v2
+      - uses: pnpm/setup@v3
         with:
           version: "11"
           runtime: node@22
@@ -748,7 +748,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: "stable"
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           distribution: "temurin"
           java-version: "21"
