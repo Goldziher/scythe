@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm") version "2.1.20"
+    kotlin("jvm") version "2.4.20"
     application
 }
 
@@ -12,7 +12,7 @@ repositories {
 
 dependencies {
 {%- if backend == "kotlin-exposed" %}
-    implementation("org.postgresql:postgresql:42.7.12")
+    implementation("org.postgresql:postgresql:42.7.13")
     implementation("org.jetbrains.exposed:exposed-core:0.61.0")
     implementation("org.jetbrains.exposed:exposed-jdbc:0.61.0")
     implementation("org.jetbrains.exposed:exposed-dao:0.61.0")
@@ -20,46 +20,46 @@ dependencies {
     // queries.kt imports for date/time columns; exposed-core alone does not.
     implementation("org.jetbrains.exposed:exposed-java-time:0.61.0")
 {%- elif driver == "r2dbc" and engine == "postgresql" %}
-    implementation("org.postgresql:r2dbc-postgresql:1.0.7.RELEASE")
+    implementation("org.postgresql:r2dbc-postgresql:1.1.3.RELEASE")
 {%- elif driver == "r2dbc" and (engine == "mysql" or engine == "mariadb") %}
-    implementation("io.asyncer:r2dbc-mysql:1.3.1")
+    implementation("io.asyncer:r2dbc-mysql:1.4.3")
 {%- elif driver == "r2dbc" %}
     // No java-r2dbc-sqlite/kotlin-r2dbc-sqlite project exists: there is no
     // io.r2dbc:r2dbc-sqlite artifact on Maven Central. See board #212.
 {%- elif engine == "postgresql" %}
-    implementation("org.postgresql:postgresql:42.7.12")
+    implementation("org.postgresql:postgresql:42.7.13")
 {%- elif engine == "mysql" or engine == "mariadb" %}
-    implementation("com.mysql:mysql-connector-j:9.0.0")
+    implementation("com.mysql:mysql-connector-j:26.7.0")
 {%- elif engine == "sqlite" %}
-    implementation("org.xerial:sqlite-jdbc:3.45.1.0")
+    implementation("org.xerial:sqlite-jdbc:3.53.4.0")
 {%- elif engine == "duckdb" %}
     implementation("org.duckdb:duckdb_jdbc:1.5.5.1")
 {%- elif engine == "oracle" %}
-    implementation("com.oracle.database.jdbc:ojdbc11:23.4.0.24.05")
+    implementation("com.oracle.database.jdbc:ojdbc11:23.26.3.0.0")
 {%- elif engine == "mssql" %}
-    implementation("com.microsoft.sqlserver:mssql-jdbc:12.4.1.jre11")
+    implementation("com.microsoft.sqlserver:mssql-jdbc:13.6.0.jre11")
 {%- elif engine == "snowflake" %}
-    implementation("net.snowflake:snowflake-jdbc:4.0.2")
+    implementation("net.snowflake:snowflake-jdbc:4.4.0")
 {%- elif engine == "redshift" %}
-    implementation("org.postgresql:postgresql:42.7.12")
+    implementation("org.postgresql:postgresql:42.7.13")
 {%- endif %}
 {%- if driver == "r2dbc" %}
     // The generated Queries.kt calls kotlinx.coroutines.reactive.awaitFirst /
     // awaitFirstOrNull / asFlow on the Mono/Flux the r2dbc driver returns --
     // see kotlin_r2dbc.rs's non-extension-function code path, which this
     // project's scythe.toml selects by leaving extension_functions unset.
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactive:1.9.0")
-    implementation("io.projectreactor:reactor-core:3.7.4")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactive:1.11.0")
+    implementation("io.projectreactor:reactor-core:3.8.7")
     // The blocking JDBC driver as well, and not by accident: R2DBC has no way
     // to run a multi-statement DDL script, so the harness sets the schema up
     // over java.sql.DriverManager before any reactive code runs. Without this
     // the project compiles and then dies at run time with "No suitable driver
     // found for jdbc:...".
 {%- if engine == "postgresql" %}
-    implementation("org.postgresql:postgresql:42.7.12")
+    implementation("org.postgresql:postgresql:42.7.13")
 {%- elif engine == "mysql" or engine == "mariadb" %}
-    implementation("com.mysql:mysql-connector-j:9.0.0")
+    implementation("com.mysql:mysql-connector-j:26.7.0")
 {%- endif %}
 {%- endif %}
 }

@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm") version "2.1.20"
+    kotlin("jvm") version "2.4.20"
     application
 }
 
@@ -11,20 +11,20 @@ repositories {
 }
 
 dependencies {
-    implementation("org.postgresql:r2dbc-postgresql:1.0.7.RELEASE")
+    implementation("org.postgresql:r2dbc-postgresql:1.1.3.RELEASE")
     // The generated Queries.kt calls kotlinx.coroutines.reactive.awaitFirst /
     // awaitFirstOrNull / asFlow on the Mono/Flux the r2dbc driver returns --
     // see kotlin_r2dbc.rs's non-extension-function code path, which this
     // project's scythe.toml selects by leaving extension_functions unset.
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactive:1.9.0")
-    implementation("io.projectreactor:reactor-core:3.7.4")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactive:1.11.0")
+    implementation("io.projectreactor:reactor-core:3.8.7")
     // The blocking JDBC driver as well, and not by accident: R2DBC has no way
     // to run a multi-statement DDL script, so the harness sets the schema up
     // over java.sql.DriverManager before any reactive code runs. Without this
     // the project compiles and then dies at run time with "No suitable driver
     // found for jdbc:...".
-    implementation("org.postgresql:postgresql:42.7.12")
+    implementation("org.postgresql:postgresql:42.7.13")
 }
 
 application {

@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm") version "2.1.20"
+    kotlin("jvm") version "2.4.20"
     application
 }
 
@@ -11,7 +11,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.oracle.database.jdbc:ojdbc11:23.4.0.24.05")
+    implementation("com.oracle.database.jdbc:ojdbc11:23.26.3.0.0")
 }
 
 application {

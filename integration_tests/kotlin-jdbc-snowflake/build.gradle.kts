@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm") version "2.1.20"
+    kotlin("jvm") version "2.4.20"
     application
 }
 
@@ -11,7 +11,7 @@ repositories {
 }
 
 dependencies {
-    implementation("net.snowflake:snowflake-jdbc:4.0.2")
+    implementation("net.snowflake:snowflake-jdbc:4.4.0")
 }
 
 application {

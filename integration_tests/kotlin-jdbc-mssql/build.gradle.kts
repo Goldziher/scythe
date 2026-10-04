@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm") version "2.1.20"
+    kotlin("jvm") version "2.4.20"
     application
 }
 
@@ -11,7 +11,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.microsoft.sqlserver:mssql-jdbc:12.4.1.jre11")
+    implementation("com.microsoft.sqlserver:mssql-jdbc:13.6.0.jre11")
 }
 
 application {

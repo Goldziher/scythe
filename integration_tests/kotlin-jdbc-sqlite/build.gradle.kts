@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm") version "2.1.20"
+    kotlin("jvm") version "2.4.20"
     application
 }
 
@@ -11,7 +11,7 @@ repositories {
 }
 
 dependencies {
-    implementation("org.xerial:sqlite-jdbc:3.45.1.0")
+    implementation("org.xerial:sqlite-jdbc:3.53.4.0")
 }
 
 application {

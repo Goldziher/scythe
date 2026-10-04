@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm") version "2.1.20"
+    kotlin("jvm") version "2.4.20"
     application
 }
 
@@ -11,7 +11,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.mysql:mysql-connector-j:9.0.0")
+    implementation("com.mysql:mysql-connector-j:26.7.0")
 }
 
 application {
