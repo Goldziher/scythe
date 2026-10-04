@@ -1079,6 +1079,7 @@ mod tests {
             source
                 .lines()
                 .filter(|line| line.starts_with("import org.jetbrains.exposed."))
+                .map(str::to_owned)
                 .collect::<Vec<_>>()
         };
 
