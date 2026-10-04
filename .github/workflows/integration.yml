@@ -1199,7 +1199,7 @@ jobs:
       - run: pip install uv
       # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
       # release cannot change the answer under one and not the other. No
-      # `runtime` input: `actions/setup-node` above already provides node 22.
+      # `runtime` input: `actions/setup-node` above already provides node 24.
       # `install: false` because there is no root package.json -- each project
       # below runs its own `pnpm install`.
       - uses: pnpm/setup@v3
