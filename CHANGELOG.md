@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-04
+
+### Changed
+
+- Upgraded workspace dependencies and integration fixtures across the supported language backends,
+  including Snowflake, Exposed, and the TypeScript, .NET, Elixir, Ruby, and JVM drivers.
+- Updated release toolchain setup and expanded release-canary coverage for wrapper dispatch.
+
+### Fixed
+
+- Audit treats SQL parse gaps as operational failures even when a rule is disabled, filtered, or
+  invoked with `--exit-zero`.
+- Native Cargo is used for macOS release targets, and generated Kotlin Exposed fixture output and
+  import assertions are synchronized with the upgraded driver.
+
 ## [0.18.2] - 2026-09-23
 
 ### Fixed
