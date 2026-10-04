@@ -110,13 +110,21 @@ pub fn run_audit(opts: RunAuditOpts) -> Result<(), Box<dyn std::error::Error>> {
         )?);
     }
 
+    let parse_failure_count = findings.iter().filter(|f| f.rule_id == "SC-PARSE01").count();
+
     if let Some(floor) = severity_floor {
         findings.retain(|f| f.severity >= floor);
     }
 
     let mut out: Box<dyn Write> = open_output(opts.output.as_deref())?;
     emit_findings(format, TOOL_NAME, TOOL_VERSION, &findings, out.as_mut())?;
-    out.flush().ok();
+    out.flush()?;
+
+    if parse_failure_count > 0 {
+        return Err(
+            format!("audit could not parse {parse_failure_count} statement(s); the audit is incomplete").into(),
+        );
+    }
 
     let error_count = findings
         .iter()

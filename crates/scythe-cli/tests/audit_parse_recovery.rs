@@ -112,6 +112,49 @@ fn audit_unparseable_statement_honours_configured_severity() {
     );
 }
 
+#[test]
+fn audit_parse_failure_is_operational_even_when_finding_is_disabled() {
+    for configured_severity in ["off", "warn"] {
+        let dir = TempDir::new().unwrap();
+        let sql_path = dir.path().join("bad.sql");
+        std::fs::write(
+            &sql_path,
+            "CREATE ROLE planted_role;\nDO $body$ BEGIN SELECT 1; END $body$;\n",
+        )
+        .unwrap();
+        let config_path = dir.path().join("scythe.toml");
+        std::fs::write(
+            &config_path,
+            format!("[lint.rules]\n\"SC-PARSE01\" = \"{configured_severity}\"\n"),
+        )
+        .unwrap();
+
+        let output = scythe_bin()
+            .args([
+                "audit",
+                "--config",
+                config_path.to_str().unwrap(),
+                "--format",
+                "json",
+                "--severity",
+                "error",
+                "--exit-zero",
+                sql_path.to_str().unwrap(),
+            ])
+            .output()
+            .expect("run scythe audit");
+
+        assert_eq!(output.status.code(), Some(1), "{configured_severity}");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let _: serde_json::Value = serde_json::from_str(&stdout).expect("audit report remains valid JSON");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("audit could not parse") && stderr.contains("the audit is incomplete"),
+            "stderr: {stderr}"
+        );
+    }
+}
+
 /// Negative control: a file with no parse failures at all must behave
 /// exactly as before -- every statement's findings reported, exit non-zero
 /// on a real finding.
