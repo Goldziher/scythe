@@ -1,27 +1,27 @@
 // scythe:provenance v=0.18.2 backend=kotlin-exposed engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:861cdfc5df3ece62 options=opt1:cbf29ce484222325
 package generated
 
-import org.jetbrains.exposed.dao.id.IntIdTable
-import org.jetbrains.exposed.dao.id.LongIdTable
-import org.jetbrains.exposed.dao.id.UUIDTable
-import org.jetbrains.exposed.sql.BinaryColumnType
-import org.jetbrains.exposed.sql.BooleanColumnType
-import org.jetbrains.exposed.sql.ByteColumnType
-import org.jetbrains.exposed.sql.DecimalColumnType
-import org.jetbrains.exposed.sql.IColumnType
-import org.jetbrains.exposed.sql.DoubleColumnType
-import org.jetbrains.exposed.sql.FloatColumnType
-import org.jetbrains.exposed.sql.IntegerColumnType
-import org.jetbrains.exposed.sql.LongColumnType
-import org.jetbrains.exposed.sql.ShortColumnType
-import org.jetbrains.exposed.sql.TextColumnType
-import org.jetbrains.exposed.sql.UUIDColumnType
-import org.jetbrains.exposed.sql.javatime.JavaLocalDateColumnType
-import org.jetbrains.exposed.sql.javatime.JavaLocalDateTimeColumnType
-import org.jetbrains.exposed.sql.javatime.JavaLocalTimeColumnType
-import org.jetbrains.exposed.sql.javatime.JavaOffsetDateTimeColumnType
-import org.jetbrains.exposed.sql.statements.StatementType
-import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.v1.core.dao.id.IntIdTable
+import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
+import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
+import org.jetbrains.exposed.v1.core.BinaryColumnType
+import org.jetbrains.exposed.v1.core.BooleanColumnType
+import org.jetbrains.exposed.v1.core.ByteColumnType
+import org.jetbrains.exposed.v1.core.DecimalColumnType
+import org.jetbrains.exposed.v1.core.IColumnType
+import org.jetbrains.exposed.v1.core.DoubleColumnType
+import org.jetbrains.exposed.v1.core.FloatColumnType
+import org.jetbrains.exposed.v1.core.IntegerColumnType
+import org.jetbrains.exposed.v1.core.LongColumnType
+import org.jetbrains.exposed.v1.core.ShortColumnType
+import org.jetbrains.exposed.v1.core.TextColumnType
+import org.jetbrains.exposed.v1.core.java.UUIDColumnType
+import org.jetbrains.exposed.v1.javatime.JavaLocalDateColumnType
+import org.jetbrains.exposed.v1.javatime.JavaLocalDateTimeColumnType
+import org.jetbrains.exposed.v1.javatime.JavaLocalTimeColumnType
+import org.jetbrains.exposed.v1.javatime.JavaOffsetDateTimeColumnType
+import org.jetbrains.exposed.v1.core.statements.StatementType
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 
 
 enum class UserStatus(val value: String) {
@@ -540,4 +540,3 @@ fun getUserOrdersAsJson(id: Int): GetUserOrdersAsJsonRow =
             }
         } ?: throw NoSuchElementException("getUserOrdersAsJson: no rows returned")
     }
-

@@ -3,9 +3,9 @@ import java.math.BigDecimal
 import java.nio.file.Path
 import kotlin.io.path.readText
 import kotlin.system.exitProcess
-import org.jetbrains.exposed.sql.Database
-import org.jetbrains.exposed.sql.statements.StatementType
-import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.core.statements.StatementType
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 
 // Exposed is a DSL, not a driver, and that changes the harness shape: a
 // generated query function takes no Connection. It opens its own

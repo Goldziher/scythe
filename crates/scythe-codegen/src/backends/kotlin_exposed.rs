@@ -426,27 +426,27 @@ impl CodegenBackend for KotlinExposedBackend {
         // fails with "Unresolved reference 'generated'". java_r2dbc and kotlin_r2dbc shipped with
         // the same omission; it stays invisible until something actually imports the output.
         "package generated\n\n\
-         import org.jetbrains.exposed.dao.id.IntIdTable\n\
-         import org.jetbrains.exposed.dao.id.LongIdTable\n\
-         import org.jetbrains.exposed.dao.id.UUIDTable\n\
-         import org.jetbrains.exposed.sql.BinaryColumnType\n\
-         import org.jetbrains.exposed.sql.BooleanColumnType\n\
-         import org.jetbrains.exposed.sql.ByteColumnType\n\
-         import org.jetbrains.exposed.sql.DecimalColumnType\n\
-         import org.jetbrains.exposed.sql.IColumnType\n\
-         import org.jetbrains.exposed.sql.DoubleColumnType\n\
-         import org.jetbrains.exposed.sql.FloatColumnType\n\
-         import org.jetbrains.exposed.sql.IntegerColumnType\n\
-         import org.jetbrains.exposed.sql.LongColumnType\n\
-         import org.jetbrains.exposed.sql.ShortColumnType\n\
-         import org.jetbrains.exposed.sql.TextColumnType\n\
-         import org.jetbrains.exposed.sql.UUIDColumnType\n\
-         import org.jetbrains.exposed.sql.javatime.JavaLocalDateColumnType\n\
-         import org.jetbrains.exposed.sql.javatime.JavaLocalDateTimeColumnType\n\
-         import org.jetbrains.exposed.sql.javatime.JavaLocalTimeColumnType\n\
-         import org.jetbrains.exposed.sql.javatime.JavaOffsetDateTimeColumnType\n\
-         import org.jetbrains.exposed.sql.statements.StatementType\n\
-         import org.jetbrains.exposed.sql.transactions.transaction\n"
+         import org.jetbrains.exposed.v1.core.dao.id.IntIdTable\n\
+         import org.jetbrains.exposed.v1.core.dao.id.LongIdTable\n\
+         import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable\n\
+         import org.jetbrains.exposed.v1.core.BinaryColumnType\n\
+         import org.jetbrains.exposed.v1.core.BooleanColumnType\n\
+         import org.jetbrains.exposed.v1.core.ByteColumnType\n\
+         import org.jetbrains.exposed.v1.core.DecimalColumnType\n\
+         import org.jetbrains.exposed.v1.core.IColumnType\n\
+         import org.jetbrains.exposed.v1.core.DoubleColumnType\n\
+         import org.jetbrains.exposed.v1.core.FloatColumnType\n\
+         import org.jetbrains.exposed.v1.core.IntegerColumnType\n\
+         import org.jetbrains.exposed.v1.core.LongColumnType\n\
+         import org.jetbrains.exposed.v1.core.ShortColumnType\n\
+         import org.jetbrains.exposed.v1.core.TextColumnType\n\
+         import org.jetbrains.exposed.v1.core.java.UUIDColumnType\n\
+         import org.jetbrains.exposed.v1.javatime.JavaLocalDateColumnType\n\
+         import org.jetbrains.exposed.v1.javatime.JavaLocalDateTimeColumnType\n\
+         import org.jetbrains.exposed.v1.javatime.JavaLocalTimeColumnType\n\
+         import org.jetbrains.exposed.v1.javatime.JavaOffsetDateTimeColumnType\n\
+         import org.jetbrains.exposed.v1.core.statements.StatementType\n\
+         import org.jetbrains.exposed.v1.jdbc.transactions.transaction\n"
             .to_string()
     }
 
@@ -1069,6 +1069,26 @@ mod tests {
 
     use super::KotlinExposedBackend;
     use crate::backend_trait::CodegenBackend;
+
+    #[test]
+    fn generated_fixture_uses_exposed_v1_imports() {
+        let backend = KotlinExposedBackend::new("postgresql").unwrap();
+        let header = backend.file_header();
+        let fixture = include_str!("../../../../integration_tests/kotlin-exposed/src/main/kotlin/generated/queries.kt");
+        let imports = |source: &str| {
+            source
+                .lines()
+                .filter(|line| line.starts_with("import org.jetbrains.exposed."))
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(imports(&header), imports(fixture));
+        assert!(header.contains("import org.jetbrains.exposed.v1.core.java.UUIDColumnType"));
+        assert!(header.contains("import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable"));
+        assert!(header.contains("import org.jetbrains.exposed.v1.jdbc.transactions.transaction"));
+        assert!(!header.contains("org.jetbrains.exposed.sql."));
+        assert!(!header.contains("org.jetbrains.exposed.dao."));
+    }
 
     fn make_grouped_query() -> AnalyzedQuery {
         let parent_cols = vec![
