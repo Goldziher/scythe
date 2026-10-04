@@ -20,8 +20,8 @@ defmodule ScytheIntegrationTest.MixProject do
 
   defp deps do
     [
-      {:myxql, "~> 0.7"},
-      {:decimal, "~> 2.0"}
+      {:myxql, "~> 0.9.0"},
+      {:decimal, "~> 3.1"}
     ]
   end
 end

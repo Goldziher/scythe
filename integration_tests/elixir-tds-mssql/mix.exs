@@ -21,7 +21,7 @@ defmodule ScytheIntegrationTest.MixProject do
   defp deps do
     [
       {:tds, "~> 2.3"},
-      {:decimal, "~> 2.0"}
+      {:decimal, "~> 3.1"}
     ]
   end
 end

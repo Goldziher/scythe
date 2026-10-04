@@ -20,8 +20,8 @@ defmodule ScytheIntegrationTest.MixProject do
 
   defp deps do
     [
-      {:postgrex, "~> 0.19"},
-      {:decimal, "~> 2.0"}
+      {:postgrex, "~> 0.22.4"},
+      {:decimal, "~> 3.1"}
     ]
   end
 end
