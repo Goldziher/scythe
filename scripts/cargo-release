@@ -14,4 +14,21 @@ if [[ "$current_open_files" != "unlimited" && "$current_open_files" -lt "$REQUIR
   exit 1
 fi
 
+if [[ "${1:-}" == "zigbuild" && "$(uname -s)" == "Darwin" ]]; then
+  args=("$@")
+  for ((i = 1; i < ${#args[@]}; i++)); do
+    target=""
+    if [[ "${args[i]}" == --target=* ]]; then
+      target="${args[i]#--target=}"
+    elif [[ "${args[i]}" == "--target" && $((i + 1)) -lt ${#args[@]} ]]; then
+      target="${args[i + 1]}"
+    fi
+
+    if [[ "$target" == *-apple-darwin ]]; then
+      args[0]="build"
+      exec cargo "${args[@]}"
+    fi
+  done
+fi
+
 exec cargo "$@"
