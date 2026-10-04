@@ -7,24 +7,24 @@
 		"test": "tsx test.ts",
 		"typecheck": "tsc --noEmit"
 	},
-	"dependencies": {
+	"dependencies": {% if driver == "node-sqlite" or (driver == "pg" and options.structs_only == "true" and options.row_type != "zod") %}{}{% else %}{
 {%- if driver == "pg" and options.structs_only == "true" %}
 {%- if options.row_type == "zod" %}
 		"zod": "^3.25.76"
 {%- endif %}
 {%- elif driver == "pg" %}
-		"pg": "^8.22.0"{% if options.row_type == "zod" %},
+		"pg": "^8.23.1"{% if options.row_type == "zod" %},
 		"zod": "^3.25.76"{% endif %}
 {%- elif driver == "kysely-pg" %}
 		"kysely": "^0.28.17",
-		"pg": "^8.22.0"
+		"pg": "^8.23.1"
 {%- elif driver == "postgres" %}
 		"postgres": "^3.4.9"
 {%- elif driver == "mysql2" %}
-		"mysql2": "^3.23.2"
+		"mysql2": "^3.24.5"
 {%- elif driver == "kysely-mysql2" or driver == "kysely-mariadb" %}
 		"kysely": "^0.28.17",
-		"mysql2": "^3.23.2"
+		"mysql2": "^3.24.5"
 {%- elif driver == "better-sqlite3" %}
 		"better-sqlite3": "^12.11.1"
 {%- elif driver == "kysely-sqlite" %}
@@ -33,31 +33,36 @@
 {%- elif driver == "wasm-sqlite" %}
 		"@sqlite.org/sqlite-wasm": "^3.53.0-build1"
 {%- elif driver == "duckdb" %}
-		"@duckdb/node-api": "^1.5.5-r.4"
+		"@duckdb/node-api": "^1.5.5-r.5"
 {%- elif driver == "oracledb" %}
 		"oracledb": "^6.10.0"
 {%- elif driver == "mssql" %}
-		"mssql": "^11.0.1"
+		"mssql": "^11.0.2"
 {%- elif driver == "kysely-mssql" %}
 		"kysely": "^0.28.17",
 		"tarn": "^3.1.2",
-		"tedious": "^20.0.0"
+		"tedious": "^20.3.3"
 {%- elif driver == "snowflake" %}
 		"snowflake-sdk": "^2.4.3"
 {%- endif %}
-	},
+	}{% endif %},
 	"devDependencies": {
 {%- if (driver == "pg" or driver == "kysely-pg") and options.structs_only != "true" %}
-		"@types/pg": "^8.20.4",
+		"@types/node": "^26.6.4",
+		"@types/pg": "^8.23.1",
 {%- elif driver == "better-sqlite3" or driver == "kysely-sqlite" %}
 		"@types/better-sqlite3": "^7.6.13",
+		"@types/node": "^26.6.4",
 {%- elif driver == "mssql" %}
 		"@types/mssql": "^12.3.0",
+		"@types/node": "^26.6.4",
 {%- elif driver == "oracledb" %}
-		"@types/oracledb": "^7.0.2",
+		"@types/node": "^26.6.4",
+		"@types/oracledb": "^7.0.3",
+{%- else %}
+		"@types/node": "^26.6.4",
 {%- endif %}
-		"@types/node": "^26.1.2",
-		"tsx": "^4.23.7",
+		"tsx": "^4.23.15",
 		"typescript": "^5.9.3"
 	}
 }

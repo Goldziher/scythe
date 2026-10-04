@@ -9,12 +9,12 @@
 	},
 	"dependencies": {
 		"kysely": "^0.28.17",
-		"pg": "^8.22.0"
+		"pg": "^8.23.1"
 	},
 	"devDependencies": {
-		"@types/pg": "^8.20.4",
-		"@types/node": "^26.1.2",
-		"tsx": "^4.23.7",
+		"@types/node": "^26.6.4",
+		"@types/pg": "^8.23.1",
+		"tsx": "^4.23.15",
 		"typescript": "^5.9.3"
 	}
 }

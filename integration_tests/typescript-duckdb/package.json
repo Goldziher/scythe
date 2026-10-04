@@ -8,11 +8,11 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@duckdb/node-api": "^1.5.5-r.4"
+		"@duckdb/node-api": "^1.5.5-r.5"
 	},
 	"devDependencies": {
-		"@types/node": "^26.1.2",
-		"tsx": "^4.23.7",
+		"@types/node": "^26.6.4",
+		"tsx": "^4.23.15",
 		"typescript": "^5.9.3"
 	}
 }
