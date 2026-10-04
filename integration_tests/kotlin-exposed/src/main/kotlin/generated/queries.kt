@@ -540,3 +540,4 @@ fun getUserOrdersAsJson(id: Int): GetUserOrdersAsJsonRow =
             }
         } ?: throw NoSuchElementException("getUserOrdersAsJson: no rows returned")
     }
+
