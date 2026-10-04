@@ -12,11 +12,11 @@
     {%- elif engine == "mysql" or engine == "mariadb" %}
       <PackageReference Include="MySqlConnector" Version="2.6.2" />
     {%- elif engine == "sqlite" %}
-      <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
+      <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
     {%- elif engine == "mssql" %}
       <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
     {%- elif driver == "oracle" %}
-      <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.4.2" />
+      <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.26.301" />
     {%- elif engine == "snowflake" %}
       <PackageReference Include="Snowflake.Data" Version="6.3.0" />
     {%- elif engine == "redshift" %}
