@@ -8,13 +8,13 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"kysely": "^0.28.17",
+		"kysely": "^0.29.6",
 		"pg": "^8.23.1"
 	},
 	"devDependencies": {
 		"@types/node": "^26.6.4",
 		"@types/pg": "^8.23.1",
 		"tsx": "^4.23.15",
-		"typescript": "^5.9.3"
+		"typescript": "^7.0.2"
 	}
 }

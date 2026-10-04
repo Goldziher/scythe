@@ -8,12 +8,12 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"mssql": "^11.0.2"
+		"mssql": "^12.7.2"
 	},
 	"devDependencies": {
 		"@types/mssql": "^12.3.0",
 		"@types/node": "^26.6.4",
 		"tsx": "^4.23.15",
-		"typescript": "^5.9.3"
+		"typescript": "^7.0.2"
 	}
 }

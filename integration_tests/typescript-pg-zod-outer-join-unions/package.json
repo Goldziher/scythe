@@ -9,12 +9,12 @@
 	},
 	"dependencies": {
 		"pg": "^8.23.1",
-		"zod": "^3.25.76"
+		"zod": "^4.6.5"
 	},
 	"devDependencies": {
 		"@types/node": "^26.6.4",
 		"@types/pg": "^8.23.1",
 		"tsx": "^4.23.15",
-		"typescript": "^5.9.3"
+		"typescript": "^7.0.2"
 	}
 }
