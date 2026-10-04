@@ -21,7 +21,7 @@ tasks:
   release:canary:config:
     desc: Validate release targets and bundled-DuckDB binary-size limits
     cmds:
-      - python3 -m unittest scripts/test_release_canary.py
+      - python3 -m unittest scripts/test_release_canary.py scripts/test_cargo_release.py
       - python3 scripts/release-canary.py validate
 
   release:canary:matrix:
