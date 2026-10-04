@@ -8,19 +8,19 @@
 
   <ItemGroup>
     {%- if engine == "postgresql" %}
-      <PackageReference Include="Npgsql" Version="8.0.6" />
+      <PackageReference Include="Npgsql" Version="10.0.3" />
     {%- elif engine == "mysql" or engine == "mariadb" %}
-      <PackageReference Include="MySqlConnector" Version="2.3.7" />
+      <PackageReference Include="MySqlConnector" Version="2.6.2" />
     {%- elif engine == "sqlite" %}
       <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
     {%- elif engine == "mssql" %}
-      <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.0" />
+      <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
     {%- elif driver == "oracle" %}
       <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.4.2" />
     {%- elif engine == "snowflake" %}
-      <PackageReference Include="Snowflake.Data" Version="3.0.18" />
+      <PackageReference Include="Snowflake.Data" Version="6.3.0" />
     {%- elif engine == "redshift" %}
-      <PackageReference Include="Npgsql" Version="8.0.6" />
+      <PackageReference Include="Npgsql" Version="10.0.3" />
     {%- endif %}
   </ItemGroup>
 </Project>
