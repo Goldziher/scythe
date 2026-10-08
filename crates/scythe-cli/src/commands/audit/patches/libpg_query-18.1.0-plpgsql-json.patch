@@ -1,0 +1,51 @@
+// ~keep: Pinned SCYTHE patch for libpg_query 18.1.0. Upstream PostgreSQL 18's PL/pgSQL
+// ~keep JSON serializer corrupts trigger-function output and drops fields scythe's
+// ~keep cluster-scope gate must classify. Mirrors constructive-io/libpg_query#1 and
+// ~keep pganalyze/libpg_query#337; remove only when an upstream release passes the three
+// ~keep controls in test_pg_parser_release_gate.sh without it.
+diff --git a/src/pg_query_json_plpgsql.c b/src/pg_query_json_plpgsql.c
+index 69c77b6..af8aa86 100644
+--- a/src/pg_query_json_plpgsql.c
++++ b/src/pg_query_json_plpgsql.c
+@@ -506,7 +506,7 @@ dump_return(StringInfo out, PLpgSQL_stmt_return *node)
+ 
+ 	WRITE_INT_FIELD(lineno, lineno, lineno);
+ 	WRITE_EXPR_FIELD(expr);
+-	//WRITE_INT_FIELD(retvarno);
++	WRITE_INT_FIELD(retvarno, retvarno, retvarno);
+ }
+ 
+ static void
+@@ -516,7 +516,7 @@ dump_return_next(StringInfo out, PLpgSQL_stmt_return_next *node)
+ 
+ 	WRITE_INT_FIELD(lineno, lineno, lineno);
+ 	WRITE_EXPR_FIELD(expr);
+-	//WRITE_INT_FIELD(retvarno);
++	WRITE_INT_FIELD(retvarno, retvarno, retvarno);
+ }
+ 
+ static void
+@@ -660,6 +660,9 @@ dump_function(StringInfo out, PLpgSQL_function *node)
+ 			case PLPGSQL_DTYPE_RECFIELD:
+ 				dump_record_field(out, (PLpgSQL_recfield *) d);
+ 				break;
++			case PLPGSQL_DTYPE_PROMISE:
++				dump_var(out, (PLpgSQL_var *) d);
++				break;
+ 			default:
+ 				elog(WARNING, "could not dump unrecognized dtype: %d",
+ 					 (int) d->dtype);
+diff --git a/src/postgres/src_backend_catalog_namespace.c b/src/postgres/src_backend_catalog_namespace.c
+index 8eecd43..6b4ee11 100644
+--- a/src/postgres/src_backend_catalog_namespace.c
++++ b/src/postgres/src_backend_catalog_namespace.c
+@@ -959,7 +959,8 @@ LookupExplicitNamespace(const char *nspname, bool missing_ok)
+     if (strcmp(nspname, "public") == 0)
+         return PG_PUBLIC_NAMESPACE;
+ 
+-    elog(ERROR, "Not implemented (LookupExplicitNamespace only supports pg_catalog and public)");
++    /* ~keep: SCYTHE PATCH -- treat unknown schemas as public so schema-qualified PL/pgSQL types compile (libpg_query#337). */
++    return PG_PUBLIC_NAMESPACE;
+ 
+ 	/*namespaceId = get_namespace_oid(nspname, missing_ok);
+ 	if (missing_ok && !OidIsValid(namespaceId))
