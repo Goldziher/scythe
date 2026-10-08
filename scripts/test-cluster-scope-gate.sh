@@ -16,7 +16,10 @@ fi
 scythe=$1
 parser_dir=$2
 pg_major=${3:-18}
-[ -x "$scythe" ] || { echo "scythe binary not executable: $scythe" >&2; exit 1; }
+[ -x "$scythe" ] || {
+  echo "scythe binary not executable: $scythe" >&2
+  exit 1
+}
 
 scratch=$(mktemp -d)
 [ -n "$scratch" ] && [ -d "$scratch" ] || exit 1

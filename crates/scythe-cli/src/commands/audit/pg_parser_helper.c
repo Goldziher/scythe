@@ -64,8 +64,8 @@ static int write_ast(const char *ast) {
         return 1;
     }
     if (printf("{\"protocol\":1,\"pg_major\":%s,\"pg_version\":\"%s\",\"parser_release\":\"%s\",\"ast\":",
-               PG_MAJORVERSION, PG_VERSION, SCYTHE_LIBPG_QUERY_RELEASE) < 0 ||
-        fputs(ast, stdout) == EOF || fputs("}\n", stdout) == EOF || fflush(stdout) == EOF) {
+        PG_MAJORVERSION, PG_VERSION, SCYTHE_LIBPG_QUERY_RELEASE) < 0 ||
+    fputs(ast, stdout) == EOF || fputs("}\n", stdout) == EOF || fflush(stdout) == EOF) {
         fputs("parser helper: failed to write AST\n", stderr);
         return 1;
     }
@@ -75,7 +75,7 @@ static int write_ast(const char *ast) {
 int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "--version") == 0) {
         printf("scythe-pg%s-parser protocol/1 libpg_query/%s PostgreSQL/%s\n",
-               PG_MAJORVERSION, SCYTHE_LIBPG_QUERY_RELEASE, PG_VERSION);
+            PG_MAJORVERSION, SCYTHE_LIBPG_QUERY_RELEASE, PG_VERSION);
         return fflush(stdout) == EOF ? 1 : 0;
     }
     if (argc > 2 || (argc == 2 && strcmp(argv[1], "--plpgsql") != 0)) {

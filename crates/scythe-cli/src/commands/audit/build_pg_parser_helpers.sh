@@ -21,10 +21,22 @@ target_os=host
 zig_target=""
 if [ -n "$rust_target" ]; then
   case "$rust_target" in
-  x86_64-unknown-linux-gnu) zig_target=x86_64-linux-gnu; target_os=linux ;;
-  aarch64-unknown-linux-gnu) zig_target=aarch64-linux-gnu; target_os=linux ;;
-  x86_64-apple-darwin) zig_target=x86_64-macos; target_os=macos ;;
-  aarch64-apple-darwin) zig_target=aarch64-macos; target_os=macos ;;
+  x86_64-unknown-linux-gnu)
+    zig_target=x86_64-linux-gnu
+    target_os=linux
+    ;;
+  aarch64-unknown-linux-gnu)
+    zig_target=aarch64-linux-gnu
+    target_os=linux
+    ;;
+  x86_64-apple-darwin)
+    zig_target=x86_64-macos
+    target_os=macos
+    ;;
+  aarch64-apple-darwin)
+    zig_target=aarch64-macos
+    target_os=macos
+    ;;
   x86_64-pc-windows-gnu)
     # ~keep Upstream libpg_query 15/18 does not build for windows-gnu: its vendored
     # ~keep PostgreSQL headers include POSIX socket headers the Windows libc lacks.
@@ -84,7 +96,6 @@ collect_licenses() {
   append_license "protobuf-c" "$source_dir/vendor/protobuf-c/LICENSE"
   append_license "xxHash" "$source_dir/vendor/xxhash/xxhash.h"
 }
-
 
 # A pinned patch is applied and its markers asserted, so a patch that silently
 # fails to apply (fuzzy match, reversed, wrong file) aborts the build instead of

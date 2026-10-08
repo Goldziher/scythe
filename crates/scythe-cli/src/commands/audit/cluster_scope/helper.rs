@@ -72,8 +72,11 @@ impl HelperSet {
 
     fn binary(&self, version: PgVersion) -> PathBuf {
         // ~keep Windows archives carry the helpers as .exe, so the lookup must too.
-        self.dir
-            .join(format!("scythe-pg{}-parser{}", version.major(), std::env::consts::EXE_SUFFIX))
+        self.dir.join(format!(
+            "scythe-pg{}-parser{}",
+            version.major(),
+            std::env::consts::EXE_SUFFIX
+        ))
     }
 
     /// Run the helper for `version`/`mode` over `sql` and validate the reply.
