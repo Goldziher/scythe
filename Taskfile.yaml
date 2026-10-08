@@ -41,6 +41,14 @@ tasks:
       - python3 scripts/release-canary.py validate --target "$RELEASE_CANARY_TARGET"
       - ./scripts/cargo-release zigbuild --release --package=scythe-cli --target "$RELEASE_CANARY_TARGET"
       - python3 scripts/release-canary.py check --target "$RELEASE_CANARY_TARGET" --target-dir "$CARGO_TARGET_DIR"
+      # ~keep The gate's parser helpers are part of every POSIX release archive, so
+      # ~keep the canary builds them per target too; a cross-compile break then fails
+      # ~keep CI rather than the tagged release. windows-gnu is skipped (see pg:parsers:all).
+      - |
+        case "$RELEASE_CANARY_TARGET" in
+        *windows*) echo "release-canary: skipping parser helpers for $RELEASE_CANARY_TARGET" >&2 ;;
+        *) sh crates/scythe-cli/src/commands/audit/build_pg_parser_helpers.sh "$CARGO_TARGET_DIR/pg-parsers/$RELEASE_CANARY_TARGET" "$RELEASE_CANARY_TARGET" ;;
+        esac
 
   release:canary:
     desc: Build and size-check all five bundled-DuckDB release targets
@@ -50,6 +58,41 @@ tasks:
         python3 scripts/release-canary.py targets | while IFS= read -r target; do
           task release:canary:target TARGET="$target"
         done
+
+  pg:parsers:
+    desc: Build the pinned PostgreSQL parser helpers for the host
+    cmds:
+      - sh crates/scythe-cli/src/commands/audit/build_pg_parser_helpers.sh target/pg-parser-helpers
+
+  pg:parsers:all:
+    desc: Build the pinned PostgreSQL parser helpers for every POSIX release target
+    cmds:
+      - |
+        python3 scripts/release-canary.py targets | while IFS= read -r target; do
+          case "$target" in
+          *windows*)
+            # ~keep Upstream libpg_query 15/18 includes POSIX socket headers that
+            # ~keep windows-gnu lacks, so the Windows archive carries a note instead
+            # ~keep of the helpers; the gate reports them unavailable there.
+            mkdir -p "dist/pg-parsers/$target"
+            printf '%s\n' \
+              'The PostgreSQL parser helpers are not built for windows-gnu: upstream' \
+              'libpg_query 15 and 18 include POSIX socket headers the Windows libc does' \
+              'not provide. scythe audit --cluster-scope reports the helpers as' \
+              'unavailable on this platform; run the gate on Linux or macOS.' \
+              >"dist/pg-parsers/$target/PARSER_HELPERS_UNAVAILABLE.txt"
+            continue
+            ;;
+          esac
+          sh crates/scythe-cli/src/commands/audit/build_pg_parser_helpers.sh "dist/pg-parsers/$target" "$target"
+        done
+
+  cluster-scope:test:
+    desc: Run the cluster-scope gate acceptance controls against the host helpers
+    cmds:
+      - task: pg:parsers
+      - cargo build -p scythe-cli
+      - sh scripts/test-cluster-scope-gate.sh target/debug/scythe target/pg-parser-helpers 18
 
   test:
     desc: Run all tests

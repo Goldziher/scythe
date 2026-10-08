@@ -3,6 +3,9 @@ version: 2
 before:
   hooks:
     - cargo fetch --locked
+    # ~keep The cluster-scope gate ships both pinned PostgreSQL grammars beside the
+    # ~keep binary; build them for every release target before GoReleaser archives.
+    - task pg:parsers:all
 
 builds:
   - builder: rust
@@ -26,6 +29,18 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
+    files:
+      # ~keep Both pinned grammars ship next to the binary so `scythe audit
+      # ~keep --cluster-scope` works from an extracted archive. The helpers are
+      # ~keep built only for the four POSIX targets: upstream libpg_query 15/18
+      # ~keep cannot be cross-compiled to windows-gnu (its vendored PostgreSQL
+      # ~keep headers include POSIX socket headers the Windows libc lacks), so the
+      # ~keep Windows directory carries a note instead and the gate reports the
+      # ~keep helpers unavailable there.
+      - src: "dist/pg-parsers/{{ .Target }}/*"
+        strip_parent: true
+      - src: "crates/scythe-cli/src/commands/audit/PARSER_PROTOCOL.md"
+        dst: .
 
 changelog:
   sort: asc

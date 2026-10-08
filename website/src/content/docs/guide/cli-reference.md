@@ -285,10 +285,14 @@ scythe audit [OPTIONS] [files...]
 | `--exit-zero` | false | Exit 0 even if error-severity findings are present (advisory CI gate) |
 | `-o, --output <PATH>` | (stdout) | Write reporter output to a file instead of stdout |
 | `--ignore-suppressions` | false | Disable inline `-- scythe-audit: ignore[...]` annotations |
+| `--cluster-scope` | false | Fail-closed cluster-scope gate for planned-schema files; requires explicit file arguments and the pinned parser helpers |
+| `--pg-version <MAJOR>` | `18` | PostgreSQL grammar for `--cluster-scope`: `15` or `18` |
 | `--dialect <DIALECT>` | `postgres` | SQL dialect for explicit-file mode (`postgres`, `mysql`, `sqlite`, `mssql`, `oracle`, `snowflake`) |
 | `files...` | (from config) | SQL files to audit directly |
 
 Exits with code 2 when any error-severity finding is present (unless `--exit-zero` is set). This is distinct from `scythe lint` exit code 1 so CI can tell apart lint failures from security failures.
+
+With `--cluster-scope`, findings are never suppressed: the command exits 2 on any finding regardless of `--severity` or `--exit-zero`, because a parse gap or unresolved dynamic SQL must not pass a migration gate. See the [cluster-scope gate](/scythe/guide/audit/#cluster-scope-gate).
 
 ### inspect
 

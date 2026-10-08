@@ -198,6 +198,24 @@ jobs:
       - name: Audit dependencies
         run: cargo deny --all-features check -D advisory-not-detected
 
+  cluster-scope:
+    name: Cluster-Scope Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: go-task/setup-task@v2
+        with:
+          version: 3.x
+      # The gate needs the pinned PostgreSQL parser helpers, which are built from
+      # source (and cached by the shared target dir). `cluster-scope:test` builds
+      # the host helpers, builds the CLI, then asserts every planted cluster-scoped
+      # statement is refused and every database-local one accepted -- with counts,
+      # so a matrix that examines nothing cannot pass.
+      - name: Build parser helpers and run the cluster-scope acceptance controls
+        run: task cluster-scope:test
+
   test:
     name: Test
     runs-on: ubuntu-latest

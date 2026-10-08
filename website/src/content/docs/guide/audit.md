@@ -28,6 +28,40 @@ Exit codes:
 | 1 | Configuration error (bad `scythe.toml`, missing files, malformed rule file) |
 | 2 | One or more error-severity findings — distinct from `scythe lint` so CI can tell them apart |
 
+## Cluster-scope gate
+
+`scythe audit --cluster-scope <file>...` is a fail-closed gate for planned PostgreSQL schema
+inputs, such as the synthesized desired schema a migration applies. It parses the input with a
+real, version-pinned PostgreSQL grammar — not sqlparser — and refuses, by default, every
+statement that is not proven database-local: role and membership, database, tablespace,
+subscription, parameter-privilege, `ALTER SYSTEM`, and shared-ownership writes.
+
+```bash
+# Gate a synthesized schema against the PostgreSQL 18 grammar (the default)
+scythe audit --cluster-scope --pg-version 18 desired-schema.sql
+
+# Machine-readable findings for CI
+scythe audit --cluster-scope --format json desired-schema.sql
+```
+
+Routine bodies (`DO`, `FUNCTION`, `PROCEDURE`) are inspected recursively, including statically
+recoverable `EXECUTE`/`format(...)`; unresolved dynamic SQL is refused rather than assumed local.
+Nothing is ever skipped silently: a parse gap, an uninspectable routine language, or an
+unresolved `EXECUTE` is a finding, and the command exits 2 on any finding regardless of
+`--severity` or `--exit-zero`. Findings carry stable codes:
+
+| Code | Meaning |
+|------|---------|
+| `SC-CLUSTER01` | Cluster-scoped statement (role, database, tablespace, subscription, parameter privilege, `ALTER SYSTEM`, shared ownership) |
+| `SC-CLUSTER02` | Statement kind outside the database-local allow-list |
+| `SC-CLUSTER03` | Dynamic SQL that could not be proven database-local |
+| `SC-CLUSTER04` | Statement or routine body that could not be inspected (fail closed) |
+
+The gate needs the pinned parser helpers (`scythe-pg15-parser`, `scythe-pg18-parser`), which ship
+beside the `scythe` binary in the Linux and macOS release archives. Point `SCYTHE_PG_PARSER_DIR`
+at their directory when running from a source build. Windows archives omit the helpers because
+upstream libpg_query cannot be cross-compiled to windows-gnu; run the gate on Linux or macOS.
+
 ## Rule catalog
 
 The shipped rules span four prefixes: `SC-SEC*` (12 rules), `SC-RLS*` (3 rules), `SC-MIG*` (19
