@@ -5,36 +5,36 @@
       "triple": "x86_64-unknown-linux-gnu",
       "binary": "scythe",
       "baseline_bytes": 32268576,
-      "observed_bundled_bytes": 63526648,
-      "max_bytes": 70254592
+      "observed_bundled_bytes": 71887992,
+      "max_bytes": 78615936
     },
     {
       "triple": "aarch64-unknown-linux-gnu",
       "binary": "scythe",
       "baseline_bytes": 28409384,
-      "observed_bundled_bytes": 58015248,
-      "max_bytes": 63963136
+      "observed_bundled_bytes": 65240208,
+      "max_bytes": 71188096
     },
     {
       "triple": "x86_64-apple-darwin",
       "binary": "scythe",
       "baseline_bytes": 36680176,
-      "observed_bundled_bytes": 74699756,
-      "max_bytes": 82837504
+      "observed_bundled_bytes": 86464732,
+      "max_bytes": 94602480
     },
     {
       "triple": "aarch64-apple-darwin",
       "binary": "scythe",
       "baseline_bytes": 34108064,
-      "observed_bundled_bytes": 72854944,
-      "max_bytes": 80740352
+      "observed_bundled_bytes": 81798208,
+      "max_bytes": 89683616
     },
     {
       "triple": "x86_64-pc-windows-gnu",
       "binary": "scythe.exe",
       "baseline_bytes": 37347840,
-      "observed_bundled_bytes": 68150272,
-      "max_bytes": 75497472
+      "observed_bundled_bytes": 77229568,
+      "max_bytes": 84576768
     }
   ]
 }
