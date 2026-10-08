@@ -1,4 +1,4 @@
-// scythe:provenance v=0.19.0 backend=kotlin-exposed engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:861cdfc5df3ece62 options=opt1:cbf29ce484222325
+// scythe:provenance v=0.20.0 backend=kotlin-exposed engine=postgresql schema=sch2:59e0edaa3ac94824 queries=q1:861cdfc5df3ece62 options=opt1:cbf29ce484222325
 package generated
 
 import org.jetbrains.exposed.v1.core.dao.id.IntIdTable

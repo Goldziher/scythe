@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-06
+
+### Added
+
+- `scythe audit --cluster-scope` gates PostgreSQL planned-schema inputs with a
+  real, version-pinned grammar (`--pg-version 15|18`, default 18) instead of a
+  hand-written scanner. It refuses, by default, every statement not proven
+  database-local: role and membership, database, tablespace, subscription,
+  parameter-privilege, `ALTER SYSTEM`, and shared-ownership writes.
+- Routine bodies (`DO`, `FUNCTION`, `PROCEDURE`) are inspected recursively,
+  including statically recoverable `EXECUTE`/`format(...)`; unresolved dynamic
+  SQL is refused rather than assumed local. Findings carry stable codes
+  (`SC-CLUSTER01`–`SC-CLUSTER04`) and can never be suppressed by `--severity` or
+  `--exit-zero`.
+- The pinned PostgreSQL parser helpers (`scythe-pg15-parser`,
+  `scythe-pg18-parser`), their provenance manifest, and third-party license
+  notices ship beside the `scythe` binary in the Linux and macOS release
+  archives. The PG18 helper is built from a pinned libpg_query 18.1.0 patch that
+  fixes three upstream PL/pgSQL JSON regressions (pganalyze/libpg_query#337).
+
+### Changed
+
+- Workspace versions and generated provenance headers move to 0.20.0.
+
 ## [0.19.0] - 2026-10-04
 
 ### Changed

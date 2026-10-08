@@ -2,6 +2,8 @@
 /target/
 **/*.rs.bk
 site/
+# GoReleaser output: release archives plus the per-target parser helpers
+/dist/
 .playwright-mcp/
 .ruff_cache/
 .mcp.json
@@ -67,7 +69,13 @@ erl_crash.dump
 
 # BEGIN ai-rulez (DO NOT EDIT - managed by ai-rulez)
 .ai-rulez/.generated-manifest.json
-.codex/
+.codex/agents/
+.codex/commands/
+.codex/plugins.json
+.codex/skills/
+.opencode/agents/
+.opencode/skills/
 AGENTS.md
 CLAUDE.md
+opencode.json
 # END ai-rulez
