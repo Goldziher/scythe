@@ -158,6 +158,16 @@ enum Commands {
         /// Disable inline `-- scythe-audit: ignore[...]` annotations
         #[arg(long)]
         ignore_suppressions: bool,
+        /// Fail closed on cluster-scoped PostgreSQL planned-schema statements
+        /// (role/membership, database, tablespace, subscription, parameter
+        /// privileges, ALTER SYSTEM, shared ownership). Inspects routine bodies
+        /// recursively and refuses unresolved dynamic SQL. Requires explicit
+        /// file arguments and the pinned parser helpers.
+        #[arg(long)]
+        cluster_scope: bool,
+        /// PostgreSQL grammar for --cluster-scope: 15 or 18 (default 18)
+        #[arg(long, value_name = "MAJOR")]
+        pg_version: Option<String>,
         /// SQL dialect for explicit-file mode (postgres|mysql|sqlite|mssql|oracle|snowflake)
         #[arg(long)]
         dialect: Option<String>,
@@ -262,6 +272,8 @@ fn main() {
             exit_zero,
             output,
             ignore_suppressions,
+            cluster_scope,
+            pg_version,
             dialect,
             files,
         } => commands::audit::run_audit(commands::audit::RunAuditOpts {
@@ -273,6 +285,8 @@ fn main() {
             exit_zero,
             output,
             ignore_suppressions,
+            cluster_scope,
+            pg_version,
             dialect,
             files,
         }),

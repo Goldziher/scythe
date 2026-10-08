@@ -11,6 +11,8 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
+mod cluster_scope;
+
 use scythe_core::analyzer::AnalyzedQuery;
 use scythe_core::catalog::Catalog;
 use scythe_core::dialect::SqlDialect;
@@ -41,6 +43,8 @@ pub struct RunAuditOpts {
     pub exit_zero: bool,
     pub output: Option<String>,
     pub ignore_suppressions: bool,
+    pub cluster_scope: bool,
+    pub pg_version: Option<String>,
     pub dialect: Option<String>,
     pub files: Vec<String>,
 }
@@ -70,6 +74,10 @@ pub fn run_audit(opts: RunAuditOpts) -> Result<(), Box<dyn std::error::Error>> {
         Some(raw) => Some(validate_audit_dialect(raw)?),
         None => None,
     };
+
+    if opts.cluster_scope {
+        return run_cluster_scope_gate(&opts, format);
+    }
 
     if opts.list_rules || opts.explain.is_some() {
         let registry = load_registry(&opts.config_path)?;
@@ -134,6 +142,75 @@ pub fn run_audit(opts: RunAuditOpts) -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(2);
     }
     Ok(())
+}
+
+/// Run the #269 fail-closed cluster-scope gate over explicit planned-schema files.
+///
+/// This is deliberately separate from the SQL lint/audit registry: it never
+/// consults rule severities, suppressions, `--severity`, or `--exit-zero`, so a
+/// parse gap or a cluster-scoped statement can never be turned green.
+fn run_cluster_scope_gate(opts: &RunAuditOpts, format: Format) -> Result<(), Box<dyn std::error::Error>> {
+    let version = match opts.pg_version.as_deref() {
+        Some(raw) => cluster_scope::helper::PgVersion::parse(raw)
+            .ok_or_else(|| format!("unknown --pg-version '{raw}' (expected 15|18)"))?,
+        None => cluster_scope::helper::PgVersion::default(),
+    };
+    if opts.files.is_empty() {
+        return Err("scythe audit --cluster-scope requires explicit planned-schema file(s)".into());
+    }
+
+    let report = cluster_scope::run(&opts.files, version)?;
+    let findings: Vec<Finding> = report
+        .findings
+        .iter()
+        .map(|finding| Finding {
+            file: finding.file.clone(),
+            query_name: None,
+            rule_id: finding.code.to_string(),
+            rule_name: Some("cluster-scope".to_string()),
+            rule_description: Some(cluster_scope_description(finding.code).to_string()),
+            severity: Severity::Error,
+            message: finding.message.clone(),
+            line: finding.line,
+            column: None,
+            cwe: Vec::new(),
+            source: Some("audit".to_string()),
+        })
+        .collect();
+
+    let mut out: Box<dyn Write> = open_output(opts.output.as_deref())?;
+    emit_findings(format, TOOL_NAME, TOOL_VERSION, &findings, out.as_mut())?;
+    out.flush()?;
+
+    if findings.is_empty() {
+        eprintln!(
+            "checked {} planned schema input(s), {} executable statement(s) (PostgreSQL {}.x); no cluster-scoped privilege statements",
+            report.inputs,
+            report.statements,
+            version.major()
+        );
+        return Ok(());
+    }
+
+    eprintln!(
+        "checked {} planned schema input(s), {} executable statement(s) (PostgreSQL {}.x); {} cluster-scope finding(s)",
+        report.inputs,
+        report.statements,
+        version.major(),
+        findings.len()
+    );
+    std::process::exit(2);
+}
+
+fn cluster_scope_description(code: &str) -> &'static str {
+    match code {
+        "SC-CLUSTER01" => {
+            "writes cluster-global shared state (role, database, tablespace, subscription, parameter privilege, ALTER SYSTEM, or shared ownership)"
+        }
+        "SC-CLUSTER02" => "statement kind is outside the database-local allow-list",
+        "SC-CLUSTER03" => "dynamic SQL could not be proven database-local",
+        _ => "planned-schema statement or routine body could not be inspected (fail closed)",
+    }
 }
 
 /// Validates against [`KNOWN_ENGINE_ALIASES`] -- the same list
