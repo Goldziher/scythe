@@ -1,5 +1,11 @@
 ---
-priority: high
+type: Decision
+title: Python Type Checker
+x-ai-rulez:
+  kind: rule
+  id: python-type-checker
+  metadata:
+    priority: high
 ---
 
 Python type checking in this repository is **pyrefly**. Do not use, install, configure, or add CI steps for `mypy` — this overrides the `mypy --strict` phrasing inherited from the built-in `python-conventions` rule, which names its type checker only as an example.

@@ -40,7 +40,7 @@ target_version = "py312"
 line_length = 120
 
 [lint.markdown.rumdl]
-disable = ["MD012", "MD013", "MD024", "MD030", "MD033", "MD035", "MD036", "MD041", "MD046", "MD051", "MD076"]
+disable = ["MD025", "MD012", "MD013", "MD024", "MD030", "MD033", "MD035", "MD036", "MD041", "MD046", "MD051", "MD076"]
 
 
 [lint.uncomment]
@@ -82,7 +82,7 @@ preserve_patterns = [
   "limitations under the license",
 ]
 [fmt.markdown.rumdl]
-disable = ["MD012", "MD013", "MD024", "MD030", "MD033", "MD035", "MD036", "MD041", "MD046", "MD051", "MD076"]
+disable = ["MD025", "MD012", "MD013", "MD024", "MD030", "MD033", "MD035", "MD036", "MD041", "MD046", "MD051", "MD076"]
 
 [lint.typos]
 extend_words = { CHECKs = "CHECKs", SELCT = "SELCT", SELECTs = "SELECTs", ba = "ba", inh = "inh", statu = "statu" }

@@ -1,9 +1,9 @@
 
-version = '4.0'
+version = "5.0"
 name = 'scythe'
 description = 'SQL compilation and code generation framework — compiles annotated SQL into type-safe database access code for 10 languages'
 gitignore = true
-presets = ["claude", "codex", "opencode"]
+presets = ["claude", "codex", "opencode", "pi"]
 builtins = [
   'rust',
   'python',
@@ -21,6 +21,7 @@ builtins = [
 
 [header]
 style = 'minimal'
+hashes = "full"
 
 [[includes]]
 name = 'kreuzberg-core'
