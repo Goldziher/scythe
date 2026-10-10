@@ -3,13 +3,22 @@ name = "scythe-core"
 version = "0.20.0"
 edition = "2024"
 license = "MIT"
+license-file = "../../LICENSE"
 description = "Core SQL parsing, catalog building, and type inference for scythe"
 repository = "https://github.com/Goldziher/scythe"
 homepage = "https://goldziher.github.io/scythe"
 documentation = "https://goldziher.github.io/scythe"
-authors = ["Na'aman Hirschfeld"]
+authors = ["Na'aman Hirschfeld <nhirschfeld@gmail.com>"]
 keywords = ["sql", "parser", "type-inference", "catalog", "analyzer"]
 categories = ["database", "parser-implementations"]
+
+include = [
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/LICENSE*",
+    "/src/**",
+]
 
 [features]
 default = []

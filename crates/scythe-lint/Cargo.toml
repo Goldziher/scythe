@@ -3,13 +3,22 @@ name = "scythe-lint"
 version = "0.20.0"
 edition = "2024"
 license = "MIT"
+license-file = "../../LICENSE"
 description = "SQL linting and audit engine for scythe -- 23 lint rules, 35 audit rules, sqruff integration"
 repository = "https://github.com/Goldziher/scythe"
 homepage = "https://goldziher.github.io/scythe"
 documentation = "https://goldziher.github.io/scythe"
-authors = ["Na'aman Hirschfeld"]
+authors = ["Na'aman Hirschfeld <nhirschfeld@gmail.com>"]
 keywords = ["sql", "linter", "lint", "formatting", "sqruff"]
 categories = ["development-tools"]
+
+include = [
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/LICENSE*",
+    "/src/**",
+]
 
 [dependencies]
 ahash = { version = "0.8", features = ["serde"] }

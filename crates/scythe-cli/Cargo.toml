@@ -3,13 +3,22 @@ name = "scythe-cli"
 version = "0.20.0"
 edition = "2024"
 license = "MIT"
+license-file = "../../LICENSE"
 description = "CLI for scythe -- SQL-to-code generator with linting and formatting"
 repository = "https://github.com/Goldziher/scythe"
 homepage = "https://goldziher.github.io/scythe"
 documentation = "https://goldziher.github.io/scythe"
-authors = ["Na'aman Hirschfeld"]
+authors = ["Na'aman Hirschfeld <nhirschfeld@gmail.com>"]
 keywords = ["sql", "codegen", "cli", "database", "sqlc"]
 categories = ["command-line-utilities", "database"]
+
+include = [
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/LICENSE*",
+    "/src/**",
+]
 
 # ~keep cargo-binstall support: goreleaser names assets `scythe-{target}` (ProjectName,
 # ~keep not the `scythe-cli` crate name) and ships tar.gz on unix but a .zip on windows,
