@@ -8,12 +8,13 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"oracledb": "^7.0.1"
+		"oracledb": "^26.0.0"
 	},
 	"devDependencies": {
-		"@types/node": "^26.6.4",
+		"@types/node": "^26.6.5",
 		"@types/oracledb": "^7.0.3",
 		"tsx": "^4.23.15",
 		"typescript": "^7.0.2"
-	}
+	},
+	"packageManager": "pnpm@12.11.2"
 }

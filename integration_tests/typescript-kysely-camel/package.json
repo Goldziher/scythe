@@ -12,9 +12,10 @@
 		"pg": "^8.23.1"
 	},
 	"devDependencies": {
-		"@types/node": "^26.6.4",
+		"@types/node": "^26.6.5",
 		"@types/pg": "^8.23.1",
 		"tsx": "^4.23.15",
 		"typescript": "^7.0.2"
-	}
+	},
+	"packageManager": "pnpm@12.11.2"
 }

@@ -175,14 +175,14 @@ tasks:
   docs:build:
     desc: Build the documentation site
     cmds:
-      - npm --prefix website install
-      - npm --prefix website run build
+      - pnpm --dir website install --frozen-lockfile
+      - pnpm --dir website run build
 
   docs:serve:
     desc: Run the documentation site locally with live reload
     cmds:
-      - npm --prefix website install
-      - npm --prefix website run dev
+      - pnpm --dir website install --frozen-lockfile
+      - pnpm --dir website run dev
 
   clean:
     desc: Clean build artifacts

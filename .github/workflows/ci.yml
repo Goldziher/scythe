@@ -250,8 +250,15 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
+      - uses: pnpm/action-setup@v6
+        with:
+          version: "12.11.2"
       - name: Install TypeScript
-        run: npm install -g typescript
+        run: |
+          export PNPM_HOME="$RUNNER_TEMP/pnpm-global"
+          export PATH="$PNPM_HOME/bin:$PATH"
+          pnpm add --global typescript
+          echo "$PNPM_HOME/bin" >> "$GITHUB_PATH"
       # `elixirc` compiles the six `elixir-*` backends. Without it this job ran
       # in strict mode while every one of them reported "no checker ran" -- the
       # exact silent-coverage-loss strict mode exists to prevent.
@@ -442,7 +449,7 @@ jobs:
       # per-project lockfiles rather than a root one that does not exist.
       - uses: pnpm/setup@v3
         with:
-          version: "11"
+          version: "12.11.2"
           runtime: node@22
           install: false
           cache: true
@@ -452,8 +459,15 @@ jobs:
       # Kotlin compiler through the project's own plugin. See the Kotlin note
       # in scripts/check-generated-syntax.sh for why the bare-compiler check
       # had to go. `gradle` comes from the runner image, like `javac`.
+      - uses: pnpm/action-setup@v6
+        with:
+          version: "12.11.2"
       - name: Install TypeScript
-        run: npm install -g typescript
+        run: |
+          export PNPM_HOME="$RUNNER_TEMP/pnpm-global"
+          export PATH="$PNPM_HOME/bin:$PATH"
+          pnpm add --global typescript
+          echo "$PNPM_HOME/bin" >> "$GITHUB_PATH"
       # `rbs parse` is the RBS-signature syntax checker (script comment has
       # the full rationale); the gem is not part of a stock Ruby install.
       - name: Install rbs
@@ -788,8 +802,15 @@ jobs:
           curl -sL https://github.com/JetBrains/kotlin/releases/download/v2.1.20/kotlin-compiler-2.1.20.zip -o kotlin.zip
           unzip -q kotlin.zip -d /opt/kotlin
           echo "/opt/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
+      - uses: pnpm/action-setup@v6
+        with:
+          version: "12.11.2"
       - name: Install TypeScript
-        run: npm install -g typescript
+        run: |
+          export PNPM_HOME="$RUNNER_TEMP/pnpm-global"
+          export PATH="$PNPM_HOME/bin:$PATH"
+          pnpm add --global typescript
+          echo "$PNPM_HOME/bin" >> "$GITHUB_PATH"
       - name: Build snippet-runner
         run: cargo build -p snippet-runner --release
       # README.md is in the reference set deliberately. It used to be in

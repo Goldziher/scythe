@@ -68,7 +68,7 @@ No Rust toolchain required — both wrappers download the prebuilt binary for yo
 its checksum:
 
 ```bash
-npm install --save-dev scythe-cli
+pnpm add --save-dev scythe-cli
 pip install scythe-sql
 ```
 

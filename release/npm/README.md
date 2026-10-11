@@ -4,8 +4,8 @@ npm wrapper for [scythe](https://github.com/Goldziher/scythe), the polyglot SQL-
 Installs a pinned `scythe` binary without requiring a Rust toolchain.
 
 ```bash
-npm install --save-dev scythe-cli
-npx scythe --version
+pnpm add --save-dev scythe-cli
+pnpm exec scythe --version
 ```
 
 On install, a postinstall script downloads the matching prebuilt binary for your platform from the
@@ -32,5 +32,6 @@ forwarding arguments and the exit code.
 Warm the cache at build time:
 
 ```dockerfile
-RUN npm install --save-dev scythe-cli && npx scythe --version
+RUN corepack enable && corepack prepare pnpm@12.11.2 --activate \
+    && pnpm add --save-dev scythe-cli && pnpm exec scythe --version
 ```

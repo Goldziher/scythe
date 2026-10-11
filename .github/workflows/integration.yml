@@ -145,7 +145,7 @@ jobs:
       # below runs its own `pnpm install`.
       - uses: pnpm/setup@v3
         with:
-          version: "11"
+          version: "12.11.2"
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
@@ -450,7 +450,7 @@ jobs:
       # below runs its own `pnpm install`.
       - uses: pnpm/setup@v3
         with:
-          version: "11"
+          version: "12.11.2"
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
@@ -626,7 +626,7 @@ jobs:
       # below runs its own `pnpm install`.
       - uses: pnpm/setup@v3
         with:
-          version: "11"
+          version: "12.11.2"
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
@@ -802,7 +802,7 @@ jobs:
       # below runs its own `pnpm install`.
       - uses: pnpm/setup@v3
         with:
-          version: "11"
+          version: "12.11.2"
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
@@ -975,7 +975,7 @@ jobs:
       # below runs its own `pnpm install`.
       - uses: pnpm/setup@v3
         with:
-          version: "11"
+          version: "12.11.2"
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
@@ -1090,7 +1090,7 @@ jobs:
       - run: pip install uv
       - uses: pnpm/setup@v3
         with:
-          version: "11"
+          version: "12.11.2"
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
@@ -1204,7 +1204,7 @@ jobs:
       # below runs its own `pnpm install`.
       - uses: pnpm/setup@v3
         with:
-          version: "11"
+          version: "12.11.2"
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
@@ -1385,7 +1385,7 @@ jobs:
       # below runs its own `pnpm install`.
       - uses: pnpm/setup@v3
         with:
-          version: "11"
+          version: "12.11.2"
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml
@@ -1519,7 +1519,7 @@ jobs:
       # below runs its own `pnpm install`.
       - uses: pnpm/setup@v3
         with:
-          version: "11"
+          version: "12.11.2"
           install: false
           cache: true
           cache-dependency-path: integration_tests/*/pnpm-lock.yaml

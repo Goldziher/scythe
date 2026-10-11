@@ -407,6 +407,9 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
 
+      - uses: pnpm/action-setup@v6
+        with:
+          version: "12.11.2"
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
@@ -421,11 +424,13 @@ jobs:
         working-directory: release/npm
         run: |
           set -euo pipefail
-          npm version "$VERSION" --no-git-tag-version --allow-same-version
-          npm pack
+          node -e 'const fs = require("node:fs"); const p = JSON.parse(fs.readFileSync("package.json")); p.version = process.env.VERSION; fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");'
+          pnpm pack
           tarball="$(ls ./*.tgz)"
-          npm install -g "$tarball"
-          npm root -g >npm-global-root.txt
+          smoke_dir="$RUNNER_TEMP/scythe-pnpm-smoke"
+          mkdir -p "$smoke_dir"
+          pnpm --dir "$smoke_dir" add --allow-build=scythe-cli "$PWD/$tarball"
+          printf '%s\n' "$smoke_dir/node_modules" > pnpm-smoke-root.txt
 
       - name: Verify the npm shim reports the exact tag version and forwards the exit code
         # Invokes the committed bin/scythe shim, not the downloaded binary directly, so this
@@ -433,7 +438,7 @@ jobs:
         # for release assets that were just published by the `release_assets` job.
         run: |
           set -euo pipefail
-          global_root="$(cat release/npm/npm-global-root.txt)"
+          global_root="$(cat release/npm/pnpm-smoke-root.txt)"
           shim="$global_root/scythe-cli/bin/scythe"
 
           for attempt in $(seq 1 10); do
@@ -523,23 +528,20 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
 
+      - uses: pnpm/action-setup@v6
+        with:
+          version: "12.11.2"
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
-      # ~keep OIDC trusted publishing needs npm >= 11.5.1, and Node 22 still bundles
-      # npm 10. `npm@latest` is npm 12, whose engines are
-      # `^22.22.2 || ^24.15.0 || >=26.0.0` -- satisfied only by the newest Node
-      # 22 patches, so it turns an unrelated setup-node resolution into an
-      # EBADENGINE failure. npm 11 is the newest line that runs on all of Node 22.
-      - name: Upgrade npm for OIDC trusted publishing support
-        run: npm install -g npm@11
-
       - name: Set package version
         working-directory: release/npm
-        run: npm version "${{ needs.meta.outputs.version }}" --no-git-tag-version --allow-same-version
+        run: node -e 'const fs = require("node:fs"); const p = JSON.parse(fs.readFileSync("package.json")); p.version = process.env.VERSION; fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");'
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
 
       - name: Publish to npm
         working-directory: release/npm
@@ -556,7 +558,7 @@ jobs:
           NODE_AUTH_TOKEN: ""
         run: |
           unset NODE_AUTH_TOKEN
-          npm publish --provenance --access public
+          pnpm publish --provenance --access public --no-git-checks
 
   publish_pypi:
     name: Publish PyPI

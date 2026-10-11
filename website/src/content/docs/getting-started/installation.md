@@ -21,8 +21,8 @@ For Node.js projects, install scythe as a pinned dev dependency -- no Rust toolc
 postinstall step downloads the prebuilt binary matching your platform and verifies its checksum.
 
 ```bash
-npm install --save-dev scythe-cli
-npx scythe --version
+pnpm add --save-dev scythe-cli
+pnpm exec scythe --version
 ```
 
 Supports Linux (x64/arm64, glibc only), macOS (x64/arm64), and Windows (x64, with x64 emulation on
