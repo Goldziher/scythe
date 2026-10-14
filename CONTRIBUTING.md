@@ -207,7 +207,7 @@ By contributing, you agree that your contributions will be licensed under the MI
 
 ## AI governance and plugin bundles
 
-Use ai-rulez 5.3.0 from reviewed source `12aa1103ddfb1baf1a439df5b479b0129bba27c1`.
+Use ai-rulez 5.3.0 from reviewed source `bdabc8a6e9211de60ca1e4ad76225ac92fcf218f`.
 Installing governance hooks requires Python 3.11 or newer. Run `task governance:hooks`
 without replacing existing local preferences. Edit `.ai-rulez/` for maintainer
 governance and `plugin/.ai-rulez/` for installable product skills. Run

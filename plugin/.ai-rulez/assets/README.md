@@ -36,7 +36,7 @@ are exported under `skills/scythe/` with their references included.
 ## Regenerate and verify
 
 Use ai-rulez 5.3.0 from reviewed source revision
-`12aa1103ddfb1baf1a439df5b479b0129bba27c1`.
+`bdabc8a6e9211de60ca1e4ad76225ac92fcf218f`.
 Run `task plugin:generate` after source edits and `task plugin:verify` to verify
 source provenance, runtime contracts, version alignment and public export bytes.
 
