@@ -1,0 +1,9 @@
+{
+  "plugin": "scythe",
+  "skills": {
+    "scythe": {
+      "name": "scythe",
+      "description": "Generate type-safe database access code from annotated SQL; configure scythe.toml, select drivers, lint or format SQL, and migrate sqlc projects."
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "scythe",
+  "version": "0.20.0",
+  "description": "Generate typed database access code from SQL, configure drivers, lint and format queries. Skills only; install the Scythe CLI separately.",
+  "author": {
+    "name": "Goldziher"
+  },
+  "license": "MIT",
+  "keywords": [
+    "sql",
+    "code-generation",
+    "database",
+    "linting"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Scythe",
+    "shortDescription": "Typed database code from annotated SQL",
+    "longDescription": "Skills for Scythe SQL annotations, scythe.toml, backend drivers, linting, formatting and sqlc migration. Requires a separately installed Scythe CLI. No MCP server is provided.",
+    "developerName": "Goldziher",
+    "category": "developer-tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Generate database access code from these SQL queries",
+      "Review and lint this SQL with Scythe"
+    ]
+  }
+}

@@ -204,3 +204,12 @@ Use `feat!:` or `fix!:` prefix for breaking changes.
 ## License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.
+
+## AI governance and plugin bundles
+
+Use ai-rulez 5.3.0 from reviewed source `1dd46d774f156f3d170ecd1b702598b12d1eaf5b`.
+Installing governance hooks requires Python 3.11 or newer. Run `task governance:hooks`
+without replacing existing local preferences. Edit `.ai-rulez/` for maintainer
+governance and `plugin/.ai-rulez/` for installable product skills. Run
+`task governance:check` and `task plugin:verify` before committing.
+See [plugin installation and publishing](plugin/assets/README.md).

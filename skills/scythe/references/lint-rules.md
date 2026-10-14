@@ -1,12 +1,19 @@
+<!--
+AI-RULEZ :: GENERATED FILE — DO NOT EDIT
+Content-Hash: blake3:7c770e8b191361ccb243b012fc2ad33bee1b58d8f1b250dd741318c6cf555534
+Source-Hash: blake3:65e88be8faf16a3d5247c5be8b02ee1ae70158104d3025dd78a6b893899931bc
+Schema-Version: v1
+-->
+
 # Lint Rules Reference
 
-Scythe has 23 built-in lint rules and 35 audit rules (58 built-in), plus sqruff's 69 style rules via integration.
+Scythe has 24 built-in lint rules and 35 audit rules (59 built-in), plus sqruff's 69 style rules via integration.
 
-The 11 `SC-PRV*` provenance rules and the 7 `SC-DRF*` schema drift rules are not counted in the 58. They
+The 11 `SC-PRV*` provenance rules and the 7 `SC-DRF*` schema drift rules are not counted in the 59. They
 run only from `scythe check` and never appear in `scythe lint` or `scythe audit --list-rules` output.
 
 `SC-PARSE01` (query fails to parse) and `SC-PARSE02` (query fails analysis) are also not counted in the
-58: they fire from `check`, `lint` and `audit` alike rather than through `check_query`/`check_catalog`,
+59: they fire from `check`, `lint` and `audit` alike rather than through `check_query`/`check_catalog`,
 so they live in their own `parse_registry()` (category `parse`) instead of the default one. They are
 configurable via `[lint.rules]` and `[lint.categories]`, exactly like `SC-PRV01`-`SC-PRV11`.
 
@@ -151,4 +158,10 @@ provenance = "off"      # skip provenance verification
 drift = "off"           # skip schema drift checking
 ```
 
-Severity values: `"error"` (blocks generation), `"warn"` (reports only), `"off"` (disabled).
+Severity values: `"error"` (fails findings checks), `"warn"` (reports only), `"off"` (disabled).
+
+## Annotation spelling
+
+`SC-PARSE03` warns when an unrecognized annotation resembles a supported annotation.
+It belongs to the default registry (unlike SC-PARSE01/02), and can be configured
+through `[lint.rules]` or `[lint.categories]`.

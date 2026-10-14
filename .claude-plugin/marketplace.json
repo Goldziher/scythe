@@ -1,0 +1,14 @@
+{
+  "name": "scythe",
+  "description": "Scythe SQL development skills for coding agents",
+  "owner": {
+    "name": "Goldziher"
+  },
+  "plugins": [
+    {
+      "name": "scythe",
+      "description": "Generate typed database access code from SQL, configure drivers, lint and format queries. Skills only; install the Scythe CLI separately.",
+      "source": "./plugin"
+    }
+  ]
+}

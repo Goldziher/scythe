@@ -1,0 +1,258 @@
+{
+  "schema_version": "v1",
+  "source_hash": "blake3:65e88be8faf16a3d5247c5be8b02ee1ae70158104d3025dd78a6b893899931bc",
+  "outputs": {
+    ".claude-plugin/plugin.json": {
+      "content_hash": "blake3:e840b027fe82cf528c0d1a721d473bfc081d1b6afb05d717b2c14eb746a383c2",
+      "mode": "0644"
+    },
+    ".codex-plugin/plugin.json": {
+      "content_hash": "blake3:e63283cf061d264e0599d0e54909acafc76d0feb87bc0076cf38919a30f02974",
+      "mode": "0644"
+    },
+    ".cursor-plugin/plugin.json": {
+      "content_hash": "blake3:82c9decb70068a750e883ac5dc0d371cb6531d450dcc08859e7e9fbd6835cf80",
+      "mode": "0644"
+    },
+    ".cursor-plugin/skills/scythe/SKILL.md": {
+      "content_hash": "blake3:1ad904c3ea45580aa22251ff2d2a40f7b23e41969c58b80c3b28d1a9c6c11dca",
+      "mode": "0644"
+    },
+    ".cursor-plugin/skills/scythe/index.md": {
+      "content_hash": "blake3:c64a5b37ee47d8e3104a2eed7ffb781da3e2bd6f49ffa768dba1298dd8289efd",
+      "mode": "0644"
+    },
+    ".cursor-plugin/skills/scythe/references/annotations.md": {
+      "content_hash": "blake3:9faebdc4be8cf6282b4092246fd91032bb3d7b8ef2c1101b16959316ea16a9ef",
+      "mode": "0644"
+    },
+    ".cursor-plugin/skills/scythe/references/backends.md": {
+      "content_hash": "blake3:763365f8f483c3e346f4c6a065c11c6899de1b1541322a0ef1bdc9c350ec7d46",
+      "mode": "0644"
+    },
+    ".cursor-plugin/skills/scythe/references/cli-reference.md": {
+      "content_hash": "blake3:4f7e0c0880973bd757b884e02b1f9a0679695b6cdf298fbc620d09a031432d78",
+      "mode": "0644"
+    },
+    ".cursor-plugin/skills/scythe/references/configuration.md": {
+      "content_hash": "blake3:b591f46abbd36a86a871d64c6a8a83897d1b8f9bac6a683672434d75399ed794",
+      "mode": "0644"
+    },
+    ".cursor-plugin/skills/scythe/references/lint-rules.md": {
+      "content_hash": "blake3:7c770e8b191361ccb243b012fc2ad33bee1b58d8f1b250dd741318c6cf555534",
+      "mode": "0644"
+    },
+    ".factory-plugin/plugin.json": {
+      "content_hash": "blake3:fd6be6a705c7bc3bc67822bfa64b746cef78e01ddeca408747743a5ba0445c0c",
+      "mode": "0644"
+    },
+    ".hermes/package/pyproject.toml": {
+      "content_hash": "blake3:00f523850849319a042cd67045115e79856c3a7e32e070a00ee0adec8206ffe7",
+      "mode": "0644"
+    },
+    ".hermes/package/src/scythe_hermes_plugin/__init__.py": {
+      "content_hash": "blake3:c257342a0944bde24b4c360f2894bf1a51a292e39f027857485698372d9aea90",
+      "mode": "0644"
+    },
+    ".hermes/package/src/scythe_hermes_plugin/hermes.py": {
+      "content_hash": "blake3:6493876cbf379aa936215bfc8580764781d62c6f8fa6d45e83f52ee70e7d9dd8",
+      "mode": "0644"
+    },
+    ".hermes/package/src/scythe_hermes_plugin/plugin.yaml": {
+      "content_hash": "blake3:242b6222ed9c0979e8eef0efba718ae9c42085ddd39ef9a10ae11dcf7abde8b5",
+      "mode": "0644"
+    },
+    ".hermes/package/src/scythe_hermes_plugin/skills/scythe/SKILL.md": {
+      "content_hash": "blake3:1ad904c3ea45580aa22251ff2d2a40f7b23e41969c58b80c3b28d1a9c6c11dca",
+      "mode": "0644"
+    },
+    ".hermes/package/src/scythe_hermes_plugin/skills/scythe/index.md": {
+      "content_hash": "blake3:c64a5b37ee47d8e3104a2eed7ffb781da3e2bd6f49ffa768dba1298dd8289efd",
+      "mode": "0644"
+    },
+    ".hermes/package/src/scythe_hermes_plugin/skills/scythe/references/annotations.md": {
+      "content_hash": "blake3:9faebdc4be8cf6282b4092246fd91032bb3d7b8ef2c1101b16959316ea16a9ef",
+      "mode": "0644"
+    },
+    ".hermes/package/src/scythe_hermes_plugin/skills/scythe/references/backends.md": {
+      "content_hash": "blake3:763365f8f483c3e346f4c6a065c11c6899de1b1541322a0ef1bdc9c350ec7d46",
+      "mode": "0644"
+    },
+    ".hermes/package/src/scythe_hermes_plugin/skills/scythe/references/cli-reference.md": {
+      "content_hash": "blake3:4f7e0c0880973bd757b884e02b1f9a0679695b6cdf298fbc620d09a031432d78",
+      "mode": "0644"
+    },
+    ".hermes/package/src/scythe_hermes_plugin/skills/scythe/references/configuration.md": {
+      "content_hash": "blake3:b591f46abbd36a86a871d64c6a8a83897d1b8f9bac6a683672434d75399ed794",
+      "mode": "0644"
+    },
+    ".hermes/package/src/scythe_hermes_plugin/skills/scythe/references/lint-rules.md": {
+      "content_hash": "blake3:7c770e8b191361ccb243b012fc2ad33bee1b58d8f1b250dd741318c6cf555534",
+      "mode": "0644"
+    },
+    ".hermes/plugins/scythe/__init__.py": {
+      "content_hash": "blake3:c257342a0944bde24b4c360f2894bf1a51a292e39f027857485698372d9aea90",
+      "mode": "0644"
+    },
+    ".hermes/plugins/scythe/hermes.py": {
+      "content_hash": "blake3:6493876cbf379aa936215bfc8580764781d62c6f8fa6d45e83f52ee70e7d9dd8",
+      "mode": "0644"
+    },
+    ".hermes/plugins/scythe/plugin.yaml": {
+      "content_hash": "blake3:242b6222ed9c0979e8eef0efba718ae9c42085ddd39ef9a10ae11dcf7abde8b5",
+      "mode": "0644"
+    },
+    ".hermes/plugins/scythe/skills/scythe/SKILL.md": {
+      "content_hash": "blake3:1ad904c3ea45580aa22251ff2d2a40f7b23e41969c58b80c3b28d1a9c6c11dca",
+      "mode": "0644"
+    },
+    ".hermes/plugins/scythe/skills/scythe/index.md": {
+      "content_hash": "blake3:c64a5b37ee47d8e3104a2eed7ffb781da3e2bd6f49ffa768dba1298dd8289efd",
+      "mode": "0644"
+    },
+    ".hermes/plugins/scythe/skills/scythe/references/annotations.md": {
+      "content_hash": "blake3:9faebdc4be8cf6282b4092246fd91032bb3d7b8ef2c1101b16959316ea16a9ef",
+      "mode": "0644"
+    },
+    ".hermes/plugins/scythe/skills/scythe/references/backends.md": {
+      "content_hash": "blake3:763365f8f483c3e346f4c6a065c11c6899de1b1541322a0ef1bdc9c350ec7d46",
+      "mode": "0644"
+    },
+    ".hermes/plugins/scythe/skills/scythe/references/cli-reference.md": {
+      "content_hash": "blake3:4f7e0c0880973bd757b884e02b1f9a0679695b6cdf298fbc620d09a031432d78",
+      "mode": "0644"
+    },
+    ".hermes/plugins/scythe/skills/scythe/references/configuration.md": {
+      "content_hash": "blake3:b591f46abbd36a86a871d64c6a8a83897d1b8f9bac6a683672434d75399ed794",
+      "mode": "0644"
+    },
+    ".hermes/plugins/scythe/skills/scythe/references/lint-rules.md": {
+      "content_hash": "blake3:7c770e8b191361ccb243b012fc2ad33bee1b58d8f1b250dd741318c6cf555534",
+      "mode": "0644"
+    },
+    ".opencode/ai-rulez-bundle.json": {
+      "content_hash": "blake3:c4e4bdb5f21cdacb447432398b64a676424884c3b5d05e57deded9d0042d26cc",
+      "mode": "0644"
+    },
+    ".opencode/ai-rulez-content.js": {
+      "content_hash": "blake3:011ec20caa671eb4bd4e886b09e15f720a786de4bf747419efd0690889fc5549",
+      "mode": "0644"
+    },
+    ".opencode/plugins/scythe.js": {
+      "content_hash": "blake3:4c9a003b7651d77a972bef76d810e2fa5d4c4014b507da8d0053ec0e92b6f688",
+      "mode": "0644"
+    },
+    ".opencode/skills/scythe/SKILL.md": {
+      "content_hash": "blake3:1ad904c3ea45580aa22251ff2d2a40f7b23e41969c58b80c3b28d1a9c6c11dca",
+      "mode": "0644"
+    },
+    ".opencode/skills/scythe/index.md": {
+      "content_hash": "blake3:c64a5b37ee47d8e3104a2eed7ffb781da3e2bd6f49ffa768dba1298dd8289efd",
+      "mode": "0644"
+    },
+    ".opencode/skills/scythe/references/annotations.md": {
+      "content_hash": "blake3:9faebdc4be8cf6282b4092246fd91032bb3d7b8ef2c1101b16959316ea16a9ef",
+      "mode": "0644"
+    },
+    ".opencode/skills/scythe/references/backends.md": {
+      "content_hash": "blake3:763365f8f483c3e346f4c6a065c11c6899de1b1541322a0ef1bdc9c350ec7d46",
+      "mode": "0644"
+    },
+    ".opencode/skills/scythe/references/cli-reference.md": {
+      "content_hash": "blake3:4f7e0c0880973bd757b884e02b1f9a0679695b6cdf298fbc620d09a031432d78",
+      "mode": "0644"
+    },
+    ".opencode/skills/scythe/references/configuration.md": {
+      "content_hash": "blake3:b591f46abbd36a86a871d64c6a8a83897d1b8f9bac6a683672434d75399ed794",
+      "mode": "0644"
+    },
+    ".opencode/skills/scythe/references/lint-rules.md": {
+      "content_hash": "blake3:7c770e8b191361ccb243b012fc2ad33bee1b58d8f1b250dd741318c6cf555534",
+      "mode": "0644"
+    },
+    ".pi/skills/scythe/SKILL.md": {
+      "content_hash": "blake3:1ad904c3ea45580aa22251ff2d2a40f7b23e41969c58b80c3b28d1a9c6c11dca",
+      "mode": "0644"
+    },
+    ".pi/skills/scythe/index.md": {
+      "content_hash": "blake3:c64a5b37ee47d8e3104a2eed7ffb781da3e2bd6f49ffa768dba1298dd8289efd",
+      "mode": "0644"
+    },
+    ".pi/skills/scythe/references/annotations.md": {
+      "content_hash": "blake3:9faebdc4be8cf6282b4092246fd91032bb3d7b8ef2c1101b16959316ea16a9ef",
+      "mode": "0644"
+    },
+    ".pi/skills/scythe/references/backends.md": {
+      "content_hash": "blake3:763365f8f483c3e346f4c6a065c11c6899de1b1541322a0ef1bdc9c350ec7d46",
+      "mode": "0644"
+    },
+    ".pi/skills/scythe/references/cli-reference.md": {
+      "content_hash": "blake3:4f7e0c0880973bd757b884e02b1f9a0679695b6cdf298fbc620d09a031432d78",
+      "mode": "0644"
+    },
+    ".pi/skills/scythe/references/configuration.md": {
+      "content_hash": "blake3:b591f46abbd36a86a871d64c6a8a83897d1b8f9bac6a683672434d75399ed794",
+      "mode": "0644"
+    },
+    ".pi/skills/scythe/references/lint-rules.md": {
+      "content_hash": "blake3:7c770e8b191361ccb243b012fc2ad33bee1b58d8f1b250dd741318c6cf555534",
+      "mode": "0644"
+    },
+    "assets/GEMINI.md": {
+      "content_hash": "blake3:1beb992fd0ab6011fac32cea63fc01d6ea9098152b9d5187072894f0865b2ef3",
+      "mode": "0644"
+    },
+    "assets/README.md": {
+      "content_hash": "blake3:579a949dc912a92dd57aadf4e189e94af7a2008ddfaf4171e6647f708647580b",
+      "mode": "0644"
+    },
+    "gemini-extension.json": {
+      "content_hash": "blake3:7ff772c8b5a731ca4b2aae841199d2ea90672a68536d91cc03da40b566cf7596",
+      "mode": "0644"
+    },
+    "kimi.plugin.json": {
+      "content_hash": "blake3:2ddd864db620dd3830ef6a488940652076ab3dc51a7b1a0229cd3e83b6afa492",
+      "mode": "0644"
+    },
+    "package.json": {
+      "content_hash": "blake3:3b4b63ae08996bed09d66c3750a12789215b91bd13a5a14b30bcf672a200f4d0",
+      "mode": "0644"
+    },
+    "plugin.json": {
+      "content_hash": "blake3:0d92c1045d28bc1a421358569595f2db84604778c2676fc5d5e83cd95fa8a5b7",
+      "mode": "0644"
+    },
+    "skills/scythe/SKILL.md": {
+      "content_hash": "blake3:1ad904c3ea45580aa22251ff2d2a40f7b23e41969c58b80c3b28d1a9c6c11dca",
+      "mode": "0644"
+    },
+    "skills/scythe/index.md": {
+      "content_hash": "blake3:c64a5b37ee47d8e3104a2eed7ffb781da3e2bd6f49ffa768dba1298dd8289efd",
+      "mode": "0644"
+    },
+    "skills/scythe/references/annotations.md": {
+      "content_hash": "blake3:9faebdc4be8cf6282b4092246fd91032bb3d7b8ef2c1101b16959316ea16a9ef",
+      "mode": "0644"
+    },
+    "skills/scythe/references/backends.md": {
+      "content_hash": "blake3:763365f8f483c3e346f4c6a065c11c6899de1b1541322a0ef1bdc9c350ec7d46",
+      "mode": "0644"
+    },
+    "skills/scythe/references/cli-reference.md": {
+      "content_hash": "blake3:4f7e0c0880973bd757b884e02b1f9a0679695b6cdf298fbc620d09a031432d78",
+      "mode": "0644"
+    },
+    "skills/scythe/references/configuration.md": {
+      "content_hash": "blake3:b591f46abbd36a86a871d64c6a8a83897d1b8f9bac6a683672434d75399ed794",
+      "mode": "0644"
+    },
+    "skills/scythe/references/lint-rules.md": {
+      "content_hash": "blake3:7c770e8b191361ccb243b012fc2ad33bee1b58d8f1b250dd741318c6cf555534",
+      "mode": "0644"
+    }
+  },
+  "includes": [
+    "assets/GEMINI.md",
+    "assets/README.md"
+  ]
+}

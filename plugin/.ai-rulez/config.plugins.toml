@@ -1,0 +1,38 @@
+[plugin]
+name = "scythe"
+version = "0.20.0"
+runtimes = [
+  "claude",
+  "cursor",
+  "codex",
+  "gemini",
+  "kimi",
+  "opencode",
+  "factory",
+  "hermes",
+  "pi",
+  "agent-plugins",
+  "copilot",
+]
+display_name = "Scythe"
+description = "Generate typed database access code from SQL, configure drivers, lint and format queries. Skills only; install the Scythe CLI separately."
+repository = "https://github.com/Goldziher/scythe"
+license = "MIT"
+category = "developer-tools"
+keywords = ["sql", "code-generation", "database", "linting"]
+include = ["assets/**"]
+
+[plugin.author]
+name = "Goldziher"
+
+[plugin.interface]
+display_name = "Scythe"
+short_description = "Typed database code from annotated SQL"
+long_description = "Skills for Scythe SQL annotations, scythe.toml, backend drivers, linting, formatting and sqlc migration. Requires a separately installed Scythe CLI. No MCP server is provided."
+developer_name = "Goldziher"
+category = "developer-tools"
+capabilities = ["Read", "Write"]
+default_prompt = ["Generate database access code from these SQL queries", "Review and lint this SQL with Scythe"]
+
+[plugin.gemini]
+context_file_name = "assets/GEMINI.md"

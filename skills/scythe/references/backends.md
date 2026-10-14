@@ -1,6 +1,13 @@
+<!--
+AI-RULEZ :: GENERATED FILE — DO NOT EDIT
+Content-Hash: blake3:763365f8f483c3e346f4c6a065c11c6899de1b1541322a0ef1bdc9c350ec7d46
+Source-Hash: blake3:65e88be8faf16a3d5247c5be8b02ee1ae70158104d3025dd78a6b893899931bc
+Schema-Version: v1
+-->
+
 # Backends Reference
 
-Scythe provides 62 selectable backend names across 10 languages and 10 database engines, implemented by 52 `CodegenBackend` types -- the ten `javascript-*` names are a JSDoc emit mode on the matching TypeScript backend, not separate implementations.
+Scythe provides 62 selectable backend names across 11 language names and 10 database engines, implemented by 52 `CodegenBackend` types -- the ten `javascript-*` names are a JSDoc emit mode on the matching TypeScript backend, not separate implementations.
 
 ## Language Coverage
 
@@ -46,11 +53,11 @@ Use these exact names in `[[sql.gen]] backend = "..."`:
 
 ### MySQL
 
-`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `typescript-kysely`, `javascript-mysql2`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `ruby-trilogy`, `php-pdo`, `php-amphp`
+`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `typescript-kysely`, `javascript-mysql2`, `go-database-sql`, `java-jdbc`, `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `ruby-trilogy`, `php-pdo`, `php-amphp`
 
 ### SQLite
 
-`rust-sqlx`, `python-aiosqlite`, `typescript-better-sqlite3`, `typescript-node-sqlite`, `typescript-wasm-sqlite`, `typescript-kysely`, `javascript-better-sqlite3`, `javascript-node-sqlite`, `javascript-wasm-sqlite`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-microsoft-sqlite`, `elixir-exqlite`, `ruby-sqlite3`, `php-pdo`
+`rust-sqlx`, `python-aiosqlite`, `typescript-better-sqlite3`, `typescript-node-sqlite`, `typescript-wasm-sqlite`, `typescript-kysely`, `javascript-better-sqlite3`, `javascript-node-sqlite`, `javascript-wasm-sqlite`, `go-database-sql`, `java-jdbc`, `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`, `csharp-microsoft-sqlite`, `elixir-exqlite`, `ruby-sqlite3`, `php-pdo`
 
 ### DuckDB
 
@@ -58,21 +65,22 @@ Use these exact names in `[[sql.gen]] backend = "..."`:
 
 ### CockroachDB
 
-`rust-sqlx`, `python-psycopg3`, `typescript-pg`, `go-pgx`, `java-jdbc`, `kotlin-jdbc`, `csharp-npgsql`, `ruby-pg`, `php-pdo`, `php-amphp`, `elixir-postgrex`
+Use the PostgreSQL backend list above. `normalize_engine` maps `cockroachdb` and
+`crdb` to `postgresql`, so backend selection matches PostgreSQL.
 
 ### MSSQL
 
-`rust-tiberius`, `python-pyodbc`, `typescript-mssql`, `typescript-kysely`, `javascript-mssql`, `go-database-sql`, `java-jdbc`, `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`, `csharp-sqlclient`, `ruby-tiny-tds`, `php-pdo`, `elixir-tds`
+`rust-tiberius`, `python-pyodbc`, `typescript-mssql`, `typescript-kysely`, `javascript-mssql`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-sqlclient`, `ruby-tiny-tds`, `php-pdo`, `elixir-tds`
 
 ### Oracle
 
-`rust-sibyl`, `python-oracledb`, `typescript-oracledb`, `javascript-oracledb`, `go-godror`, `java-jdbc`, `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`, `csharp-oracle`, `ruby-oci8`, `elixir-jamdb`
+`rust-sibyl`, `python-oracledb`, `typescript-oracledb`, `javascript-oracledb`, `go-godror`, `java-jdbc`, `kotlin-jdbc`, `csharp-oracle`, `ruby-oci8`, `elixir-jamdb`
 
 `php-pdo` does not support Oracle.
 
 ### MariaDB
 
-`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `typescript-kysely`, `javascript-mysql2`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `ruby-trilogy`, `php-pdo`, `php-amphp`
+`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `typescript-kysely`, `javascript-mysql2`, `go-database-sql`, `java-jdbc`, `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `ruby-trilogy`, `php-pdo`, `php-amphp`
 
 ### Redshift
 

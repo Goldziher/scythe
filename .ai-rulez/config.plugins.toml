@@ -1,0 +1,12 @@
+[[marketplaces]]
+name = "basemind"
+source = "Goldziher/basemind"
+type = "github"
+
+[marketplace]
+name = "scythe"
+description = "Scythe SQL development skills for coding agents"
+members = ["plugin"]
+
+[marketplace.owner]
+name = "Goldziher"

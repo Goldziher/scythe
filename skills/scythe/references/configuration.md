@@ -1,3 +1,10 @@
+<!--
+AI-RULEZ :: GENERATED FILE — DO NOT EDIT
+Content-Hash: blake3:b591f46abbd36a86a871d64c6a8a83897d1b8f9bac6a683672434d75399ed794
+Source-Hash: blake3:65e88be8faf16a3d5247c5be8b02ee1ae70158104d3025dd78a6b893899931bc
+Schema-Version: v1
+-->
+
 # Configuration Reference
 
 Scythe is configured via `scythe.toml` in your project root.
@@ -20,7 +27,6 @@ queries = ["sql/queries/*.sql"]        # Glob patterns for query files
 [[sql.gen]]
 backend = "rust-sqlx"                  # Full backend name
 output = "src/generated/rust"          # Output directory for this backend
-row_type = "dataclass"                 # Optional: row type style
 
 # Type overrides
 [[sql.type_overrides]]

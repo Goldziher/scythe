@@ -1,3 +1,10 @@
+<!--
+AI-RULEZ :: GENERATED FILE — DO NOT EDIT
+Content-Hash: blake3:4f7e0c0880973bd757b884e02b1f9a0679695b6cdf298fbc620d09a031432d78
+Source-Hash: blake3:65e88be8faf16a3d5247c5be8b02ee1ae70158104d3025dd78a6b893899931bc
+Schema-Version: v1
+-->
+
 # CLI Reference
 
 ```bash
@@ -58,6 +65,12 @@ scythe lint [--config <path>] [--fix] [--dialect <dialect>] [--database-url <url
 | `-o, --output` | stdout | Write reporter output to a file |
 | `--exit-zero` | false | Exit 0 even when error-severity findings are present |
 
+**Two modes:**
+
+- **With config:** Runs both scythe rules (schema-aware) and sqruff rules.
+- **With files and a resolvable first SQL schema in the config:** Runs native schema-aware rules as well as sqruff.
+- **With files and no config or first SQL schema:** Runs sqruff without native schema context.
+
 ### audit
 
 Scan SQL for security issues: privilege grants, dangerous functions, cartesian
@@ -79,6 +92,8 @@ scythe audit [--config <path>] [--format <fmt>] [--severity <level>] [--exit-zer
 | `-o, --output` | stdout | Write reporter output to a file |
 | `--ignore-suppressions` | false | Disable inline `-- scythe-audit: ignore[...]` annotations |
 | `--dialect` | from config | Dialect for explicit-file mode |
+| `--cluster-scope` | false | Fail closed on cluster-scoped PostgreSQL planned-schema statements; explicit files and pinned PostgreSQL parser helpers required |
+| `--pg-version <MAJOR>` | 18 | Grammar version for cluster-scope auditing: 15 or 18 |
 
 ### inspect
 
@@ -104,11 +119,6 @@ The connection URL resolves in order: positional argument, `$DATABASE_URL`,
 | `-o, --output` | stdout | Write reporter output to a file |
 | `-c, --config` | `scythe.toml` | Path to config file |
 | `--dialect` | from URL scheme | Engine to target: `postgres`/`postgresql` or `mysql`/`mariadb` |
-
-**Two modes:**
-
-- **With config:** Runs both scythe rules (schema-aware) and sqruff rules.
-- **With files:** Runs sqruff rules only (no schema context).
 
 ### fmt
 
@@ -144,8 +154,8 @@ must not be mistaken for a clean run.
 | Code | Meaning |
 |------|---------|
 | 0 | Success -- no error-severity findings, or `--exit-zero` was passed |
-| 1 | Operational failure: unreadable config, unparseable SQL, unconstructible backend, I/O error |
-| 2 | Error-severity findings were reported (`check`, `lint`, `audit`, `inspect`) |
+| 1 | Operational failure: unreadable config, unreadable inputs or I/O error |
+| 2 | Error-severity findings, including query parse/analysis and unconstructible check targets (`check`, `lint`, `audit`, `inspect`) |
 
 `--exit-zero` collapses 2 to 0. It does not affect 1: an operational failure is
 still a failure.
@@ -177,7 +187,9 @@ repos:
       - id: scythe-fmt
       - id: scythe-lint
       - id: scythe-audit
-      - id: scythe-inspect
       - id: scythe-generate
       - id: scythe-check
 ```
+
+`scythe-inspect` is an opt-in live-database hook. Add it only when the environment
+provides a database URL or the config specifies an inspection connection.

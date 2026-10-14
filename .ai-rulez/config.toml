@@ -1,10 +1,12 @@
 
 version = "5.0"
+default_layers = ["plugins"]
 name = 'scythe'
 description = 'SQL compilation and code generation framework — compiles annotated SQL into type-safe database access code for 10 languages'
 gitignore = true
 presets = ["claude", "codex", "opencode", "pi"]
 builtins = [
+  '!git-workflow',
   'rust',
   'python',
   'typescript',
@@ -19,44 +21,29 @@ builtins = [
   'default-commands',
 ]
 
-[header]
-text = """Generated file — DO NOT EDIT.
-Project: scythe
-Source: .ai-rulez/config.toml
-Modify .ai-rulez/ content and regenerate with ai-rulez generate.
-MCP server: pnpm dlx ai-rulez@5.0.1 mcp
-"""
-style = 'minimal'
-hashes = "full"
-
 [[includes]]
-name = 'kreuzberg-core'
-source = 'https://github.com/kreuzberg-dev/ai-rulez.git'
+name = 'xberg-core'
+source = 'https://github.com/xberg-io/agent-conventions.git'
+ref = "adb0caa92c4d8155fb1680618f72a321a832660b"
 path = 'modules/core'
 merge_strategy = 'local-override'
 
 [[includes]]
-name = 'kreuzberg-cicd'
-source = 'https://github.com/kreuzberg-dev/ai-rulez.git'
+name = 'xberg-cicd'
+source = 'https://github.com/xberg-io/agent-conventions.git'
+ref = "adb0caa92c4d8155fb1680618f72a321a832660b"
 path = 'modules/cicd'
 merge_strategy = 'local-override'
 
 [[includes]]
-name = 'kreuzberg-e2e-generator'
-source = 'https://github.com/kreuzberg-dev/ai-rulez.git'
+name = 'xberg-e2e-generator'
+source = 'https://github.com/xberg-io/agent-conventions.git'
+ref = "adb0caa92c4d8155fb1680618f72a321a832660b"
 path = 'modules/e2e-generator'
 merge_strategy = 'local-override'
 
-[[marketplaces]]
-name = "basemind"
-source = "Goldziher/basemind"
-type = "github"
-
-[[plugins]]
-marketplace = "basemind"
-name = "basemind"
-scope = "project"
-enabled = true
-
 [mcp]
-self_server_command = ["pnpm", "dlx", "ai-rulez@5.0.1", "mcp"]
+self_server_command = ["pnpm", "dlx", "ai-rulez@5.3.0", "mcp"]
+
+[lock]
+include_outputs = false

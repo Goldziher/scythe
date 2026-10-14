@@ -10,7 +10,7 @@ tasks:
     desc: "Install all dependencies and initialize project. Idempotent."
     cmds:
       - cargo fetch
-      - poly hooks install
+      - task: governance:hooks
       - echo "Setup complete"
 
   build:
@@ -224,7 +224,7 @@ tasks:
       # `version:check` could not catch it because it read the same list.
       - |
         files=$(grep -rlE '^[[:space:]]*rev: v[0-9]+\.[0-9]+\.[0-9]+' \
-          README.md website/src skills 2>/dev/null || true)
+          README.md website/src plugin/.ai-rulez/skills 2>/dev/null || true)
         if [ -n "$files" ]; then
           echo "$files" | while IFS= read -r f; do
             [ -n "$f" ] || continue
@@ -265,6 +265,7 @@ tasks:
             sed -i '' -E 's/(scythe:provenance v=)[0-9]+\.[0-9]+\.[0-9]+/\1{{.VERSION}}/g' "$f"
           done
         fi
+      - task: plugin:generate
       - task: version:check
       # `cargo check --workspace` is not subsumed by the regeneration step
       # below: that step only builds scythe-cli in release mode (via
@@ -360,7 +361,7 @@ tasks:
         # The documented pre-commit `rev:` pins are rewritten by version:sync but
         # validated by no other job, so without this they drift silently -- and a
         # stale one pins every user who copies the snippet to the old release.
-        for f in $(grep -rlE '^[[:space:]]*rev: v[0-9]+\.[0-9]+\.[0-9]+' README.md website/src skills 2>/dev/null || true); do
+        for f in $(grep -rlE '^[[:space:]]*rev: v[0-9]+\.[0-9]+\.[0-9]+' README.md website/src plugin/.ai-rulez/skills 2>/dev/null || true); do
           while IFS= read -r r; do
             [ -z "$r" ] && continue
             revs_checked=$((revs_checked + 1))
@@ -427,3 +428,42 @@ tasks:
       - for f in integration_tests/*/Gemfile.lock; do (cd "${f%/*}" && bundle lock --update); done
       - for f in integration_tests/*/mix.lock; do (cd "${f%/*}" && mix deps.update --all); done
       - for f in integration_tests/*/composer.lock; do (cd "${f%/*}" && composer update --no-install); done
+
+  plugin:generate:
+    desc: Generate all eleven native coding-agent runtimes and public skills
+    cmds:
+      - python3 scripts/sync_plugin_version.py
+      - ai-rulez generate --plugin --no-local --strict-config
+      - python3 scripts/sync_public_skills.py
+
+  plugin:verify:
+    desc: Verify plugin provenance, runtime contracts and public skills
+    cmds:
+      - python3 scripts/sync_plugin_version.py --check
+      - ai-rulez verify --plugin
+      - python3 scripts/sync_public_skills.py --check
+      - python3 scripts/tests/test_public_skills.py
+      - node --test scripts/tests/plugin-skills.test.mjs
+
+  governance:hooks:
+    desc: Provision pinned native governance hooks without replacing local preferences
+    cmds:
+      - >-
+        python3 -c 'from pathlib import Path;
+        p = Path("poly.local.toml");
+        p.exists() or p.write_text("[hook_preferences]\nchannels = [\"system\"]\n")'
+      - poly hooks update
+      - poly hooks install
+
+  governance:generate:
+    desc: Generate native AI governance outputs
+    cmds:
+      - ai-rulez generate --no-local --strict-config
+
+  governance:check:
+    desc: Validate native AI governance and freshness
+    cmds:
+      - ai-rulez migrate okf --check
+      - ai-rulez validate --strict --no-local
+      - ai-rulez lock --check
+      - ai-rulez generate --check --no-local --strict-config

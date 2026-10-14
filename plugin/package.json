@@ -1,0 +1,55 @@
+{
+  "author": {
+    "name": "Goldziher"
+  },
+  "dependencies": {
+    "@opencode/plugin": "^2.0.26"
+  },
+  "description": "Generate typed database access code from SQL, configure drivers, lint and format queries. Skills only; install the Scythe CLI separately.",
+  "exports": {
+    ".": "./.opencode/plugins/scythe.js"
+  },
+  "files": [
+    ".opencode/ai-rulez-bundle.json",
+    ".opencode/ai-rulez-content.js",
+    ".opencode/plugins/scythe.js",
+    ".opencode/skills/scythe/SKILL.md",
+    ".opencode/skills/scythe/index.md",
+    ".opencode/skills/scythe/references/annotations.md",
+    ".opencode/skills/scythe/references/backends.md",
+    ".opencode/skills/scythe/references/cli-reference.md",
+    ".opencode/skills/scythe/references/configuration.md",
+    ".opencode/skills/scythe/references/lint-rules.md",
+    ".pi/skills/scythe/SKILL.md",
+    ".pi/skills/scythe/index.md",
+    ".pi/skills/scythe/references/annotations.md",
+    ".pi/skills/scythe/references/backends.md",
+    ".pi/skills/scythe/references/cli-reference.md",
+    ".pi/skills/scythe/references/configuration.md",
+    ".pi/skills/scythe/references/lint-rules.md",
+    "README.md",
+    "assets/"
+  ],
+  "keywords": [
+    "code-generation",
+    "database",
+    "linting",
+    "pi-package",
+    "sql"
+  ],
+  "license": "MIT",
+  "main": ".opencode/plugins/scythe.js",
+  "name": "@goldziher/opencode-scythe",
+  "pi": {
+    "prompts": [],
+    "skills": [
+      "./.pi/skills/scythe"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Goldziher/scythe"
+  },
+  "type": "module",
+  "version": "0.20.0"
+}

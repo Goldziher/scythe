@@ -1,0 +1,13 @@
+{
+  "source": "plugin/skills",
+  "skill_count": 1,
+  "files": {
+    "scythe/SKILL.md": "125cb1095e5c38ed885fb018326c802520988e187e8bb0c22d771341e3a15e49",
+    "scythe/index.md": "c68768b4feee2ba76fd19f8d44a8a775c049efe1a95b73e2841fff2a21fd73e7",
+    "scythe/references/annotations.md": "57359ac1459f66c15cece09ce610235d34b745e00cdf52db1175b706d94b19e9",
+    "scythe/references/backends.md": "355d9b3a2099dc003be0d140ca8521c590bc1503ccdda74e612cdf784ca922db",
+    "scythe/references/cli-reference.md": "f38771ab4eebf218385cc1b8c748106fe81d93211a4eca6a6da603b47dd7d5c0",
+    "scythe/references/configuration.md": "139d69de788c18600efd334dff76637e14b92e7987e83959ee8bf5f2c0e4e5d0",
+    "scythe/references/lint-rules.md": "0cb49197a74374cf89a7b86c885395d775ff231b7e16f5d92036153ddd9b3915"
+  }
+}

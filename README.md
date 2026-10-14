@@ -356,3 +356,9 @@ lint rules.
 ## License
 
 [MIT](LICENSE)
+
+## Coding-agent plugins
+
+Installable Scythe skills and eleven runtime plugin formats are documented in
+[the plugin guide](plugin/assets/README.md). The plugin carries SQL development
+instructions and references; install the Scythe CLI and application database drivers separately.

@@ -1,3 +1,10 @@
+<!--
+AI-RULEZ :: GENERATED FILE — DO NOT EDIT
+Content-Hash: blake3:9faebdc4be8cf6282b4092246fd91032bb3d7b8ef2c1101b16959316ea16a9ef
+Source-Hash: blake3:65e88be8faf16a3d5247c5be8b02ee1ae70158104d3025dd78a6b893899931bc
+Schema-Version: v1
+-->
+
 # Annotations Reference
 
 All annotations use `-- @` prefix in SQL comments. Keywords are case-insensitive.
@@ -14,15 +21,16 @@ Generates: `get_user_by_id()` function and `GetUserByIdRow` struct (naming depen
 
 ## @returns (required)
 
-Specifies the query return type. Must include a colon prefix.
+Specifies the query return type. Use the canonical colon-prefixed spelling shown below.
 
 | Value | Description | Use Case |
 |-------|-------------|----------|
-| `:one` | Returns a single row (or none) | SELECT ... WHERE id = $1 |
+| `:one` | Requires exactly one row | SELECT ... WHERE id = $1 |
+| `:opt` | Returns an optional row | Zero-or-one SELECT |
 | `:many` | Returns multiple rows | SELECT ... WHERE status = $1 |
 | `:exec` | Returns nothing | INSERT, UPDATE, DELETE |
-| `:exec_result` | Returns affected row count | UPDATE/DELETE when count matters |
-| `:exec_rows` | Returns affected rows | Similar to exec_result |
+| `:exec_result` | Driver result or affected count, depending on backend | DML driver result |
+| `:exec_rows` | Returns affected row count | UPDATE/DELETE when count matters |
 | `:batch` | Batch execution | Bulk inserts |
 | `:grouped` | Grouped results | JOIN with parent-child nesting |
 
@@ -46,7 +54,7 @@ Makes a query parameter optional. Scythe rewrites SQL so NULL skips the filter.
 -- @name SearchUsers
 -- @returns :many
 -- @optional status
--- @optional name_pattern
+-- @optional name
 SELECT id, name FROM users WHERE status = $1 AND name ILIKE $2;
 ```
 
@@ -104,8 +112,7 @@ Marks a query as deprecated with an optional message.
 ```sql
 -- @name GetOrderDetails
 -- @returns :one
--- @param order_id: the order to look up
--- @optional status
+-- @param $1 order_id: the order to look up
 -- @nullable discount_code
 -- @nonnull total
 -- @json metadata = OrderMetadata
