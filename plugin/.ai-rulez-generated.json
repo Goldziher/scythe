@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:ea6237c57443ae48ff2d0d1fe6a70fdd9628a94a36ce2f973379084955eb2e32",
+  "source_hash": "blake3:239313412a92a253366da503f67b9108fbd39303f22ce1d7031eaad9a080ee38",
   "outputs": {
     ".claude-plugin/plugin.json": {
       "content_hash": "blake3:e840b027fe82cf528c0d1a721d473bfc081d1b6afb05d717b2c14eb746a383c2",
@@ -47,7 +47,7 @@
       "mode": "0644"
     },
     ".hermes/package/pyproject.toml": {
-      "content_hash": "blake3:00f523850849319a042cd67045115e79856c3a7e32e070a00ee0adec8206ffe7",
+      "content_hash": "blake3:03e84064d8aa0c3eb3993a0f197e72b54b35dbf7e6f0784fd2bffd58a1a8229e",
       "mode": "0644"
     },
     ".hermes/package/src/scythe_hermes_plugin/__init__.py": {
@@ -203,7 +203,7 @@
       "mode": "0644"
     },
     "assets/README.md": {
-      "content_hash": "blake3:ac1256487e043679e768f02087d945f4131f0892993151cd4df0d62eb931bc2c",
+      "content_hash": "blake3:4dd90421b4605b480ad829e664c9a25a47fe1b3ae0a08f324fd308ac824a6c01",
       "mode": "0644"
     },
     "gemini-extension.json": {
