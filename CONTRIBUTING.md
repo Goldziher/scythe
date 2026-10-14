@@ -213,3 +213,5 @@ without replacing existing local preferences. Edit `.ai-rulez/` for maintainer
 governance and `plugin/.ai-rulez/` for installable product skills. Run
 `task governance:check` and `task plugin:verify` before committing.
 See [plugin installation and publishing](plugin/assets/README.md).
+
+Registry publisher identities and initial account enrollment are documented in [Plugin distribution](.github/PLUGIN-PUBLISHING.md).
