@@ -1,6 +1,6 @@
 # AI-RULEZ :: GENERATED FILE — DO NOT EDIT
 # Content-Hash: blake3:6493876cbf379aa936215bfc8580764781d62c6f8fa6d45e83f52ee70e7d9dd8
-# Source-Hash: blake3:65e88be8faf16a3d5247c5be8b02ee1ae70158104d3025dd78a6b893899931bc
+# Source-Hash: blake3:ea6237c57443ae48ff2d0d1fe6a70fdd9628a94a36ce2f973379084955eb2e32
 # Schema-Version: v1
 
 """Register the bundled Scythe skill with Hermes Agent."""

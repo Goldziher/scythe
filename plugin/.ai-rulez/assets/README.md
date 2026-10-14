@@ -40,8 +40,10 @@ Use ai-rulez 5.3.0 from reviewed source revision
 Run `task plugin:generate` after source edits and `task plugin:verify` to verify
 source provenance, runtime contracts, version alignment and public export bytes.
 
-The manually dispatched plugin-artifacts workflow packages an existing release
-tag, verifies all outputs and checksums, and attaches a deterministic archive.
-It does not create a tag or publish to package registries.
+The manually dispatched plugin-artifacts workflow verifies the selected checkout
+against an existing release tag and runs three distribution jobs: a deterministic
+GitHub archive, the npm OpenCode/Pi package and the PyPI Hermes wheel. It does not
+create a product tag. Configure the required registry trusted publishers before
+dispatching; see [plugin publishing](https://github.com/Goldziher/scythe/blob/main/.github/PLUGIN-PUBLISHING.md).
 
 Gemini context loading follows the [official extension manifest contract](https://geminicli.com/docs/extensions/reference/).
