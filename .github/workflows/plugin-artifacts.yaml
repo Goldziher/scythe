@@ -49,7 +49,7 @@ jobs:
               raise SystemExit('plugins-only publication must run from main')
           PYCODE
       - name: Install ai-rulez
-        uses: xberg-io/actions/setup-ai-rulez@98adf87f1ed4c62a57ff56f9010d62faf42d4db6
+        uses: xberg-io/actions/setup-ai-rulez@c961bc96f87f018a3acbda2751dbdb69f7a3c958
         with:
           ai-rulez-version: "5.3.0"
           source-revision: "bdabc8a6e9211de60ca1e4ad76225ac92fcf218f"
@@ -60,7 +60,7 @@ jobs:
       - name: Verify public skill exports
         run: python3 scripts/sync_public_skills.py --check
       - name: Package all supported plugin runtimes
-        uses: xberg-io/actions/package-ai-rulez-plugin@66e9a172c28ae7e57496fe92de1ab74f2a604194
+        uses: xberg-io/actions/package-ai-rulez-plugin@c961bc96f87f018a3acbda2751dbdb69f7a3c958
         with:
           tag: ${{ github.sha }}
           cursor-marketplace: "true"
@@ -104,7 +104,7 @@ jobs:
           node-version: "24"
           registry-url: "https://registry.npmjs.org/"
       - name: Install ai-rulez
-        uses: xberg-io/actions/setup-ai-rulez@98adf87f1ed4c62a57ff56f9010d62faf42d4db6
+        uses: xberg-io/actions/setup-ai-rulez@c961bc96f87f018a3acbda2751dbdb69f7a3c958
         with:
           ai-rulez-version: "5.3.0"
           source-revision: "bdabc8a6e9211de60ca1e4ad76225ac92fcf218f"
@@ -214,7 +214,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Install ai-rulez
-        uses: xberg-io/actions/setup-ai-rulez@98adf87f1ed4c62a57ff56f9010d62faf42d4db6
+        uses: xberg-io/actions/setup-ai-rulez@c961bc96f87f018a3acbda2751dbdb69f7a3c958
         with:
           ai-rulez-version: "5.3.0"
           source-revision: "bdabc8a6e9211de60ca1e4ad76225ac92fcf218f"
@@ -226,7 +226,7 @@ jobs:
           python3 scripts/sync_plugin_version.py --expect "${VERSION#v}"
           python3 scripts/sync_public_skills.py --check
           ai-rulez verify --plugin
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.3.2
         with:
           python-version: "3.13"
       - name: Read the verified Hermes package version
