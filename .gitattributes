@@ -1,0 +1,4 @@
+# ~keep pnpm refuses to link a bin file with CRLF (ERR_PNPM_BIN_CRLF), and the
+# ~keep Windows CI checkout converts line endings by default, so the npm wrapper's
+# ~keep shebang script must stay LF in the tree and in the published tarball.
+release/npm/bin/scythe text eol=lf
