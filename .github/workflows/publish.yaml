@@ -699,7 +699,7 @@ jobs:
           retry() {
             local label="$1"
             shift
-            for attempt in $(seq 1 30); do  # 10 min: npm and GitHub's "latest" lag the publish
+            for attempt in $(seq 1 30); do  # 10 min: registry propagation outlasts a 2 min budget
               if "$@" >/dev/null 2>&1; then
                 echo "OK   $label"
                 return 0
@@ -732,7 +732,7 @@ jobs:
           # ~keep a newer release that is not the repository's latest silently pins every
           # ~keep action user to an older version.
           release_is_latest() {
-            [ "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isLatest -q .isLatest)" = "true" ]
+            [ "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" -q .tag_name)" = "$RELEASE_TAG" ]
           }
           retry "GitHub release $RELEASE_TAG marked latest" release_is_latest
 
