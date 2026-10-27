@@ -58,7 +58,7 @@ Key directories:
 | `tools/test-generator/` | Generates Rust tests from JSON fixtures |
 | `tools/snippet-runner/` | Validates documentation code snippets |
 | `tools/migrate-fixtures/` | Fixture migration utility |
-| `docs/` | Documentation site |
+| `website/src/content/docs/` | Documentation site |
 
 ## Adding a Language Backend
 
@@ -100,7 +100,7 @@ All 275+ existing fixtures will automatically test the new backend through snaps
 
 4. Add tests in the rule file itself.
 
-5. Document the rule in `docs/reference/lint-rules.md`.
+5. Document the rule in `website/src/content/docs/reference/lint-rules.md`.
 
 ## Testing
 
