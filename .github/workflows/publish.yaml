@@ -751,8 +751,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          # ~keep No tag ref here: the script comes from the workflow's own revision, and
+          # ~keep `fetch-depth: 0` still brings every tag the lookup needs.
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
 
       - name: Move the major tag to this release
         env:
