@@ -763,11 +763,11 @@ jobs:
           set -euo pipefail
           major="v${RELEASE_VERSION%%.*}"
           sha="$(git rev-list -n1 "$RELEASE_TAG")"
-          remote_sha="$(git ls-remote --tags origin "refs/tags/${major}" | awk '{print $1}')"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -f "$major" "$sha"
-          git push --force-with-lease="refs/tags/${major}:${remote_sha}" origin "refs/tags/${major}"
+          # ~keep Through the API, not `git push`: the tagged commit touches .github/workflows,
+          # ~keep and GITHUB_TOKEN may never push such a ref (no `workflows` permission). That
+          # ~keep rejection is what left v0 on 0.19.0.
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/${major}" -f sha="$sha" -F force=true >/dev/null \
+            || gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/${major}" -f sha="$sha" >/dev/null
           echo "Moved ${major} to ${RELEASE_TAG} (${sha})"
 
   smoke_wrappers:
