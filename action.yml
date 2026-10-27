@@ -61,7 +61,7 @@ runs:
           Linux/ARM64) target="aarch64-unknown-linux-gnu" ;;
           macOS/X64) target="x86_64-apple-darwin" ;;
           macOS/ARM64) target="aarch64-apple-darwin" ;;
-          Windows/X64 | Windows/ARM64) target="x86_64-pc-windows-gnu" ;;
+          Windows/X64 | Windows/ARM64) target="x86_64-pc-windows-msvc" ;;
           *)
             echo "::error::unsupported runner platform: ${RUNNER_OS}/${RUNNER_ARCH}" >&2
             exit 1

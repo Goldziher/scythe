@@ -10,7 +10,7 @@ test("resolveTarget maps all five known platform/arch pairs", () => {
   assert.equal(resolveTarget({ platform: "linux", arch: "arm64" }).target, "aarch64-unknown-linux-gnu");
   assert.equal(resolveTarget({ platform: "darwin", arch: "x64" }).target, "x86_64-apple-darwin");
   assert.equal(resolveTarget({ platform: "darwin", arch: "arm64" }).target, "aarch64-apple-darwin");
-  assert.equal(resolveTarget({ platform: "win32", arch: "x64" }).target, "x86_64-pc-windows-gnu");
+  assert.equal(resolveTarget({ platform: "win32", arch: "x64" }).target, "x86_64-pc-windows-msvc");
 });
 
 test("resolveTarget picks tar.gz for unix and zip for windows, with correct binary name", () => {
@@ -20,7 +20,7 @@ test("resolveTarget picks tar.gz for unix and zip for windows, with correct bina
     binaryName: "scythe",
   });
   assert.deepEqual(resolveTarget({ platform: "win32", arch: "x64" }), {
-    target: "x86_64-pc-windows-gnu",
+    target: "x86_64-pc-windows-msvc",
     archiveExt: "zip",
     binaryName: "scythe.exe",
   });
@@ -43,7 +43,7 @@ test("resolveTarget does not consult isMusl on non-linux platforms", () => {
 test("resolveTarget falls back to x64 with a warning on win32/arm64", () => {
   const warnings = [];
   const result = resolveTarget({ platform: "win32", arch: "arm64", warn: (msg) => warnings.push(msg) });
-  assert.deepEqual(result, { target: "x86_64-pc-windows-gnu", archiveExt: "zip", binaryName: "scythe.exe" });
+  assert.deepEqual(result, { target: "x86_64-pc-windows-msvc", archiveExt: "zip", binaryName: "scythe.exe" });
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /ARM64/);
 });

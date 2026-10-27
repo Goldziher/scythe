@@ -1,4 +1,4 @@
-"""Checksum parsing and verification for goreleaser checksum files."""
+"""Checksum parsing and verification for release checksum files."""
 
 import hashlib
 import re

@@ -2,7 +2,7 @@
 /target/
 **/*.rs.bk
 site/
-# GoReleaser output: release archives plus the per-target parser helpers
+# Release archives and the per-target parser helpers they are packaged from
 /dist/
 .playwright-mcp/
 .ruff_cache/

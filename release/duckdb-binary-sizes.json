@@ -30,7 +30,7 @@
       "max_bytes": 89683616
     },
     {
-      "triple": "x86_64-pc-windows-gnu",
+      "triple": "x86_64-pc-windows-msvc",
       "binary": "scythe.exe",
       "baseline_bytes": 37347840,
       "observed_bundled_bytes": 77229568,

@@ -8,14 +8,14 @@ const { parseChecksums, expectedChecksum, sha256Hex, verifyChecksum } = require(
 const SAMPLE = `\
 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  scythe-x86_64-unknown-linux-gnu.tar.gz
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  scythe-aarch64-apple-darwin.tar.gz
-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC  scythe-x86_64-pc-windows-gnu.zip
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC  scythe-x86_64-pc-windows-msvc.zip
 `;
 
 test("parseChecksums parses filename -> lowercase hash rows", () => {
   const map = parseChecksums(SAMPLE);
   assert.equal(map.get("scythe-x86_64-unknown-linux-gnu.tar.gz"), "a".repeat(64));
   assert.equal(map.get("scythe-aarch64-apple-darwin.tar.gz"), "b".repeat(64));
-  assert.equal(map.get("scythe-x86_64-pc-windows-gnu.zip"), "c".repeat(64));
+  assert.equal(map.get("scythe-x86_64-pc-windows-msvc.zip"), "c".repeat(64));
 });
 
 test("parseChecksums skips blank lines", () => {

@@ -3,7 +3,7 @@
 const crypto = require("node:crypto");
 
 /**
- * Parses a goreleaser `scythe_<version>_checksums.txt` file into a map of
+ * Parses a release `scythe_<version>_checksums.txt` file into a map of
  * `filename -> lowercase hex sha256`.
  *
  * Format: `<hex-digest>  <filename>` (two spaces), one per line.

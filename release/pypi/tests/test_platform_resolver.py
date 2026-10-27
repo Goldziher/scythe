@@ -26,7 +26,7 @@ def test_resolve_target_maps_all_five_known_platform_arch_pairs() -> None:
     assert resolve_target(sys_platform="linux", machine="aarch64").target == "aarch64-unknown-linux-gnu"
     assert resolve_target(sys_platform="darwin", machine="x86_64").target == "x86_64-apple-darwin"
     assert resolve_target(sys_platform="darwin", machine="arm64").target == "aarch64-apple-darwin"
-    assert resolve_target(sys_platform="win32", machine="AMD64").target == "x86_64-pc-windows-gnu"
+    assert resolve_target(sys_platform="win32", machine="AMD64").target == "x86_64-pc-windows-msvc"
 
 
 def test_resolve_target_picks_tar_gz_for_unix_and_zip_for_windows() -> None:
@@ -34,7 +34,7 @@ def test_resolve_target_picks_tar_gz_for_unix_and_zip_for_windows() -> None:
         target="x86_64-unknown-linux-gnu", archive_ext="tar.gz", binary_name="scythe"
     )
     assert resolve_target(sys_platform="win32", machine="AMD64") == ResolvedTarget(
-        target="x86_64-pc-windows-gnu", archive_ext="zip", binary_name="scythe.exe"
+        target="x86_64-pc-windows-msvc", archive_ext="zip", binary_name="scythe.exe"
     )
 
 
@@ -46,7 +46,7 @@ def test_resolve_target_hard_fails_on_musl_linux() -> None:
 def test_resolve_target_falls_back_to_x64_with_warning_on_win32_arm64() -> None:
     warnings: list[str] = []
     result = resolve_target(sys_platform="win32", machine="ARM64", warn=warnings.append)
-    assert result == ResolvedTarget(target="x86_64-pc-windows-gnu", archive_ext="zip", binary_name="scythe.exe")
+    assert result == ResolvedTarget(target="x86_64-pc-windows-msvc", archive_ext="zip", binary_name="scythe.exe")
     assert len(warnings) == 1
     assert "ARM64" in warnings[0]
 

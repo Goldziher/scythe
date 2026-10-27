@@ -9,7 +9,7 @@ const { writeAtomic } = require("./atomic");
 
 /**
  * Finds the archive entry whose basename matches `binaryName`. The archive
- * also contains LICENSE/README (goreleaser default), so callers must not
+ * also contains LICENSE/README (release archive default), so callers must not
  * assume a fixed path -- search by basename instead.
  *
  * @param {string[]} entryNames - archive-relative paths (may use `/` separators).

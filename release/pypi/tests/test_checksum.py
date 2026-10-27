@@ -14,7 +14,7 @@ SAMPLE = (
     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  "
     "scythe-aarch64-apple-darwin.tar.gz\n"
     "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC  "
-    "scythe-x86_64-pc-windows-gnu.zip\n"
+    "scythe-x86_64-pc-windows-msvc.zip\n"
 )
 
 
@@ -22,7 +22,7 @@ def test_parse_checksums_parses_filename_to_lowercase_hash_rows() -> None:
     result = parse_checksums(SAMPLE)
     assert result["scythe-x86_64-unknown-linux-gnu.tar.gz"] == "a" * 64
     assert result["scythe-aarch64-apple-darwin.tar.gz"] == "b" * 64
-    assert result["scythe-x86_64-pc-windows-gnu.zip"] == "c" * 64
+    assert result["scythe-x86_64-pc-windows-msvc.zip"] == "c" * 64
 
 
 def test_parse_checksums_skips_blank_lines() -> None:

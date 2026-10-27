@@ -13,7 +13,7 @@ SPEC.loader.exec_module(release_canary)
 
 
 class ReleaseCanaryTests(unittest.TestCase):
-    def test_repository_configuration_matches_goreleaser(self) -> None:
+    def test_repository_configuration_covers_the_release_matrix(self) -> None:
         targets = release_canary.validate(release_canary.load_config())
         self.assertEqual(5, len(targets))
 

@@ -35,6 +35,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      release_has_helpers: ${{ steps.version.outputs.release_has_helpers }}
       crates_exists: ${{ steps.published.outputs.crates_exists }}
       release_assets_exist: ${{ steps.release_assets.outputs.release_assets_exist }}
       npm_exists: ${{ steps.published.outputs.npm_exists }}
@@ -57,13 +58,24 @@ jobs:
 
           version="${tag#v}"
 
+          # ~keep The parser helpers ship from 0.20.0 on. Re-runs of older tags must
+          # ~keep stay publishable, so verify_archive gates its helper assertions on
+          # ~keep this flag rather than on the archive's contents -- an archive that
+          # ~keep silently lost its helpers would otherwise read as "predates them".
+          has_helpers=false
+          if [ "$(printf '%s\n' "0.20.0" "$version" | sort -V | head -1)" = "0.20.0" ]; then
+            has_helpers=true
+          fi
+
           {
             echo "version=$version"
             echo "tag=$tag"
+            echo "release_has_helpers=$has_helpers"
           } >> "$GITHUB_OUTPUT"
 
           echo "Git tag: $tag"
           echo "Version: $version"
+          echo "Bundled parser helpers expected: $has_helpers"
 
       - uses: go-task/setup-task@v2
         with:
@@ -132,19 +144,17 @@ jobs:
           version="${{ steps.version.outputs.version }}"
           release_assets_exist=false
 
-          # Require the COMPLETE set, not merely a non-zero count. goreleaser
-          # publishes the release live rather than as a draft, so a run that dies
-          # partway through uploading leaves a public release carrying some of the
-          # archives. A count-based check would then read that as "done" on every
-          # re-run, skip release_assets forever, and wedge the release with no
-          # automated way back -- while the npm and PyPI wrappers 404 for exactly
-          # the platforms whose archives are missing.
+          # ~keep Require the COMPLETE set, not merely a non-zero count. A run that
+          # ~keep dies partway through uploading, or a release promoted by hand, would
+          # ~keep otherwise read as "done" on every re-run and wedge the release with no
+          # ~keep automated way back -- while the npm and PyPI wrappers 404 for exactly
+          # ~keep the platforms whose archives are missing.
           required=(
             "scythe-x86_64-unknown-linux-gnu.tar.gz"
             "scythe-aarch64-unknown-linux-gnu.tar.gz"
             "scythe-x86_64-apple-darwin.tar.gz"
             "scythe-aarch64-apple-darwin.tar.gz"
-            "scythe-x86_64-pc-windows-gnu.zip"
+            "scythe-x86_64-pc-windows-msvc.zip"
             "scythe_${version}_checksums.txt"
           )
 
@@ -166,13 +176,78 @@ jobs:
           echo "release_assets_exist=$release_assets_exist" >> "$GITHUB_OUTPUT"
           echo "GitHub release assets complete: $release_assets_exist"
 
-  release_assets:
-    name: Publish GitHub release assets
+  create_release:
+    name: Create draft release
     needs: meta
     if: needs.meta.outputs.release_assets_exist != 'true'
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.ensure.outputs.release_id }}
     steps:
       - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Create the release as a draft
+        id: ensure
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ needs.meta.outputs.tag }}"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            release_id="$(gh release view "$tag" --json databaseId -q .databaseId)"
+            echo "release $tag already exists (id $release_id)"
+          else
+            prerelease=""
+            case "$tag" in
+              *-rc.* | *-beta* | *-alpha*) prerelease="--prerelease" ;;
+            esac
+            # ~keep Always a DRAFT. The build matrix uploads into it, and it stays
+            # ~keep invisible until finalize_release has seen all five archives and the
+            # ~keep checksums file. A failed platform build therefore leaves a hidden
+            # ~keep draft instead of the v0.20.0 state: a released version with none of
+            # ~keep its archives.
+            gh release create "$tag" --title "$tag" --notes "Release $tag" \
+              --verify-tag --draft $prerelease >/dev/null
+            release_id=""
+            for _ in $(seq 1 8); do
+              release_id="$(gh release view "$tag" --json databaseId -q .databaseId 2>/dev/null || true)"
+              [ -n "$release_id" ] && [ "$release_id" != "null" ] && break
+              sleep 3
+            done
+            [ -n "$release_id" ] && [ "$release_id" != "null" ] || {
+              echo "::error::created release for $tag but its id never became visible" >&2
+              exit 1
+            }
+            echo "created draft release $tag (id $release_id)"
+          fi
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+
+  build_unix_assets:
+    name: Build / ${{ matrix.triple }}
+    needs: [meta, create_release]
+    if: needs.meta.outputs.release_assets_exist != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - triple: aarch64-apple-darwin
+            os: macos-latest
+          - triple: x86_64-apple-darwin
+            os: macos-15-intel
+          - triple: x86_64-pc-windows-msvc
+            os: windows-2022
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - &checkout_asset
+        name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -181,45 +256,138 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu,x86_64-apple-darwin,aarch64-apple-darwin,x86_64-pc-windows-gnu
+          targets: ${{ matrix.triple }}
 
-      - name: Install Zig
-        run: brew install zig mingw-w64
+      - name: Build the release binary
+        run: |
+          set -euo pipefail
+          ulimit -n 4096 || true
+          cargo build --release --package scythe-cli --target "${{ matrix.triple }}"
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.13"
+      - name: Enforce the binary size ratchet
+        run: python3 scripts/release-canary.py check --target "${{ matrix.triple }}" --target-dir target
 
-      - uses: go-task/setup-task@v2
-        with:
-          version: 3.x
-
-      - name: Install cargo-zigbuild for the release canary
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-zigbuild
-
-      - name: Build and size-check all release targets
-        run: task release:canary
-
-      - name: Normalize legacy GoReleaser config for dispatch
-        if: github.event_name == 'workflow_dispatch'
-        run: perl -ni -e 'print unless /cargo install --locked cargo-zigbuild/' .goreleaser.yaml
-
-      - name: Build and publish GitHub release assets
-        uses: goreleaser/goreleaser-action@v7
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean --skip=validate --timeout=2h
+      - name: Package, smoke-test and upload the archive
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
+        run: ./.github/scripts/build-release-asset.sh "${{ matrix.triple }}" "${{ needs.create_release.outputs.release_id }}"
+
+  build_linux_assets:
+    name: Build / ${{ matrix.triple }}
+    needs: [meta, create_release]
+    if: needs.meta.outputs.release_assets_exist != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ~keep Manylinux pins the glibc floor at 2.28 (RHEL 8+/9, Ubuntu 20.04+).
+          # ~keep Building on ubuntu-latest or ubuntu-22.04 would raise it to that
+          # ~keep runner's glibc and silently drop every older distribution.
+          - triple: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            image: quay.io/pypa/manylinux_2_28_x86_64:latest
+          - triple: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            image: quay.io/pypa/manylinux_2_28_aarch64:latest
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.image }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - *checkout_asset
+
+      - name: Install the toolchain and gh in the container
+        run: |
+          set -euo pipefail
+          # ~keep patch is required by build_pg_parser_helpers.sh and gh by
+          # ~keep release-asset.sh; neither ships in the manylinux image.
+          dnf install -y --quiet patch which make curl git tar gzip
+          if ! command -v gh >/dev/null 2>&1; then
+            dnf install -y --quiet 'dnf-command(config-manager)'
+            dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+            dnf install -y --quiet gh
+          fi
+
+      - name: Install Rust in the container
+        run: |
+          set -euo pipefail
+          # ~keep Fixed CARGO_HOME/RUSTUP_HOME: container steps do not share $HOME, so
+          # ~keep a rustup default toolchain installed under one HOME is invisible to a
+          # ~keep later step ("no default is configured").
+          export CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          export PATH="$CARGO_HOME/bin:$PATH"
+          rustup target add "${{ matrix.triple }}"
+          echo "CARGO_HOME=/opt/cargo" >> "$GITHUB_ENV"
+          echo "RUSTUP_HOME=/opt/rustup" >> "$GITHUB_ENV"
+          echo "/opt/cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Build the release binary
+        run: |
+          set -euo pipefail
+          ulimit -n 4096 || true
+          cargo build --release --package scythe-cli --target "${{ matrix.triple }}"
+
+      - name: Enforce the binary size ratchet
+        run: python3 scripts/release-canary.py check --target "${{ matrix.triple }}" --target-dir target
+
+      - name: Package, smoke-test and upload the archive
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./.github/scripts/build-release-asset.sh "${{ matrix.triple }}" "${{ needs.create_release.outputs.release_id }}"
+
+  checksums:
+    name: Checksums
+    needs: [meta, create_release, build_unix_assets, build_linux_assets]
+    if: needs.meta.outputs.release_assets_exist != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Require all five archives before checksumming
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${{ needs.meta.outputs.version }}"
+          release_id="${{ needs.create_release.outputs.release_id }}"
+          mkdir -p dist
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" \
+            -q '.[].name' > /tmp/assets.txt
+          missing=0
+          for triple in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
+            aarch64-apple-darwin x86_64-apple-darwin; do
+            grep -qx "scythe-${triple}.tar.gz" /tmp/assets.txt || { echo "::error::missing scythe-${triple}.tar.gz"; missing=$((missing + 1)); }
+          done
+          grep -qx "scythe-x86_64-pc-windows-msvc.zip" /tmp/assets.txt || { echo "::error::missing the Windows archive"; missing=$((missing + 1)); }
+          [ "$missing" -eq 0 ] || { echo "::error::$missing archive(s) missing; refusing to checksum a partial release"; exit 1; }
+
+          while read -r name; do
+            bash .github/scripts/release-asset.sh download "$release_id" "$name" "dist/$name"
+          done < <(grep -E '^scythe-.+\.(tar\.gz|zip)$' /tmp/assets.txt)
+
+          ( cd dist && sha256sum scythe-*.tar.gz scythe-*.zip | sort ) > "dist/scythe_${version}_checksums.txt"
+          cat "dist/scythe_${version}_checksums.txt"
+
+      - name: Upload the checksums file
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          bash .github/scripts/release-asset.sh upload \
+            "${{ needs.create_release.outputs.release_id }}" \
+            "dist/scythe_${{ needs.meta.outputs.version }}_checksums.txt" text/plain
 
   publish_crates:
     name: Publish crates.io
-    needs: meta
-    if: needs.meta.outputs.crates_exists != 'true'
+    needs: [meta, finalize_release]
+    # ~keep Assets first, crates second. crates.io has no unpublish, so the order
+    # ~keep that can be repaired is "archives exist, crate does not". v0.20.0 shipped
+    # ~keep crates while the release assets failed in a parallel job, which is how the
+    # ~keep two drifted apart (#277).
+    if: needs.meta.outputs.crates_exists != 'true' && needs.finalize_release.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -284,13 +452,13 @@ jobs:
 
   verify-binstall:
     name: Verify cargo-binstall install
-    needs: [meta, release_assets]
-    # `release_assets` is *skipped* (not "success") when assets already exist, which is the
-    # normal idempotent re-run case -- this job must still run then, so gate on it not having
-    # failed rather than on a plain `needs:` (which would skip verification on every re-run).
+    needs: [meta, finalize_release]
+    # ~keep Gates on the release being published, not on the build jobs: a re-run over an
+    # ~keep already-complete release skips every build job, and binstall verification must
+    # ~keep still run then.
     if: >-
       always() && needs.meta.result == 'success'
-      && needs.release_assets.result != 'failure'
+      && needs.finalize_release.result == 'success'
     uses: xberg-io/actions/.github/workflows/reusable-binstall-verify.yml@v1
     with:
       package-name: scythe-cli
@@ -301,17 +469,102 @@ jobs:
         [
           {"os": "ubuntu-latest", "target": "x86_64-unknown-linux-gnu"},
           {"os": "macos-latest", "target": "aarch64-apple-darwin"},
-          {"os": "windows-latest", "target": "x86_64-pc-windows-gnu"}
+          {"os": "windows-2022", "target": "x86_64-pc-windows-msvc"}
         ]
       smoke-command: |
         scythe --version
 
-  finalize_release:
-    name: Verify GitHub release is complete
-    needs: [meta, release_assets]
+  verify_archive:
+    name: Verify the release archives
+    needs: [meta, checksums]
+    # ~keep `checksums` is *skipped* when the assets already exist, which is the normal
+    # ~keep idempotent re-run case, and this job must still run then.
     if: >-
       always() && needs.meta.result == 'success'
-      && (needs.release_assets.result == 'success' || needs.release_assets.result == 'skipped')
+      && (needs.checksums.result == 'success' || needs.checksums.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Download the Linux archive and verify its checksum
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.meta.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          archive="scythe-x86_64-unknown-linux-gnu.tar.gz"
+          checksums="scythe_${RELEASE_VERSION}_checksums.txt"
+          mkdir -p extracted
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$archive" --pattern "$checksums" --dir extracted
+
+          for asset in "$archive" "$checksums"; do
+            [ -s "extracted/$asset" ] || { echo "::error::missing release asset $asset" >&2; exit 1; }
+          done
+
+          # ~keep --ignore-missing: the checksums file covers all five targets, and only
+          # ~keep the Linux archive is downloaded here. Every other line stays unverified,
+          # ~keep which the binstall and wrapper smoke tests cover from the published assets.
+          ( cd extracted && sha256sum --check --ignore-missing "$checksums" )
+          tar -xzf "extracted/$archive" -C extracted
+          [ -x extracted/scythe ] || { echo "::error::the Linux archive does not contain an executable scythe" >&2; exit 1; }
+
+      - name: Report that this release predates the bundled parser helpers
+        # ~keep Releases before 0.20.0 never carried helpers, and a re-run of one must
+        # ~keep still be able to publish npm/PyPI. From 0.20.0 the helper assertions
+        # ~keep below are unconditional, so a dropped helper fails the release.
+        if: needs.meta.outputs.release_has_helpers != 'true'
+        run: echo "release ${{ needs.meta.outputs.version }} predates the bundled parser helpers (0.20.0); skipping helper assertions"
+
+      - name: Assert the archive carries the parser helpers, manifest and notices
+        if: needs.meta.outputs.release_has_helpers == 'true'
+        run: |
+          set -euo pipefail
+
+          required=(
+            scythe
+            scythe-pg15-parser
+            scythe-pg18-parser
+            pg-parser-manifest.json
+            THIRD_PARTY_LICENSES.txt
+            PARSER_PROTOCOL.md
+          )
+          missing=0
+          for file in "${required[@]}"; do
+            if [ ! -e "extracted/$file" ]; then
+              echo "::error::the Linux archive is missing $file"
+              missing=$((missing + 1))
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          echo "archive carries all ${#required[@]} bundled files"
+
+      - name: Verify the bundled helper manifest against the bundled binaries
+        if: needs.meta.outputs.release_has_helpers == 'true'
+        run: sh crates/scythe-cli/src/commands/audit/test_pg_parser_helpers.sh "$PWD/extracted"
+
+      - name: Run the cluster-scope gate from the extracted archive
+        # ~keep This is the acceptance control for #271: an archive that ships helpers
+        # ~keep which do not run is indistinguishable from one that ships none, and the
+        # ~keep canary only builds them -- it never exercises them from an archive.
+        if: needs.meta.outputs.release_has_helpers == 'true'
+        run: |
+          set -euo pipefail
+          sh scripts/test-cluster-scope-gate.sh "$PWD/extracted/scythe" "$PWD/extracted" 18
+          sh scripts/test-cluster-scope-gate.sh "$PWD/extracted/scythe" "$PWD/extracted" 15
+
+  finalize_release:
+    name: Verify GitHub release is complete
+    needs: [meta, create_release, checksums, verify_archive]
+    if: >-
+      always() && needs.meta.result == 'success'
+      && needs.verify_archive.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Verify and publish the complete release
@@ -322,12 +575,17 @@ jobs:
         run: |
           set -euo pipefail
 
+          # ~keep Promote by numeric id, never by tag: a tag can resolve to more than one
+          # ~keep release record, which is how assets ended up split across two releases.
+          release_id="$(bash .github/scripts/release-asset.sh resolve \
+            "$RELEASE_TAG" false "${{ needs.create_release.outputs.release_id }}")"
+
           required=(
             "scythe-x86_64-unknown-linux-gnu.tar.gz"
             "scythe-aarch64-unknown-linux-gnu.tar.gz"
             "scythe-x86_64-apple-darwin.tar.gz"
             "scythe-aarch64-apple-darwin.tar.gz"
-            "scythe-x86_64-pc-windows-gnu.zip"
+            "scythe-x86_64-pc-windows-msvc.zip"
             "scythe_${RELEASE_VERSION}_checksums.txt"
           )
 
@@ -345,12 +603,127 @@ jobs:
             exit 1
           fi
 
-          gh release edit "$RELEASE_TAG" --draft=false --repo "$GITHUB_REPOSITORY"
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" -F draft=false >/dev/null
+          echo "promoted release $release_id ($RELEASE_TAG) to published"
+
+  publish_homebrew:
+    name: Update Homebrew formula
+    needs: [meta, finalize_release]
+    if: >-
+      always() && needs.meta.result == 'success'
+      && needs.finalize_release.result == 'success'
+      && !contains(needs.meta.outputs.version, '-rc')
+      && !contains(needs.meta.outputs.version, '-beta')
+      && !contains(needs.meta.outputs.version, '-alpha')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Generate the formula and push it to the tap
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
+          RELEASE_TAG: ${{ needs.meta.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOMEBREW_TOKEN:-}" ]; then
+            echo "::warning::HOMEBREW_TOKEN is not configured; the tap formula was not updated"
+            exit 0
+          fi
+
+          release_id="$(bash .github/scripts/release-asset.sh resolve "$RELEASE_TAG" false "")"
+          checksums="scythe_${RELEASE_VERSION}_checksums.txt"
+          bash .github/scripts/release-asset.sh download "$release_id" "$checksums" "dist-checksums.txt"
+          ./scripts/update-homebrew-formula.sh "$RELEASE_VERSION" dist-checksums.txt > scythe.rb
+
+          git clone --depth 1 "https://x-access-token:${HOMEBREW_TOKEN}@github.com/Goldziher/homebrew-tap.git" tap
+          cp scythe.rb tap/Formula/scythe.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/scythe.rb
+          if git diff --cached --quiet; then
+            echo "Formula already up to date"
+          else
+            git commit -m "scythe ${RELEASE_VERSION}"
+            git push
+          fi
+
+  verify_channels:
+    name: Verify every channel carries the release
+    needs: [meta, publish_crates, finalize_release, publish_npm, publish_pypi]
+    # ~keep Runs even when a publish job failed: the point of this job is to turn
+    # ~keep "crates.io has it but the release/npm/PyPI do not" into a red run instead
+    # ~keep of a green one. That divergence is what left v0.20.0 and v0.18.2
+    # ~keep uninstallable through the setup action (#277).
+    if: always() && needs.meta.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Assert crates.io, the GitHub release, npm and PyPI all carry the version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.meta.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          failures=0
+          retry() {
+            local label="$1"
+            shift
+            for attempt in $(seq 1 12); do
+              if "$@" >/dev/null 2>&1; then
+                echo "OK   $label"
+                return 0
+              fi
+              [ "$attempt" -eq 12 ] && break
+              echo "waiting for $label (attempt $attempt)..."
+              sleep 10
+            done
+            echo "::error::$label does not carry $RELEASE_VERSION"
+            failures=$((failures + 1))
+            return 0
+          }
+
+          # crates.io rejects curl's default User-Agent with 403, which would make this
+          # probe fail for a published crate exactly as it fails for a missing one.
+          crates_probe() {
+            curl -fsS -A "scythe-release-workflow (https://github.com/Goldziher/scythe)" \
+              "https://crates.io/api/v1/crates/scythe-cli/${RELEASE_VERSION}"
+          }
+          retry "crates.io scythe-cli $RELEASE_VERSION" crates_probe
+
+          retry "npm scythe-cli@$RELEASE_VERSION" npm view "scythe-cli@${RELEASE_VERSION}" version
+
+          pypi_probe() {
+            curl -fsS "https://pypi.org/pypi/scythe-sql/${RELEASE_VERSION}/json"
+          }
+          retry "PyPI scythe-sql $RELEASE_VERSION" pypi_probe
+
+          # ~keep The setup action resolves `version: latest` through `gh release view`, so
+          # ~keep a newer release that is not the repository's latest silently pins every
+          # ~keep action user to an older version.
+          release_is_latest() {
+            [ "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isLatest -q .isLatest)" = "true" ]
+          }
+          retry "GitHub release $RELEASE_TAG marked latest" release_is_latest
+
+          if [ "$failures" -ne 0 ]; then
+            echo "::error::$failures channel(s) did not receive $RELEASE_VERSION"
+            exit 1
+          fi
+          echo "crates.io, GitHub releases, npm and PyPI all carry $RELEASE_VERSION"
 
   update_major_tag:
     name: Move the major version tag
-    needs: [meta, finalize_release]
-    if: needs.finalize_release.result == 'success' && !contains(needs.meta.outputs.version, '-rc') && !contains(needs.meta.outputs.version, '-beta') && !contains(needs.meta.outputs.version, '-alpha')
+    needs: [meta, verify_channels]
+    if: needs.verify_channels.result == 'success' && !contains(needs.meta.outputs.version, '-rc') && !contains(needs.meta.outputs.version, '-beta') && !contains(needs.meta.outputs.version, '-alpha')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -377,7 +750,7 @@ jobs:
 
   smoke_wrappers:
     name: Smoke test npm/PyPI wrappers
-    needs: [meta, release_assets]
+    needs: [meta, finalize_release]
     # ~keep Must run *before* publishing: a smoke test that runs after publish tells you about a
     # package you can no longer unpublish. Gate on release_assets not having failed (same
     # idempotent-rerun reasoning as verify-binstall above), not on a plain `needs:`.
@@ -388,7 +761,7 @@ jobs:
     # result is not 'success' -> publish_pypi can never run.
     if: >-
       always() && needs.meta.result == 'success'
-      && needs.release_assets.result != 'failure'
+      && needs.finalize_release.result == 'success'
       && (needs.meta.outputs.npm_exists != 'true' || needs.meta.outputs.pypi_exists != 'true')
     strategy:
       fail-fast: false
@@ -511,10 +884,9 @@ jobs:
 
   publish_npm:
     name: Publish npm
-    needs: [meta, release_assets, smoke_wrappers]
+    needs: [meta, finalize_release, smoke_wrappers]
     if: >-
       always() && needs.meta.result == 'success'
-      && needs.release_assets.result != 'failure'
       && needs.smoke_wrappers.result == 'success'
       && needs.meta.outputs.npm_exists != 'true'
     runs-on: ubuntu-latest
@@ -562,10 +934,9 @@ jobs:
 
   publish_pypi:
     name: Publish PyPI
-    needs: [meta, release_assets, smoke_wrappers]
+    needs: [meta, finalize_release, smoke_wrappers]
     if: >-
       always() && needs.meta.result == 'success'
-      && needs.release_assets.result != 'failure'
       && needs.smoke_wrappers.result == 'success'
       && needs.meta.outputs.pypi_exists != 'true'
     runs-on: ubuntu-latest

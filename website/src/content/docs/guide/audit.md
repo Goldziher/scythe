@@ -60,7 +60,7 @@ unresolved `EXECUTE` is a finding, and the command exits 2 on any finding regard
 The gate needs the pinned parser helpers (`scythe-pg15-parser`, `scythe-pg18-parser`), which ship
 beside the `scythe` binary in the Linux and macOS release archives. Point `SCYTHE_PG_PARSER_DIR`
 at their directory when running from a source build. Windows archives omit the helpers because
-upstream libpg_query cannot be cross-compiled to windows-gnu; run the gate on Linux or macOS.
+upstream libpg_query needs POSIX socket headers the Windows libc lacks; run the gate on Linux or macOS.
 
 ## Rule catalog
 
@@ -253,7 +253,7 @@ Use the public hooks published by this repo:
 
 ```yaml
 - repo: https://github.com/Goldziher/scythe
-  rev: v0.20.0              # pin to a released tag
+  rev: v0.20.1              # pin to a released tag
   hooks:
     - id: scythe-audit     # SC-SEC*/SC-RLS*/SC-MIG*/SC-CHK* on changed files
     # - id: scythe-lint    # full pipeline: sqruff + scythe-lint + audit (needs scythe.toml)

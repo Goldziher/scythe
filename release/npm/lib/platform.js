@@ -3,12 +3,12 @@
 /**
  * Platform+arch -> Rust target triple resolution for the scythe release assets.
  *
- * Release assets published by goreleaser (verified against the v0.12.0 release):
+ * Release assets published by the release workflow:
  *   scythe-x86_64-unknown-linux-gnu.tar.gz
  *   scythe-aarch64-unknown-linux-gnu.tar.gz
  *   scythe-x86_64-apple-darwin.tar.gz
  *   scythe-aarch64-apple-darwin.tar.gz
- *   scythe-x86_64-pc-windows-gnu.zip
+ *   scythe-x86_64-pc-windows-msvc.zip
  * There is no musl target and no aarch64 Windows asset.
  */
 
@@ -17,7 +17,7 @@ const TRIPLES = {
   "linux-arm64": "aarch64-unknown-linux-gnu",
   "darwin-x64": "x86_64-apple-darwin",
   "darwin-arm64": "aarch64-apple-darwin",
-  "win32-x64": "x86_64-pc-windows-gnu",
+  "win32-x64": "x86_64-pc-windows-msvc",
 };
 
 /**
@@ -60,7 +60,7 @@ function resolveTarget({ platform, arch, isMusl, warn }) {
   if (platform === "win32" && arch === "arm64") {
     warnFn(
       "scythe-cli: no native Windows ARM64 build is published; falling back to the " +
-        "x86_64-pc-windows-gnu binary, which runs under Windows 11 ARM64 x64 emulation.",
+        "x86_64-pc-windows-msvc binary, which runs under Windows 11 ARM64 x64 emulation.",
     );
     return { target: TRIPLES["win32-x64"], archiveExt: "zip", binaryName: "scythe.exe" };
   }

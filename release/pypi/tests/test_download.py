@@ -39,7 +39,7 @@ def current_target() -> ResolvedTarget:
 
 
 def build_archive(resolved: ResolvedTarget, payload: bytes = PAYLOAD) -> bytes:
-    """Builds a release archive holding the binary alongside goreleaser's LICENSE/README."""
+    """Builds a release archive holding the binary alongside the release archive's LICENSE/README."""
     buffer = io.BytesIO()
     if resolved.archive_ext == "zip":
         with zipfile.ZipFile(buffer, "w") as archive:

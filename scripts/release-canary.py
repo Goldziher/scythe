@@ -7,32 +7,14 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 SIZE_CONFIG = ROOT / "release" / "duckdb-binary-sizes.json"
-GORELEASER_CONFIG = ROOT / ".goreleaser.yaml"
+# ~keep The size configuration is the single source of truth for the release matrix:
+# ~keep the publish workflow builds exactly these triples and package-release.sh names
+# ~keep the archives from the same list.
 EXPECTED_TARGET_COUNT = 5
 
 
 def load_config() -> dict[str, Any]:
     return json.loads(SIZE_CONFIG.read_text(encoding="utf-8"))
-
-
-def goreleaser_targets() -> list[str]:
-    targets: list[str] = []
-    in_targets = False
-    targets_indent = 0
-    for line in GORELEASER_CONFIG.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        indent = len(line) - len(line.lstrip())
-        if stripped == "targets:":
-            in_targets = True
-            targets_indent = indent
-            continue
-        if not in_targets:
-            continue
-        if stripped and indent <= targets_indent:
-            break
-        if stripped.startswith("- "):
-            targets.append(stripped.removeprefix("- "))
-    return targets
 
 
 def configured_targets(config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -51,8 +33,6 @@ def validate(config: dict[str, Any], selected_target: str | None = None) -> list
     triples = [target.get("triple") for target in targets]
     if len(targets) != EXPECTED_TARGET_COUNT or len(set(triples)) != EXPECTED_TARGET_COUNT:
         raise ValueError("release canary must define exactly five unique targets")
-    if triples != goreleaser_targets():
-        raise ValueError("release canary targets must match .goreleaser.yaml in order")
 
     for target in targets:
         triple = target.get("triple")
@@ -113,7 +93,9 @@ def main() -> None:
     targets = validate(config, selected_target)
 
     if args.command == "validate":
-        print("release canary configuration matches all five GoReleaser targets")
+        print(
+            f"release canary configuration covers all five release targets: {', '.join(t['triple'] for t in targets)}"
+        )
     elif args.command == "matrix":
         print(json.dumps([target["triple"] for target in targets], separators=(",", ":")))
     elif args.command == "targets":

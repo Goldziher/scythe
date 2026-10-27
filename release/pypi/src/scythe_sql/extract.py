@@ -1,6 +1,6 @@
 """Archive extraction: locate and unpack the scythe binary by basename.
 
-The archive also contains LICENSE/README (goreleaser default), so callers
+The archive also contains LICENSE/README (release archive default), so callers
 must not assume a fixed path inside the archive -- search by basename.
 """
 
