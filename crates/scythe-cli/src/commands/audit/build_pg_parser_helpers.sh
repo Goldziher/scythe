@@ -187,5 +187,9 @@ build_one 18 18.1.0 2d3486cf6a9d3955b53e66235db39d62b54216c820cd392ab66dc842c5b1
 pg15_binary_sha=$(sha256_file "$output_dir/scythe-pg15-parser")
 pg18_binary_sha=$(sha256_file "$output_dir/scythe-pg18-parser")
 pg18_patch_sha=$(awk '$2 == 18 { print $1 }' "$work_dir/patches.txt")
+# ~keep A native build has no triple argument, so the release packager names the target it
+# ~keep is packaging for through the environment; the manifest then records e.g.
+# ~keep aarch64-apple-darwin instead of "native". Unset keeps the previous behaviour.
+manifest_target=${rust_target:-${SCYTHE_PARSER_HELPER_TARGET:-native}}
 printf '{"protocol":1,"target":"%s","helpers":[{"pg_major":15,"pg_version":"15.1","parser_release":"15-4.2.4","source_sha256":"d0ace0bff40e5daa99e32753a22a7558f9b2207e89260f00171fc50723b831dd","patch_sha256":null,"binary_sha256":"%s"},{"pg_major":18,"pg_version":"18.6","parser_release":"18.1.0","source_sha256":"2d3486cf6a9d3955b53e66235db39d62b54216c820cd392ab66dc842c5b1316d","patch_sha256":"%s","binary_sha256":"%s"}]}\n' \
-  "${rust_target:-native}" "$pg15_binary_sha" "$pg18_patch_sha" "$pg18_binary_sha" >"$output_dir/pg-parser-manifest.json"
+  "${manifest_target}" "$pg15_binary_sha" "$pg18_patch_sha" "$pg18_binary_sha" >"$output_dir/pg-parser-manifest.json"
