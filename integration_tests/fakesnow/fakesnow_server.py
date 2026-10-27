@@ -1,12 +1,17 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["fakesnow[server]==0.11.10"]
+# dependencies = ["fakesnow[server]==0.11.10", "snowflake-connector-python<5"]
 # ///
 """Run fakesnow with the JSON result fields required by snowflake-sdk.
 
 This mirrors the Node compatibility fields proposed upstream in
 https://github.com/tekumara/fakesnow/pull/313 while keeping CI pinned to a
 released fakesnow version.
+
+`snowflake-connector-python<5` is pinned because fakesnow 0.11.10 imports
+`snowflake.connector.converter`, which 5.0 removed, while its own metadata
+leaves the connector unbounded -- without the pin `uv run` resolves 5.x and the
+server dies at import. fakesnow has no 5.x-compatible release yet.
 """
 
 import asyncio
