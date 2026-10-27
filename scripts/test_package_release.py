@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Tests for scripts/package-release.sh.
+"""Tests for scripts/package-release.sh and scripts/update-homebrew-formula.sh.
 
-No compiler, network or real release build is needed: the packager is driven through
---helpers-from with fixture helpers. Run with `python3 scripts/test_package_release.py`.
+Neither script needs a compiler, a network or a real release build: the packager is driven
+through --helpers-from with fixture helpers, and the formula generator only reads a checksums
+file. Run with `python3 scripts/test_package_release.py`.
 """
 
 import json
@@ -17,6 +18,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
 PACKAGER = SCRIPTS / "package-release.sh"
+HOMEBREW = SCRIPTS / "update-homebrew-formula.sh"
 
 POSIX_MEMBERS = {
     "scythe",
@@ -177,6 +179,66 @@ class PackageReleaseTests(unittest.TestCase):
         self.assertIn(WINDOWS, note)
         self.assertIn("libpg_query", note)
         self.assertIn("POSIX socket headers", note)
+
+
+class HomebrewFormulaTests(unittest.TestCase):
+    ARM_SHA = "1" * 64
+    X64_SHA = "2" * 64
+    LINUX_ARM_SHA = "3" * 64
+    LINUX_X64_SHA = "4" * 64
+    WINDOWS_SHA = "5" * 64
+    VERSION = "0.21.0"
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.work = Path(self._tmp.name)
+        self.sums = self.work / f"scythe_{self.VERSION}_checksums.txt"
+        self.sums.write_text(
+            "\n".join(
+                [
+                    f"{self.LINUX_X64_SHA}  scythe-x86_64-unknown-linux-gnu.tar.gz",
+                    f"{self.WINDOWS_SHA}  scythe-x86_64-pc-windows-msvc.zip",
+                    f"{self.ARM_SHA}  scythe-{DARWIN_ARM}.tar.gz",
+                    f"{self.LINUX_ARM_SHA}  scythe-aarch64-unknown-linux-gnu.tar.gz",
+                    f"{self.X64_SHA}  scythe-{DARWIN_X64}.tar.gz",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    def test_formula_pins_both_macos_archives(self) -> None:
+        result = run(HOMEBREW, self.VERSION, str(self.sums))
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        formula = result.stdout
+        base = f"https://github.com/Goldziher/scythe/releases/download/v{self.VERSION}"
+        for expected in (
+            "class Scythe < Formula",
+            'desc "Polyglot SQL-to-code generator with built-in linting and formatting"',
+            'homepage "https://github.com/Goldziher/scythe"',
+            'license "MIT"',
+            f'version "{self.VERSION}"',
+            f'url "{base}/scythe-{DARWIN_ARM}.tar.gz"',
+            f'sha256 "{self.ARM_SHA}"',
+            f'url "{base}/scythe-{DARWIN_X64}.tar.gz"',
+            f'sha256 "{self.X64_SHA}"',
+            'bin.install "scythe"',
+            'system "#{bin}/scythe", "--version"',
+        ):
+            self.assertIn(expected, formula)
+        for absent in (self.LINUX_ARM_SHA, self.LINUX_X64_SHA, self.WINDOWS_SHA):
+            self.assertNotIn(absent, formula)
+
+    def test_fails_loudly_when_a_macos_checksum_is_absent(self) -> None:
+        self.sums.write_text(f"{self.ARM_SHA}  scythe-{DARWIN_ARM}.tar.gz\n", encoding="utf-8")
+
+        result = run(HOMEBREW, self.VERSION, str(self.sums))
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(DARWIN_X64, result.stderr)
+        self.assertEqual("", result.stdout)
 
 
 if __name__ == "__main__":
