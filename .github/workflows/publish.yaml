@@ -699,14 +699,14 @@ jobs:
           retry() {
             local label="$1"
             shift
-            for attempt in $(seq 1 12); do
+            for attempt in $(seq 1 30); do  # 10 min: npm and GitHub's "latest" lag the publish
               if "$@" >/dev/null 2>&1; then
                 echo "OK   $label"
                 return 0
               fi
-              [ "$attempt" -eq 12 ] && break
+              [ "$attempt" -eq 30 ] && break
               echo "waiting for $label (attempt $attempt)..."
-              sleep 10
+              sleep 20
             done
             echo "::error::$label does not carry $RELEASE_VERSION"
             failures=$((failures + 1))
