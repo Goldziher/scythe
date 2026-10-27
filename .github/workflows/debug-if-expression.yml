@@ -1,0 +1,38 @@
+name: Debug If Expression
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  a:
+    name: base
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo base
+
+  b_bare:
+    name: bare expression with negation
+    needs: [a]
+    if: needs.a.result == 'success' && !contains('0.20.1', '-rc')
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo b
+
+  c_braced:
+    name: braced expression with negation
+    needs: [a]
+    if: ${{ needs.a.result == 'success' && !contains('0.20.1', '-rc') }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo c
+
+  d_wrapped_file:
+    name: bare expression without negation
+    needs: [a]
+    if: needs.a.result == 'success' && contains('0.20.1', '0.20')
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo d
