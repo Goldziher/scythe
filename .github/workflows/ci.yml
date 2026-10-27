@@ -454,6 +454,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
+      # ~keep pnpm 12 keeps its content-addressable store under PNPM_HOME, and the
+      # ~keep "Install TypeScript" step below moves PNPM_HOME to a temp dir. Left
+      # ~keep alone, pnpm/setup records a store path before that move and its post
+      # ~keep step saves a path nothing wrote to, so the job fails with "Path(s)
+      # ~keep specified in the action for caching do(es) not exist" after every
+      # ~keep real step has passed. Pinning the store makes restore, every install
+      # ~keep and the save agree; the pnpm/setup step repeats it because a post
+      # ~keep step does not reliably inherit `$GITHUB_ENV`.
+      - name: Pin the pnpm store outside PNPM_HOME
+        run: echo "PNPM_CONFIG_STORE_DIR=$RUNNER_TEMP/pnpm-store" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       # 115 committed files under integration_tests/**/generated/,
       # integration_tests/*/src/queries.rs and the Java/Kotlin generated/
@@ -504,6 +514,10 @@ jobs:
       # `pnpm install --frozen-lockfile`, and the cache key is keyed off those
       # per-project lockfiles rather than a root one that does not exist.
       - uses: pnpm/setup@v3
+        env:
+          # ~keep Same pin as the first step: the action itself must resolve and
+          # ~keep save the same store in its main and post runs.
+          PNPM_CONFIG_STORE_DIR: ${{ runner.temp }}/pnpm-store
         with:
           version: "12.11.2"
           runtime: node@22
