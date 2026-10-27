@@ -578,9 +578,8 @@ jobs:
   finalize_release:
     name: Verify GitHub release is complete
     needs: [meta, create_release, checksums, verify_archive]
-    # ~keep A complete asset set means verify_archive is skipped, and requiring it would
-    # ~keep wedge the tag as a permanent draft on every re-run after a late failure --
-    # ~keep `release-asset.sh` is why this job needs a checkout too.
+    # ~keep A complete asset set means verify_archive is skipped; requiring it would wedge
+    # ~keep the tag as a draft on re-runs. `release-asset.sh` is why this job checks out.
     if: >-
       always() && needs.meta.result == 'success'
       && (needs.verify_archive.result == 'success'
@@ -827,7 +826,8 @@ jobs:
           tarball="$(ls ./*.tgz)"
           smoke_dir="$RUNNER_TEMP/scythe-pnpm-smoke"
           mkdir -p "$smoke_dir"
-          pnpm --dir "$smoke_dir" add --allow-build=scythe-cli "$PWD/$tarball"
+          # pnpm 12 rejects this postinstall (ERR_PNPM_IGNORED_BUILDS); the verify step runs it.
+          pnpm --dir "$smoke_dir" add --ignore-scripts "$PWD/$tarball"
           printf '%s\n' "$smoke_dir/node_modules" > pnpm-smoke-root.txt
 
       - name: Verify the npm shim reports the exact tag version and forwards the exit code
@@ -840,7 +840,8 @@ jobs:
           shim="$global_root/scythe-cli/bin/scythe"
 
           for attempt in $(seq 1 10); do
-            if output="$(node "$shim" --version 2>&1)"; then
+            if (cd "$global_root/scythe-cli" && node install.js) \
+              && output="$(node "$shim" --version 2>&1)"; then
               echo "$output"
               if [[ "$output" == *"$VERSION"* ]]; then
                 echo "npm wrapper OK: $output"
