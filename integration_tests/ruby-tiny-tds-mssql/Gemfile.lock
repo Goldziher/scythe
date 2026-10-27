@@ -2,15 +2,15 @@ GEM
   remote: https://rubygems.org/
   specs:
     bigdecimal (4.1.3)
-    tiny_tds (3.4.0)
+    tiny_tds (3.4.1)
       bigdecimal (>= 2.0.0)
-    tiny_tds (3.4.0-aarch64-linux-gnu)
+    tiny_tds (3.4.1-aarch64-linux-gnu)
       bigdecimal (>= 2.0.0)
-    tiny_tds (3.4.0-aarch64-linux-musl)
+    tiny_tds (3.4.1-aarch64-linux-musl)
       bigdecimal (>= 2.0.0)
-    tiny_tds (3.4.0-x86_64-linux-gnu)
+    tiny_tds (3.4.1-x86_64-linux-gnu)
       bigdecimal (>= 2.0.0)
-    tiny_tds (3.4.0-x86_64-linux-musl)
+    tiny_tds (3.4.1-x86_64-linux-musl)
       bigdecimal (>= 2.0.0)
 
 PLATFORMS
@@ -26,11 +26,11 @@ DEPENDENCIES
 
 CHECKSUMS
   bigdecimal (4.1.3) sha256=61ebe1e5e559bdc3cc6f2c0ee7f427321fc838f59611c294356eb04d6e21cf66
-  tiny_tds (3.4.0) sha256=b43e1475cc4b2fa6674847a6a5b72aed99d3332840e1a9f195ca8b1f68653688
-  tiny_tds (3.4.0-aarch64-linux-gnu) sha256=2bfad37bfd894b520e7998dbdc6811fbe7a9f40b4803d30b1307aca3e777fc39
-  tiny_tds (3.4.0-aarch64-linux-musl) sha256=a5ef22dde32998dcba1b75e17bb6419ea80dd52b8bc17d152a8aa6c96f26663d
-  tiny_tds (3.4.0-x86_64-linux-gnu) sha256=56a25e44e8c71432c1e69577cb56893048a949efa7fd839a48efaec88e603b2e
-  tiny_tds (3.4.0-x86_64-linux-musl) sha256=7516c187158215a0a47e3bb1f0dc8794359f6896a284a5ad1140d395461f2b99
+  tiny_tds (3.4.1) sha256=9af4e7aa3a93cd9e8a2d74ce4ba147ed60a91d35617d70cdc508f3e60aa48d94
+  tiny_tds (3.4.1-aarch64-linux-gnu) sha256=950274ad185fbba5c279a2aae25295ea293b966a5eb05920f2a34d4191c0a8c5
+  tiny_tds (3.4.1-aarch64-linux-musl) sha256=989eba94def6376427bc26307550b49651dab489ef55daae812532a088e89122
+  tiny_tds (3.4.1-x86_64-linux-gnu) sha256=732de2afa835dec6b0b248d1ce45fa82aa636c62df842507de5f1b2a112d9bc6
+  tiny_tds (3.4.1-x86_64-linux-musl) sha256=98c7f9f2e69d205b92d9bc82dfd5f4d9ac4e4758eb79b9c79415076b960a30c5
 
 BUNDLED WITH
   4.0.7
