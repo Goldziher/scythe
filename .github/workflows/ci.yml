@@ -42,15 +42,24 @@ jobs:
         id: targets
         run: echo "targets=$(task --silent release:canary:matrix)" >> "$GITHUB_OUTPUT"
 
-  release-canary:
+  release-canary-unix:
     name: "Build: Release Canary (${{ matrix.target }})"
     needs: release-canary-config
-    runs-on: macos-latest
-    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJSON(needs.release-canary-config.outputs.targets) }}
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+          - target: x86_64-pc-windows-msvc
+            os: windows-2022
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -65,11 +74,46 @@ jobs:
       - uses: go-task/setup-task@v2
         with:
           version: 3.x
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-zigbuild
-      - name: Install cross-compilation toolchains
-        run: brew install zig mingw-w64
+      # ~keep Native build, mirroring the publish workflow: each archive is built on
+      # ~keep its own platform, so the canary must exercise the same toolchain instead
+      # ~keep of a cross-compiler the release no longer uses.
+      - name: Build and size-check bundled-DuckDB binary
+        env:
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: task release:canary:target TARGET="$RELEASE_TARGET"
+
+  release-canary-linux:
+    name: "Build: Release Canary (${{ matrix.target }})"
+    needs: release-canary-config
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            image: quay.io/pypa/manylinux_2_28_x86_64:latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            image: quay.io/pypa/manylinux_2_28_aarch64:latest
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.image }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the toolchain in the container
+        run: |
+          set -euo pipefail
+          dnf install -y --quiet patch which make curl git tar gzip
+          export CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          export PATH="$CARGO_HOME/bin:$PATH"
+          rustup target add "${{ matrix.target }}"
+          echo "CARGO_HOME=/opt/cargo" >> "$GITHUB_ENV"
+          echo "RUSTUP_HOME=/opt/rustup" >> "$GITHUB_ENV"
+          echo "/opt/cargo/bin" >> "$GITHUB_PATH"
       - name: Build and size-check bundled-DuckDB binary
         env:
           RELEASE_TARGET: ${{ matrix.target }}

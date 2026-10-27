@@ -22,6 +22,7 @@ tasks:
     desc: Validate release targets and bundled-DuckDB binary-size limits
     cmds:
       - python3 -m unittest scripts/test_release_canary.py scripts/test_cargo_release.py
+      - python3 scripts/test_package_release.py
       - python3 scripts/release-canary.py validate
 
   release:canary:matrix:
@@ -50,7 +51,14 @@ tasks:
       - |
         case "$RELEASE_CANARY_TARGET" in
         *windows*) echo "release-canary: skipping parser helpers for $RELEASE_CANARY_TARGET" >&2 ;;
-        *) sh crates/scythe-cli/src/commands/audit/build_pg_parser_helpers.sh "$CARGO_TARGET_DIR/pg-parsers/$RELEASE_CANARY_TARGET" "$RELEASE_CANARY_TARGET" ;;
+        *)
+          # ~keep No triple argument: the canary runs on the target's own platform now,
+          # ~keep so the helpers build with the host compiler. Passing the triple would
+          # ~keep select the script's zig cross-compilation path and fail.
+          SCYTHE_PARSER_HELPER_TARGET="$RELEASE_CANARY_TARGET" \
+            sh crates/scythe-cli/src/commands/audit/build_pg_parser_helpers.sh \
+            "$CARGO_TARGET_DIR/pg-parsers/$RELEASE_CANARY_TARGET"
+          ;;
         esac
 
   release:canary:
