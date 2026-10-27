@@ -271,7 +271,12 @@ jobs:
           cargo build --release --package scythe-cli --target "${{ matrix.triple }}"
 
       - name: Enforce the binary size ratchet
-        run: python3 scripts/release-canary.py check --target "${{ matrix.triple }}" --target-dir target
+        run: |
+          set -euo pipefail
+          # ~keep Windows runners expose `python`, not always `python3`; the canary is
+          # ~keep the same script either way.
+          python_bin="$(command -v python3 || command -v python)"
+          "$python_bin" scripts/release-canary.py check --target "${{ matrix.triple }}" --target-dir target
 
       - name: Package, smoke-test and upload the archive
         env:
@@ -336,7 +341,12 @@ jobs:
           cargo build --release --package scythe-cli --target "${{ matrix.triple }}"
 
       - name: Enforce the binary size ratchet
-        run: python3 scripts/release-canary.py check --target "${{ matrix.triple }}" --target-dir target
+        run: |
+          set -euo pipefail
+          # ~keep Windows runners expose `python`, not always `python3`; the canary is
+          # ~keep the same script either way.
+          python_bin="$(command -v python3 || command -v python)"
+          "$python_bin" scripts/release-canary.py check --target "${{ matrix.triple }}" --target-dir target
 
       - name: Package, smoke-test and upload the archive
         env:
