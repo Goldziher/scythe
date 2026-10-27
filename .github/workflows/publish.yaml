@@ -258,6 +258,12 @@ jobs:
         with:
           targets: ${{ matrix.triple }}
 
+      - uses: actions/setup-python@v7
+        with:
+          # ~keep The size ratchet and the archive smoke test both need python3; the
+          # ~keep runner images do not guarantee it on PATH under bash.
+          python-version: "3.13"
+
       - name: Build the release binary
         run: |
           set -euo pipefail

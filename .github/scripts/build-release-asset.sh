@@ -42,7 +42,9 @@ scratch=$(mktemp -d)
 trap 'rm -rf -- "$scratch"' EXIT HUP INT TERM
 case "$archive" in
 *.zip)
-  unzip -q "$archive" -d "$scratch"
+  # ~keep python3 -m zipfile, not unzip: the Windows runner's bash provides no
+  # ~keep unzip, and bsdtar is not what `tar` resolves to there.
+  python3 -m zipfile -e "$archive" "$scratch"
   binary="$scratch/scythe.exe"
   ;;
 *)
