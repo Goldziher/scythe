@@ -4,35 +4,47 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  id-token: write
 
 jobs:
-  a:
+  meta:
     name: base
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
     steps:
-      - run: echo base
+      - id: v
+        run: echo "version=0.20.1" >> "$GITHUB_OUTPUT"
 
-  b_bare:
-    name: bare expression with negation
-    needs: [a]
-    if: needs.a.result == 'success' && !contains('0.20.1', '-rc')
+  gated:
+    name: gated but always
+    needs: [meta]
+    if: always() && needs.meta.result == 'success'
     runs-on: ubuntu-latest
     steps:
-      - run: echo b
+      - run: echo gated
 
-  c_braced:
-    name: braced expression with negation
-    needs: [a]
-    if: ${{ needs.a.result == 'success' && !contains('0.20.1', '-rc') }}
+  skipped_dep:
+    name: skipped dep
+    needs: [meta]
+    if: needs.meta.outputs.version == 'never'
     runs-on: ubuntu-latest
     steps:
-      - run: echo c
+      - run: echo nope
 
-  d_wrapped_file:
-    name: bare expression without negation
-    needs: [a]
-    if: needs.a.result == 'success' && contains('0.20.1', '0.20')
+  downstream:
+    name: downstream of a cond-gated job
+    needs: [meta, gated, skipped_dep]
+    if: needs.gated.result == 'success' && !contains(needs.meta.outputs.version, '-rc') && !contains(needs.meta.outputs.version, '-beta') && !contains(needs.meta.outputs.version, '-alpha')
     runs-on: ubuntu-latest
     steps:
-      - run: echo d
+      - run: echo downstream
+
+  downstream_always:
+    name: downstream with always
+    needs: [meta, gated, skipped_dep]
+    if: always() && needs.gated.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo downstream_always
