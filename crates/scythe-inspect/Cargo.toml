@@ -26,10 +26,10 @@ live-tests = []
 
 [dependencies]
 async-trait = "0.1"
-duckdb = { version = "1.10506.0", features = ["bundled"] }
+duckdb = { version = "1.20000.0", features = ["bundled"] }
 mysql_async = "0.37"
 regex = "1"
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 scythe-core = { path = "../scythe-core", version = "0.20.0" }
 scythe-lint = { path = "../scythe-lint", version = "0.20.0" }
 serde = { version = "1", features = ["derive"] }
