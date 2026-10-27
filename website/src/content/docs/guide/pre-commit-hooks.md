@@ -40,7 +40,7 @@ Add Scythe's producer catalog to the `[hooks]` configuration in `poly.toml`:
 [[hooks.sources]]
 id = "scythe"
 git = "https://github.com/Goldziher/scythe.git"
-revision = "v0.18.2"
+revision = "v0.20.1"
 hooks = ["scythe-fmt", "scythe-lint", "scythe-audit"]
 ```
 

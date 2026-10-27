@@ -59,8 +59,11 @@ unresolved `EXECUTE` is a finding, and the command exits 2 on any finding regard
 
 The gate needs the pinned parser helpers (`scythe-pg15-parser`, `scythe-pg18-parser`), which ship
 beside the `scythe` binary in the Linux and macOS release archives. Point `SCYTHE_PG_PARSER_DIR`
-at their directory when running from a source build. Windows archives omit the helpers because
-upstream libpg_query needs POSIX socket headers the Windows libc lacks; run the gate on Linux or macOS.
+at their directory when running from a source build. The Windows archive carries
+`PARSER_HELPERS_UNAVAILABLE.txt` instead of the helpers, because upstream libpg_query needs POSIX
+socket headers the Windows libc lacks; there the gate exits 1 with the missing-helper error rather
+than passing the input unchecked, so run it on Linux or macOS, or build the helpers yourself and
+point `SCYTHE_PG_PARSER_DIR` at them.
 
 ## Rule catalog
 

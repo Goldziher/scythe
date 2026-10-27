@@ -22,3 +22,22 @@ Windows does not provide. The script fails rather than producing a partial archi
 Update a target's `observed_bundled_bytes` and `max_bytes` deliberately when a reviewed dependency or code change
 accounts for the increase; the Windows figures currently carried over from the previous `windows-gnu` target must be
 re-recorded from the first MSVC canary observation.
+
+# Publish order
+
+`.github/workflows/publish.yaml` only moves in one direction, so a failure leaves the release in a state that can be
+re-run rather than one that has to be repaired by hand:
+
+1. `meta` resolves the tag and refuses to continue unless every crate version agrees with it.
+2. `create_release` creates the tag's release as a **draft**. A platform build that fails therefore leaves a hidden
+   draft, not a published version with no archives.
+3. `build_linux_assets` and `build_unix_assets` build, size-check, smoke-test and upload one archive per target;
+   `checksums` refuses to run until all five are present, then uploads `scythe_<version>_checksums.txt`.
+4. `verify_archive` downloads the Linux archive, checks it against that file, asserts the bundled members and runs the
+   cluster-scope gate from the extracted copy.
+5. `finalize_release` promotes the draft to published once every archive and the checksums file exist.
+6. Homebrew, crates.io, npm and PyPI publish only after that promotion — assets first, registries second, because a
+   registry upload that never happened can be repeated and a release nobody can download cannot be fixed. npm and PyPI
+   are smoke-tested before they are published.
+7. `verify_channels` fails the run unless crates.io, the GitHub release, npm and PyPI all carry the version, and
+   `update_major_tag` moves `v0` only after that check passes.
