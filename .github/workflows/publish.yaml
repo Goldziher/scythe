@@ -745,7 +745,7 @@ jobs:
   update_major_tag:
     name: Move the major version tag
     needs: [meta, verify_channels]
-    if: needs.verify_channels.result == 'success' && !contains(needs.meta.outputs.version, '-rc') && !contains(needs.meta.outputs.version, '-beta') && !contains(needs.meta.outputs.version, '-alpha')
+    if: always() && needs.verify_channels.result == 'success' && !contains(needs.meta.outputs.version, '-rc') && !contains(needs.meta.outputs.version, '-beta') && !contains(needs.meta.outputs.version, '-alpha')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
