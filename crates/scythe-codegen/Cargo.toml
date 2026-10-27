@@ -1,6 +1,6 @@
 [package]
 name = "scythe-codegen"
-version = "0.20.0"
+version = "0.20.1"
 edition = "2024"
 license = "MIT"
 license-file = "../../LICENSE"
@@ -28,13 +28,13 @@ include = [
 
 [dependencies]
 ahash = { version = "0.8", features = ["serde"] }
-scythe-backend = { path = "../scythe-backend", version = "0.20.0" }
-scythe-core = { path = "../scythe-core", version = "0.20.0" }
+scythe-backend = { path = "../scythe-backend", version = "0.20.1" }
+scythe-core = { path = "../scythe-core", version = "0.20.1" }
 toml = "1.1"
 
 [dev-dependencies]
 criterion = "0.8"
-scythe-lint = { path = "../scythe-lint", version = "0.20.0" }
+scythe-lint = { path = "../scythe-lint", version = "0.20.1" }
 syn = { version = "3", features = ["full", "parsing"] }
 
 [[bench]]

@@ -1,6 +1,7 @@
 {
 	"name": "scythe-integration-test-pg-zod-outer-join-unions",
 	"version": "0.1.0",
+	"packageManager": "pnpm@12.11.2",
 	"private": true,
 	"type": "module",
 	"scripts": {
@@ -12,10 +13,9 @@
 		"zod": "^4.6.5"
 	},
 	"devDependencies": {
-		"@types/node": "^26.6.5",
+		"@types/node": "^26.6.4",
 		"@types/pg": "^8.23.1",
 		"tsx": "^4.23.15",
 		"typescript": "^7.0.2"
-	},
-	"packageManager": "pnpm@12.11.2"
+	}
 }

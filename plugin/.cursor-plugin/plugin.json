@@ -2,7 +2,7 @@
   "name": "scythe",
   "displayName": "Scythe",
   "description": "Generate typed database access code from SQL, configure drivers, lint and format queries. Skills only; install the Scythe CLI separately.",
-  "version": "0.20.0",
+  "version": "0.20.1",
   "author": {
     "name": "Goldziher"
   },

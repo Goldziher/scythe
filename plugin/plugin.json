@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "scythe",
-  "version": "0.20.0",
+  "version": "0.20.1",
   "description": "Generate typed database access code from SQL, configure drivers, lint and format queries. Skills only; install the Scythe CLI separately.",
   "author": {
     "name": "Goldziher"

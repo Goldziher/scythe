@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-10-27
+
+### Fixed
+
+- Releases publish archives, checksums and a GitHub release again. GoReleaser
+  cleaned `dist` and then rejected its own distribution directory after the
+  parser-helper before-hook wrote into it ("dist is not empty"), so v0.20.0
+  reached crates.io with no installable release (issues #271 and #277).
+
+### Changed
+
+- The release pipeline no longer uses GoReleaser. Each of the five archives is
+  built natively on its own runner (Linux in a manylinux_2_28 container, macOS
+  on the native Intel and arm64 runners, Windows on MSVC) and uploaded to a
+  draft release that is promoted only once every archive and the checksums file
+  are present.
+- The Windows target is `x86_64-pc-windows-msvc` instead of the mingw
+  cross-build `x86_64-pc-windows-gnu`. The setup action, the npm and PyPI
+  wrappers and the binstall metadata resolve the same platform as before.
+- Workspace dependencies upgraded, including `rusqlite` 0.41, `sqruff-lib` 0.43,
+  `minijinja` 3 and the Arrow 60 stack. The integration test generator moved to
+  minijinja 3's `value::Serde` context wrapper.
+- `duckdb` stays on 1.10506.1 for this release. DuckDB 1.2 links its static
+  extension autoregister archive in a form the cross-compiler the old pipeline
+  used rejects; building natively removes that blocker, but the binary-size
+  ratchet has not been re-measured for it, so the upgrade lands separately.
+
+### Added
+
+- Publish CI verifies the published Linux archive: its checksum, the bundled
+  `scythe-pg15-parser`/`scythe-pg18-parser` helpers against
+  `pg-parser-manifest.json`, and the cluster-scope gate run from the extracted
+  archive for both grammar versions.
+- Publish CI fails unless crates.io, the GitHub release (including its "latest"
+  marker), npm and PyPI all carry the release, and publishes to crates.io only
+  after the archives are verified, so the channels cannot drift apart the way
+  they did for v0.20.0 and v0.18.2.
+
+### Security
+
+- Updated `rustls` to 0.23.46, `rustls-webpki` to 0.103.16, `tokio` to 1.54.1,
+  `ctutils` to 0.4.6 and `webpki-roots` to 1.0.11 to resolve RUSTSEC-2026-0346,
+  -0347, -0348, -0349, -0381, -0382, -0385 and -0386.
+
 ## [0.20.0] - 2026-10-06
 
 ### Added

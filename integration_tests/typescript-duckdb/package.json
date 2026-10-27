@@ -1,6 +1,7 @@
 {
 	"name": "scythe-integration-test-duckdb",
 	"version": "0.1.0",
+	"packageManager": "pnpm@12.11.2",
 	"private": true,
 	"type": "module",
 	"scripts": {
@@ -8,12 +9,11 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@duckdb/node-api": "^1.5.6-r.1"
+		"@duckdb/node-api": "^1.5.5-r.5"
 	},
 	"devDependencies": {
-		"@types/node": "^26.6.5",
+		"@types/node": "^26.6.4",
 		"tsx": "^4.23.15",
 		"typescript": "^7.0.2"
-	},
-	"packageManager": "pnpm@12.11.2"
+	}
 }

@@ -1,6 +1,6 @@
 [package]
 name = "scythe-inspect"
-version = "0.20.0"
+version = "0.20.1"
 edition = "2024"
 license = "MIT"
 license-file = "../../LICENSE"
@@ -26,12 +26,17 @@ live-tests = []
 
 [dependencies]
 async-trait = "0.1"
-duckdb = { version = "1.20000.0", features = ["bundled"] }
+# ~keep Exact, not caret. DuckDB 1.2's static extension autoregister archive broke the
+# ~keep cross-compiler the pre-0.20.1 release pipeline used, and the binary-size ratchet
+# ~keep has not been re-measured against it; a caret requirement would let a `cargo
+# ~keep update` take it silently at the moment the release starts building natively.
+# ~keep Lift this pin together with a fresh size baseline.
+duckdb = { version = "=1.10506.1", features = ["bundled"] }
 mysql_async = "0.37"
 regex = "1"
 rusqlite = { version = "0.41", features = ["bundled"] }
-scythe-core = { path = "../scythe-core", version = "0.20.0" }
-scythe-lint = { path = "../scythe-lint", version = "0.20.0" }
+scythe-core = { path = "../scythe-core", version = "0.20.1" }
+scythe-lint = { path = "../scythe-lint", version = "0.20.1" }
 serde = { version = "1", features = ["derive"] }
 sqlparser = { version = "0.63", features = ["visitor"] }
 thiserror = "2"

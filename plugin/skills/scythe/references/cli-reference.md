@@ -1,7 +1,7 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:4f7e0c0880973bd757b884e02b1f9a0679695b6cdf298fbc620d09a031432d78
-Source-Hash: blake3:42971b4156b4d8a024d76a02574090ad828699dd9248ab6344f9187662540969
+Content-Hash: blake3:dbc643e561482c5d23d668045781761049ac5291f601d8bc1763395a24a81e8c
+Source-Hash: blake3:dda6f642ae20dd0ec58dfb83a2337b9997b046a92f543f4dfb9a5ca28f2dd3f7
 Schema-Version: v1
 -->
 
@@ -182,7 +182,7 @@ scythe migrate sqlc.yaml                 # Migrate from sqlc
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.20.0
+    rev: v0.20.1
     hooks:
       - id: scythe-fmt
       - id: scythe-lint

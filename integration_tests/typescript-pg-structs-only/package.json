@@ -1,6 +1,7 @@
 {
 	"name": "scythe-integration-test-pg-structs-only",
 	"version": "0.1.0",
+	"packageManager": "pnpm@12.11.2",
 	"private": true,
 	"type": "module",
 	"scripts": {
@@ -9,9 +10,8 @@
 	},
 	"dependencies": {},
 	"devDependencies": {
-		"@types/node": "^26.6.5",
+		"@types/node": "^26.6.4",
 		"tsx": "^4.23.15",
 		"typescript": "^7.0.2"
-	},
-	"packageManager": "pnpm@12.11.2"
+	}
 }

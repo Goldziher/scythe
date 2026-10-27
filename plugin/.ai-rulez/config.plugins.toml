@@ -1,6 +1,6 @@
 [plugin]
 name = "scythe"
-version = "0.20.0"
+version = "0.20.1"
 runtimes = [
   "claude",
   "cursor",
