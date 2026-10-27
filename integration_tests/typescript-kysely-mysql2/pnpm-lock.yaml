@@ -174,7 +174,7 @@ importers:
         version: 3.24.6(@types/node@26.6.5)
     devDependencies:
       '@types/node':
-        specifier: ^26.6.5
+        specifier: ^26.6.4
         version: 26.6.5
       tsx:
         specifier: ^4.23.15

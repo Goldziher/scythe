@@ -167,11 +167,11 @@ importers:
   .:
     dependencies:
       '@sqlite.org/sqlite-wasm':
-        specifier: ^3.53.4-build2
-        version: 3.53.4-build2
+        specifier: ^3.53.0-build1
+        version: 3.53.0-build1
     devDependencies:
       '@types/node':
-        specifier: ^26.6.5
+        specifier: ^26.6.4
         version: 26.6.5
       tsx:
         specifier: ^4.23.15
@@ -338,8 +338,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@sqlite.org/sqlite-wasm@3.53.4-build2':
-    resolution: {integrity: sha512-kQVArGJA4z7s56Dm8t+eTBXad4LiohuVj9pfgDNOcxa+Ic5xMrWlLPTq6cT0hw5S4MIvtpsraW+B0wD+IPvC7A==}
+  '@sqlite.org/sqlite-wasm@3.53.0-build1':
+    resolution: {integrity: sha512-PfWPWN2n+/37doa8oh2/oUXk4OOsRYZsxc1W1sDXIGb/Pu5Yrb+f2eyYpgQMGITVX7HVgxhs9P18Rc6I97ym/g==}
     engines: {node: '>=22'}
 
   '@types/node@26.6.5':
@@ -568,7 +568,7 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
-  '@sqlite.org/sqlite-wasm@3.53.4-build2': {}
+  '@sqlite.org/sqlite-wasm@3.53.0-build1': {}
 
   '@types/node@26.6.5':
     dependencies:

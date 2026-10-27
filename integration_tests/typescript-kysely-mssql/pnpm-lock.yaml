@@ -173,11 +173,11 @@ importers:
         specifier: ^3.1.2
         version: 3.1.2
       tedious:
-        specifier: ^20.3.5
+        specifier: ^20.3.3
         version: 20.3.8
     devDependencies:
       '@types/node':
-        specifier: ^26.6.5
+        specifier: ^26.6.4
         version: 26.6.5
       tsx:
         specifier: ^4.23.15

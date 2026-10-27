@@ -167,11 +167,11 @@ importers:
   .:
     dependencies:
       oracledb:
-        specifier: ^26.0.0
-        version: 26.0.0
+        specifier: ^7.0.1
+        version: 7.0.1
     devDependencies:
       '@types/node':
-        specifier: ^26.6.5
+        specifier: ^26.6.4
         version: 26.6.5
       '@types/oracledb':
         specifier: ^7.0.3
@@ -477,8 +477,8 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
-  oracledb@26.0.0:
-    resolution: {integrity: sha512-ywUqFidj/mPjRjfpOQdzcXT98lhiJzavPCbyPF9JYivcgrpHx7ENj4ZGQDclrpGXeozUBLc5BNXV7yj5qTMxDw==}
+  oracledb@7.0.1:
+    resolution: {integrity: sha512-xlM0Ceh6A5stQLAdEfKf3pgCSkbOjQLo2ZPEi3+kXklz+KbZD3fLi/nsTSbQeZZNFBSFDNxdn1Ek3+bxG40M8w==}
     engines: {node: '>=14.17'}
 
   tsx@4.23.15:
@@ -674,7 +674,7 @@ snapshots:
   fsevents@2.3.3:
     optional: true
 
-  oracledb@26.0.0: {}
+  oracledb@7.0.1: {}
 
   tsx@4.23.15:
     dependencies:
