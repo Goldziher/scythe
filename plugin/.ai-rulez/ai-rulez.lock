@@ -2,12 +2,12 @@
 # Refresh it with `ai-rulez lock`; `ai-rulez generate --locked` fails when it is stale.
 
 version = 1
-ai_rulez_version = '5.3.0'
+ai_rulez_version = '5.7.0'
 scope = 'all'
-tree = 'sha256:1900e17ab243de0da9e2c7455443ca3f024a156ffecadd7103c432cf527e67a7'
+tree = 'sha256:7e31aec158347368c72d880f27e43984d617bfdd829fbc03033bdf8a1777cf60'
 
 [[item]]
 kind = 'skill'
 id = 'scythe'
 path = 'skills/scythe'
-digest = 'sha256:ba1a1a8a4e6a3a2e2fad8301209cac5a732087436d33eb8f453a091dda08ea52'
+digest = 'sha256:6393d8a258817f5f4de53d9acd9e6da146d578ad6717e17ebef17cee45116685'

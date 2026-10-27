@@ -2,9 +2,9 @@
 # Refresh it with `ai-rulez lock`; `ai-rulez generate --locked` fails when it is stale.
 
 version = 1
-ai_rulez_version = '5.3.0'
+ai_rulez_version = '5.7.0'
 scope = 'all'
-tree = 'sha256:14e437a22046cebfb81a34c84cf8187c88db713b073a1123ca9df8ea0621f2a6'
+tree = 'sha256:643ccdf7c106dc694b478d0db5f4275c3c4024cdfdc63bb0a9a65ac2a7a81644'
 
 [[include]]
 name = 'xberg-cicd'
@@ -70,13 +70,19 @@ digest = 'sha256:19ec99e9ed91962ed2ae78991ca76687b64d7072ff930419965743f443dae48
 name = 'code-quality-standards'
 source = 'builtin://universal/code-quality/skills/code-quality-standards/SKILL.md'
 commit = ''
-digest = 'sha256:0126cc7c038b3e343ee56866949865dd799bde0de4884ba0bdfeb28655fa8134'
+digest = 'sha256:fbb459dca3be6c91a4fe1944e844728c53e8856b517c5b122b8b2aeac566f666'
 
 [[served]]
 name = 'common-task-commands'
 source = 'include:xberg-core/skills/common-task-commands/SKILL.md'
 commit = 'adb0caa92c4d8155fb1680618f72a321a832660b'
 digest = 'sha256:383829527b247c8a2afdb87c0823428060a4515ec91f1f8706ecdee9f5b4cd4d'
+
+[[served]]
+name = 'config-placement'
+source = 'builtin://universal/ai-governance/skills/config-placement/SKILL.md'
+commit = ''
+digest = 'sha256:31adedeec2e2f4e7e0cc802f32467ad38d6db4034df698dac1ee9b52b747fd00'
 
 [[served]]
 name = 'consumer-release-gates'
@@ -100,7 +106,7 @@ digest = 'sha256:f922d27afc2b6d04ee8396c581a8220ea0d775a45368c86692aefebcdd3b237
 name = 'dependency-awareness'
 source = 'builtin://universal/security/skills/dependency-awareness/SKILL.md'
 commit = ''
-digest = 'sha256:e108ed344fe20948fcbda61b96266026bb9b2318df089964c088c0455294f8d3'
+digest = 'sha256:8f41215233c26441abed2b18f35575ce6b5614f91d9bef4885d550322542d4a5'
 
 [[served]]
 name = 'e2e-generator-conventions'
@@ -118,7 +124,7 @@ digest = 'sha256:961a318369ef64f420eb3b0ab668661b7559a4127ea9c4d722bc54994141ce3
 name = 'error-handling'
 source = 'builtin://universal/code-quality/skills/error-handling/SKILL.md'
 commit = ''
-digest = 'sha256:fddb5f980e8d98c91b459be578cdea7e0fc765d8219f66088892e936f0d1e349'
+digest = 'sha256:fbc7d452c7171e71341578b6c7a56fc2c87031c0ce15d35884bc3260e04ff68a'
 
 [[served]]
 name = 'feature-flag-conventions'
@@ -148,7 +154,7 @@ digest = 'sha256:d4476ba547378d20d11369f89ae4348b2de3ee9fbbc0a59c6a882fffeda351c
 name = 'incremental-approach'
 source = 'builtin://universal/token-efficiency/skills/incremental-approach/SKILL.md'
 commit = ''
-digest = 'sha256:ff56cbdc4813ee427a3b6f7d23f6b41b82b7c3cc8dc2b64ccd256a90e75e02f8'
+digest = 'sha256:b31111df0d7c3427e8ef3257fedeea76bc2430e4e132e7c986ab39d7c9b0d9c6'
 
 [[served]]
 name = 'iterate'
@@ -172,7 +178,7 @@ digest = 'sha256:ff545e2ee6eb48147399436d288526ae793e7fb1b5e9ceaf53b4ea91ebad67b
 name = 'owasp-quick-reference'
 source = 'builtin://universal/security/skills/owasp-quick-reference/SKILL.md'
 commit = ''
-digest = 'sha256:de4f3b595b88e88d7bff0c342b5253637d08d79b3baebe888bd465f133ff512c'
+digest = 'sha256:195755e5e5628857b680bb0b0453c909f258a0c36ce3f1b8e1d746c7ea54bffc'
 
 [[served]]
 name = 'parallelize'
@@ -226,7 +232,7 @@ digest = 'sha256:a2678ff39307d443deb2132e24c091324f0e0e44f4b20144911e912aadac8c6
 name = 'rust-conventions'
 source = 'builtin://languages/rust/skills/rust-conventions/SKILL.md'
 commit = ''
-digest = 'sha256:0a7c23c09a7fc29a7237fc838ab1491504f51f8d90fc114b52c1d914bf52214d'
+digest = 'sha256:dabcff852805a54326738de59f6a5bd6aa77092aefbfc3f67586dd762a1fcdb0'
 
 [[served]]
 name = 'scoop-distribution'
@@ -235,10 +241,16 @@ commit = 'adb0caa92c4d8155fb1680618f72a321a832660b'
 digest = 'sha256:dbe8c54b7ec4653bde6ef3bee2c3f9ed068c69e79e7e22389215dd2646ad5d9e'
 
 [[served]]
+name = 'skill-authoring'
+source = 'builtin://universal/ai-governance/skills/skill-authoring/SKILL.md'
+commit = ''
+digest = 'sha256:7ab2b543dc6608f204c957fedfc55ae902d22fda9dc8a52252330ff9b1406ff1'
+
+[[served]]
 name = 'task-runner'
 source = 'builtin://universal/token-efficiency/skills/task-runner/SKILL.md'
 commit = ''
-digest = 'sha256:9f3cadda648798b049869c463d7a69f6f7b5953bcad2a43ea02e645d1ec3e19b'
+digest = 'sha256:c57056e3a74a261b3a9d47638726c7d1f64c76b255838b6aaa3e635f3ffa8618'
 
 [[served]]
 name = 'taskfile-structure'
@@ -250,13 +262,13 @@ digest = 'sha256:25034a5f6b849257184b1f9d1cf463acf6257c41a6935fdd473778578f3c2f1
 name = 'tdd-workflow'
 source = 'builtin://universal/testing/skills/tdd-workflow/SKILL.md'
 commit = ''
-digest = 'sha256:90ddeb170606792596979de6444904f88b5fbcdc52ea2462109401865d17f6ec'
+digest = 'sha256:6086fe4a492fd695490fc26dc917bf8af08046a695a4eba5dc8dbbd1f71bd852'
 
 [[served]]
 name = 'testing-conventions'
 source = 'builtin://universal/testing/skills/testing-conventions/SKILL.md'
 commit = ''
-digest = 'sha256:562385aa3c563ffbf327d6776932b43175052b00ec4418695ed6c50c335f1686'
+digest = 'sha256:f406604437e2998fc756a0a5b6a08cd832b871c188f76ee5ecbfef33184e9652'
 
 [[served]]
 name = 'tracing-conventions'
@@ -310,4 +322,4 @@ digest = 'sha256:961f3c364ed2cd6e766326959e44894f98b98c4a65065ac16cfb638d391c62b
 kind = 'rule'
 id = 'python-type-checker'
 path = 'rules/python-type-checker.md'
-digest = 'sha256:1f246d6ec96d70109ca9512f7e94a55e1ae18149d0265637720c1602a844a9c0'
+digest = 'sha256:b7182233aae8312e46765208d2f96c341d4ad3b62ffc01be5408a25699695eeb'

@@ -43,7 +43,7 @@ path = 'modules/e2e-generator'
 merge_strategy = 'local-override'
 
 [mcp]
-self_server_command = ["pnpm", "dlx", "ai-rulez@5.3.0", "mcp"]
+self_server_command = ["pnpm", "dlx", "ai-rulez@5.7.0", "mcp"]
 
 [lock]
 include_outputs = false

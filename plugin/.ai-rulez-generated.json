@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:dda6f642ae20dd0ec58dfb83a2337b9997b046a92f543f4dfb9a5ca28f2dd3f7",
+  "source_hash": "blake3:eddcc9ad0f2fe3ecf47ffacce60a990a07e0bbf6af1bacc00acf0c71d726aea0",
   "outputs": {
     ".claude-plugin/plugin.json": {
       "content_hash": "blake3:c78385fb0f80fbfe70f2b38babedbafa71d9cca045c6c72afbdeb744bdbdeb48",
@@ -203,7 +203,7 @@
       "mode": "0644"
     },
     "assets/README.md": {
-      "content_hash": "blake3:b28d2342d1dd934c5f1a1d2c9b6fcb8928185f96ecbab825763a5e272b52b6f3",
+      "content_hash": "blake3:9ded81b297804de8f45c40f2ab85ab6567170d5aa338a13a86062fd57a6ff846",
       "mode": "0644"
     },
     "gemini-extension.json": {
