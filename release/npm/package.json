@@ -10,33 +10,16 @@
     "directory": "release/npm"
   },
   "bugs": "https://github.com/Goldziher/scythe/issues",
-  "keywords": [
-    "sql",
-    "codegen",
-    "cli",
-    "database",
-    "sqlc"
-  ],
+  "keywords": ["sql", "codegen", "cli", "database", "sqlc"],
   "engines": {
     "node": ">=18"
   },
-  "os": [
-    "linux",
-    "darwin",
-    "win32"
-  ],
-  "cpu": [
-    "x64",
-    "arm64"
-  ],
+  "os": ["linux", "darwin", "win32"],
+  "cpu": ["x64", "arm64"],
   "bin": {
     "scythe": "bin/scythe"
   },
-  "files": [
-    "bin",
-    "lib",
-    "install.js"
-  ],
+  "files": ["bin", "lib", "install.js"],
   "scripts": {
     "postinstall": "node install.js",
     "test": "node --test \"test/*.test.js\""

@@ -1,3 +1,12 @@
+[advisories]
+# ~keep RUSTSEC-2024-0449 (unsafe-libyaml unmaintained, no advisory against
+# ~keep scythe itself) arrives through sqruff-lib-dialects' serde_yaml 0.9, which
+# ~keep scythe does not control: it is unmaintained, not vulnerable, and it only
+# ~keep parses the dialect YAML shipped inside sqruff. `-D advisory-not-detected`
+# ~keep in CI fails this file the moment the entry stops matching, so the ignore
+# ~keep cannot outlive the dependency.
+ignore = ["RUSTSEC-2024-0449"]
+
 [licenses]
 allow = [
   "MIT",

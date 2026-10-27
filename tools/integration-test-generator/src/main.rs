@@ -1455,8 +1455,10 @@ fn render_template(env: &Environment<'_>, template_name: &str, context: &Templat
     let tmpl = env
         .get_template(template_name)
         .map_err(|err| format!("template '{template_name}' not found: {err}"))?;
+    // ~keep minijinja 3 removed the blanket `impl From<&T: Serialize> for Value`;
+    // ~keep serializable data now goes through the `value::Serde` wrapper.
     let mut output = tmpl
-        .render(context)
+        .render(minijinja::value::Serde(context))
         .map_err(|err| format!("rendering '{template_name}': {err}"))?;
     if !output.ends_with('\n') {
         output.push('\n');
