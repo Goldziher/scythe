@@ -578,8 +578,6 @@ jobs:
   finalize_release:
     name: Verify GitHub release is complete
     needs: [meta, create_release, checksums, verify_archive]
-    # ~keep A complete asset set means verify_archive is skipped; requiring it would wedge
-    # ~keep the tag as a draft on re-runs. `release-asset.sh` is why this job checks out.
     if: >-
       always() && needs.meta.result == 'success'
       && (needs.verify_archive.result == 'success'
@@ -822,6 +820,8 @@ jobs:
         run: |
           set -euo pipefail
           node -e 'const fs = require("node:fs"); const p = JSON.parse(fs.readFileSync("package.json")); p.version = process.env.VERSION; fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");'
+          # pnpm rejects a CRLF bin shebang (ERR_PNPM_BIN_CRLF) and a Windows checkout adds CR.
+          node -e 'const fs=require("node:fs");const f="bin/scythe";fs.writeFileSync(f,fs.readFileSync(f,"utf8").replace(/\r\n/g,"\n"))'
           pnpm pack
           tarball="$(ls ./*.tgz)"
           smoke_dir="$RUNNER_TEMP/scythe-pnpm-smoke"
