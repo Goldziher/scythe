@@ -107,6 +107,9 @@ jobs:
         run: |
           set -euo pipefail
           dnf install -y --quiet patch which make curl git tar gzip
+          # ~keep rustup's installer refuses an euid/`$HOME` mismatch; GitHub sets HOME
+          # ~keep to /github/home while the container runs as root.
+          export HOME=/root
           export CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup
           curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
           export PATH="$CARGO_HOME/bin:$PATH"
@@ -114,10 +117,19 @@ jobs:
           echo "CARGO_HOME=/opt/cargo" >> "$GITHUB_ENV"
           echo "RUSTUP_HOME=/opt/rustup" >> "$GITHUB_ENV"
           echo "/opt/cargo/bin" >> "$GITHUB_PATH"
+      # ~keep Inlined rather than `task release:canary:target`: the manylinux image has
+      # ~keep no Node, so the setup-task action cannot install into this container.
       - name: Build and size-check bundled-DuckDB binary
         env:
           RELEASE_TARGET: ${{ matrix.target }}
-        run: task release:canary:target TARGET="$RELEASE_TARGET"
+        run: |
+          set -euo pipefail
+          CARGO_TARGET_DIR=target/release-canary \
+            cargo build --release --package scythe-cli --target "$RELEASE_TARGET"
+          python3 scripts/release-canary.py check --target "$RELEASE_TARGET" --target-dir target/release-canary
+          SCYTHE_PARSER_HELPER_TARGET="$RELEASE_TARGET" \
+            sh crates/scythe-cli/src/commands/audit/build_pg_parser_helpers.sh \
+            "target/release-canary/pg-parsers/$RELEASE_TARGET"
 
   lint:
     name: Lint
