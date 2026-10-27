@@ -25,26 +25,10 @@ jobs:
     steps:
       - run: echo gated
 
-  skipped_dep:
-    name: skipped dep
-    needs: [meta]
-    if: needs.meta.outputs.version == 'never'
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo nope
-
-  downstream:
-    name: downstream of a cond-gated job
-    needs: [meta, gated, skipped_dep]
+  downstream_exact:
+    name: exact publish.yaml condition
+    needs: [meta, gated]
     if: needs.gated.result == 'success' && !contains(needs.meta.outputs.version, '-rc') && !contains(needs.meta.outputs.version, '-beta') && !contains(needs.meta.outputs.version, '-alpha')
     runs-on: ubuntu-latest
     steps:
-      - run: echo downstream
-
-  downstream_always:
-    name: downstream with always
-    needs: [meta, gated, skipped_dep]
-    if: always() && needs.gated.result == 'success'
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo downstream_always
+      - run: echo downstream_exact
