@@ -11,7 +11,7 @@ Scythe compiles annotated `.sql` files into database access code — row types, 
 type mappings — that stays in sync with your schema. It reads your SQL statically, so generation
 needs no database connection and no network: it runs in a pre-commit hook.
 
-10 languages · 10 databases · 56 backends · 58 lint and audit rules · nullability inferred through
+10 languages · 10 databases · 56 backends · 59 lint and audit rules · nullability inferred through
 JOINs, CTEs and window functions
 
 [![crates.io](https://img.shields.io/crates/v/scythe-cli?label=crates.io&color=007ec6)](https://crates.io/crates/scythe-cli)
@@ -82,12 +82,52 @@ Install scythe in a GitHub Actions workflow with the moving major-version action
 ```
 
 `v0` tracks the latest compatible action. Pin the downloaded CLI independently with
-`version: 0.18.2`, or set `cache: false` to disable the version-and-platform cache. The action
+`version: 0.20.1`, or set `cache: false` to disable the version-and-platform cache. The action
 verifies the release SHA-256 checksum, adds `scythe` to `PATH`, and exposes `version`, `target`, and
 `install-dir` outputs.
 
 See [Installation](https://goldziher.github.io/scythe/getting-started/installation/) for supported
 platforms, proxy configuration and cache control.
+
+<details>
+<summary><strong>Release archives</strong></summary>
+
+Every release publishes five archives and a `scythe_<version>_checksums.txt` file holding the
+SHA-256 of each:
+
+| Archive | Platform |
+|---|---|
+| `scythe-x86_64-unknown-linux-gnu.tar.gz` | Linux x64, glibc 2.28 or newer |
+| `scythe-aarch64-unknown-linux-gnu.tar.gz` | Linux arm64, glibc 2.28 or newer |
+| `scythe-x86_64-apple-darwin.tar.gz` | macOS x64 |
+| `scythe-aarch64-apple-darwin.tar.gz` | macOS Apple silicon |
+| `scythe-x86_64-pc-windows-msvc.zip` | Windows x64 |
+
+Each archive is built on its own runner for its own target, with no cross-compilation.
+
+```bash
+version=0.20.1
+base="https://github.com/Goldziher/scythe/releases/download/v${version}"
+curl -fsSLO "${base}/scythe-x86_64-unknown-linux-gnu.tar.gz"
+curl -fsSLO "${base}/scythe_${version}_checksums.txt"
+# --ignore-missing: the checksum file covers all five archives, only one was downloaded
+sha256sum --check --ignore-missing "scythe_${version}_checksums.txt"
+tar -xzf scythe-x86_64-unknown-linux-gnu.tar.gz
+./scythe --version
+```
+
+The Linux and macOS archives contain, flat at the root: `scythe`, `scythe-pg15-parser`,
+`scythe-pg18-parser`, `pg-parser-manifest.json`, `THIRD_PARTY_LICENSES.txt`, `PARSER_PROTOCOL.md`,
+`CHANGELOG.md`, `LICENSE` and `README.md`. The two parser helpers are the pinned PostgreSQL grammars
+that `scythe audit --cluster-scope` executes, so keep them in the same directory as `scythe`.
+
+The Windows zip carries `scythe.exe` and, in place of the two helpers, a
+`PARSER_HELPERS_UNAVAILABLE.txt` notice: upstream libpg_query needs POSIX socket headers Windows does
+not provide. Everything except `scythe audit --cluster-scope` works there; that command fails with a
+missing-helper error rather than passing the gate. Point `SCYTHE_PG_PARSER_DIR` at helpers you built
+yourself to run it.
+
+</details>
 
 <details>
 <summary><strong>Pre-commit / prek hooks</strong></summary>
@@ -291,7 +331,7 @@ flow with full function bodies for every language.
 ```bash
 scythe generate                       # compile SQL to code
 scythe check                          # is the committed code still in sync?
-scythe lint sql/                      # 23 correctness and performance rules
+scythe lint sql/                      # 24 correctness and performance rules
 scythe audit sql/ --format sarif      # 35 security and migration-safety rules
 scythe fmt sql/                       # format via sqruff
 scythe inspect $DATABASE_URL          # live-database health checks
