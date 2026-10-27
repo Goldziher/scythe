@@ -578,11 +578,9 @@ jobs:
   finalize_release:
     name: Verify GitHub release is complete
     needs: [meta, create_release, checksums, verify_archive]
-    # ~keep A complete asset set means every archive already reached the release, so
-    # ~keep verify_archive has nothing left to build and is skipped -- and requiring it
-    # ~keep to succeed would wedge the tag as a permanent draft on every re-run after a
-    # ~keep late failure (this job itself needs `release-asset.sh`, which is why it
-    # ~keep checks the repository out at all).
+    # ~keep A complete asset set means verify_archive is skipped, and requiring it would
+    # ~keep wedge the tag as a permanent draft on every re-run after a late failure --
+    # ~keep `release-asset.sh` is why this job needs a checkout too.
     if: >-
       always() && needs.meta.result == 'success'
       && (needs.verify_archive.result == 'success'
