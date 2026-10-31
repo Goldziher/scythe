@@ -5,7 +5,7 @@ It lists the five triples the publish workflow builds, plus, per target, the pre
 bundled-DuckDB size and a maximum with roughly 6–11% headroom over that observation.
 
 Each triple is built natively on its own runner (Linux in a manylinux_2_28 container so the glibc floor stays at 2.28,
-macOS on `macos-latest` and `macos-15-intel`, Windows on `windows-2022` with MSVC). There is no cross-compilation step:
+macOS on `macos-26` and `macos-26-intel`, Windows on `windows-2022` with MSVC). There is no cross-compilation step:
 an archive that cannot be produced on its own platform is a bug in the pipeline, not something a cross-toolchain should
 paper over.
 
