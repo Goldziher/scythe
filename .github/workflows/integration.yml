@@ -83,29 +83,17 @@ jobs:
             integration_tests/rust-sqlx -> target
             integration_tests/rust-sqlx-nested-json -> target
             integration_tests/rust-tokio-postgres -> target
-      # ~keep go-version-file (not a literal pin) for every generated Go project
-      # in this workflow: those go.mod files are rendered from
-      # tools/integration-test-generator/templates/go.mod.jinja and can
-      # require a newer Go than any literal pinned here. This used to
-      # succeed anyway because actions/setup-go left GOTOOLCHAIN=auto, so a
-      # stale literal pin silently downloaded the toolchain go.mod actually
-      # required. Newer setup-go versions default GOTOOLCHAIN=local, turning
-      # that mismatch into a hard failure ("go.mod requires go >= X (running
-      # go Y; GOTOOLCHAIN=local)"). Pointing at the job's own generated
-      # go.mod keeps the two from drifting again — do not re-pin a literal.
-      - uses: actions/setup-go@v7
+      # ~keep Go comes from mise.toml for every generated Go project in this
+      # ~keep workflow. Those go.mod files are rendered from
+      # ~keep tools/integration-test-generator/templates/go.mod.jinja, so keep
+      # ~keep mise.toml's go at or above the newest go directive the template writes.
+      # ~keep The CI profile (mise.ci.toml) locks the language lines these projects target.
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          go-version-file: integration_tests/go-pgx/go.mod
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "21"
+          mise-env: ci
+          tools: go python=3.12 node=22 java=temurin-21 ruby=3.4 uv pnpm
+      # ~keep The committed Gemfile.lock files are written by Bundler 4, newer than the one Ruby ships.
+      - run: gem install bundler --no-document
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
@@ -124,31 +112,15 @@ jobs:
         with:
           otp-version: "26"
           elixir-version: "1.16"
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.4"
-          # The pinned Ruby ships a Bundler older than 4.x, but the committed Gemfile.lock files
-          # are written by Bundler 4. An older Bundler cannot read a newer
-          # lockfile: it re-execs to install the newer one mid-step and then
-          # fails to resolve gems. A newer Bundler reads older lockfiles fine.
-          bundler: latest
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
           extensions: pdo_pgsql
 
-      - run: pip install uv
-      # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
-      # release cannot change the answer under one and not the other. No
-      # `runtime` input: `actions/setup-node` above already provides node 22.
-      # `install: false` because there is no root package.json -- each project
-      # below runs its own `pnpm install`.
-      - uses: pnpm/setup@v3
-        with:
-          version: "12.11.2"
-          install: false
-          cache: true
-          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # pnpm is mise.toml's, the same as ci.yml's generated-query-code gate, so a
+      # new pnpm release cannot change the answer under one and not the other.
+      # There is no root package.json -- each project below runs its own
+      # `pnpm install`.
       # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
       # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
       # etc. removed). Below that floor an unknown `allowBuilds` key is silently
@@ -398,19 +370,13 @@ jobs:
         with:
           workspaces: |
             integration_tests/rust-sqlx-mysql -> target
-      - uses: actions/setup-go@v7
+      # ~keep The CI profile (mise.ci.toml) locks the language lines these projects target.
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          go-version-file: integration_tests/go-database-sql-mysql/go.mod
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "21"
+          mise-env: ci
+          tools: go python=3.12 node=22 java=temurin-21 ruby=3.4 uv pnpm
+      # ~keep The committed Gemfile.lock files are written by Bundler 4, newer than the one Ruby ships.
+      - run: gem install bundler --no-document
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
@@ -429,31 +395,15 @@ jobs:
         with:
           otp-version: "26"
           elixir-version: "1.16"
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.4"
-          # The pinned Ruby ships a Bundler older than 4.x, but the committed Gemfile.lock files
-          # are written by Bundler 4. An older Bundler cannot read a newer
-          # lockfile: it re-execs to install the newer one mid-step and then
-          # fails to resolve gems. A newer Bundler reads older lockfiles fine.
-          bundler: latest
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
           extensions: pdo_mysql
 
-      - run: pip install uv
-      # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
-      # release cannot change the answer under one and not the other. No
-      # `runtime` input: `actions/setup-node` above already provides node 22.
-      # `install: false` because there is no root package.json -- each project
-      # below runs its own `pnpm install`.
-      - uses: pnpm/setup@v3
-        with:
-          version: "12.11.2"
-          install: false
-          cache: true
-          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # pnpm is mise.toml's, the same as ci.yml's generated-query-code gate, so a
+      # new pnpm release cannot change the answer under one and not the other.
+      # There is no root package.json -- each project below runs its own
+      # `pnpm install`.
       # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
       # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
       # etc. removed). Below that floor an unknown `allowBuilds` key is silently
@@ -574,19 +524,13 @@ jobs:
         with:
           workspaces: |
             integration_tests/rust-sqlx-mariadb -> target
-      - uses: actions/setup-go@v7
+      # ~keep The CI profile (mise.ci.toml) locks the language lines these projects target.
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          go-version-file: integration_tests/go-database-sql-mariadb/go.mod
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "21"
+          mise-env: ci
+          tools: go python=3.12 node=22 java=temurin-21 ruby=3.4 uv pnpm
+      # ~keep The committed Gemfile.lock files are written by Bundler 4, newer than the one Ruby ships.
+      - run: gem install bundler --no-document
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
@@ -605,31 +549,15 @@ jobs:
         with:
           otp-version: "26"
           elixir-version: "1.16"
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.4"
-          # The pinned Ruby ships a Bundler older than 4.x, but the committed Gemfile.lock files
-          # are written by Bundler 4. An older Bundler cannot read a newer
-          # lockfile: it re-execs to install the newer one mid-step and then
-          # fails to resolve gems. A newer Bundler reads older lockfiles fine.
-          bundler: latest
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
           extensions: pdo_mysql
 
-      - run: pip install uv
-      # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
-      # release cannot change the answer under one and not the other. No
-      # `runtime` input: `actions/setup-node` above already provides node 22.
-      # `install: false` because there is no root package.json -- each project
-      # below runs its own `pnpm install`.
-      - uses: pnpm/setup@v3
-        with:
-          version: "12.11.2"
-          install: false
-          cache: true
-          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # pnpm is mise.toml's, the same as ci.yml's generated-query-code gate, so a
+      # new pnpm release cannot change the answer under one and not the other.
+      # There is no root package.json -- each project below runs its own
+      # `pnpm install`.
       # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
       # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
       # etc. removed). Below that floor an unknown `allowBuilds` key is silently
@@ -754,19 +682,13 @@ jobs:
           export PATH=/usr/lib/oracle/23/client64/bin:$PATH
           sqlplus scythe/scythe@localhost:1521/XEPDB1 @integration_tests/sql/oracle/schema_full.sql
 
-      - uses: actions/setup-python@v7
+      # ~keep The CI profile (mise.ci.toml) locks the language lines these projects target.
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          python-version: "3.12"
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: integration_tests/go-godror-oracle/go.mod
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "21"
+          mise-env: ci
+          tools: python=3.12 node=22 go java=temurin-21 ruby=3.4 uv pnpm
+      # ~keep The committed Gemfile.lock files are written by Bundler 4, newer than the one Ruby ships.
+      - run: gem install bundler --no-document
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
@@ -785,27 +707,11 @@ jobs:
         with:
           otp-version: "26"
           elixir-version: "1.16"
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.4"
-          # The pinned Ruby ships a Bundler older than 4.x, but the committed Gemfile.lock files
-          # are written by Bundler 4. An older Bundler cannot read a newer
-          # lockfile: it re-execs to install the newer one mid-step and then
-          # fails to resolve gems. A newer Bundler reads older lockfiles fine.
-          bundler: latest
 
-      - run: pip install uv
-      # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
-      # release cannot change the answer under one and not the other. No
-      # `runtime` input: `actions/setup-node` above already provides node 22.
-      # `install: false` because there is no root package.json -- each project
-      # below runs its own `pnpm install`.
-      - uses: pnpm/setup@v3
-        with:
-          version: "12.11.2"
-          install: false
-          cache: true
-          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # pnpm is mise.toml's, the same as ci.yml's generated-query-code gate, so a
+      # new pnpm release cannot change the answer under one and not the other.
+      # There is no root package.json -- each project below runs its own
+      # `pnpm install`.
       # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
       # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
       # etc. removed). Below that floor an unknown `allowBuilds` key is silently
@@ -923,19 +829,13 @@ jobs:
         with:
           workspaces: |
             integration_tests/rust-tiberius-mssql -> target
-      - uses: actions/setup-go@v7
+      # ~keep The CI profile (mise.ci.toml) locks the language lines these projects target.
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          go-version-file: integration_tests/go-database-sql-mssql/go.mod
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "21"
+          mise-env: ci
+          tools: go python=3.12 node=22 java=temurin-21 ruby=3.4 uv pnpm
+      # ~keep The committed Gemfile.lock files are written by Bundler 4, newer than the one Ruby ships.
+      - run: gem install bundler --no-document
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
@@ -954,31 +854,15 @@ jobs:
         with:
           otp-version: "26"
           elixir-version: "1.16"
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.4"
-          # The pinned Ruby ships a Bundler older than 4.x, but the committed Gemfile.lock files
-          # are written by Bundler 4. An older Bundler cannot read a newer
-          # lockfile: it re-execs to install the newer one mid-step and then
-          # fails to resolve gems. A newer Bundler reads older lockfiles fine.
-          bundler: latest
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
           extensions: pdo_sqlsrv
 
-      - run: pip install uv
-      # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
-      # release cannot change the answer under one and not the other. No
-      # `runtime` input: `actions/setup-node` above already provides node 22.
-      # `install: false` because there is no root package.json -- each project
-      # below runs its own `pnpm install`.
-      - uses: pnpm/setup@v3
-        with:
-          version: "12.11.2"
-          install: false
-          cache: true
-          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # pnpm is mise.toml's, the same as ci.yml's generated-query-code gate, so a
+      # new pnpm release cannot change the answer under one and not the other.
+      # There is no root package.json -- each project below runs its own
+      # `pnpm install`.
       # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
       # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
       # etc. removed). Below that floor an unknown `allowBuilds` key is silently
@@ -1073,27 +957,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
+      # ~keep The CI profile (mise.ci.toml) locks the language lines these projects target.
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          python-version: "3.12"
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "21"
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: integration_tests/go-database-sql-duckdb/go.mod
+          mise-env: ci
+          tools: python=3.12 node=22 java=temurin-21 go uv pnpm
 
-      - run: pip install uv
-      - uses: pnpm/setup@v3
-        with:
-          version: "12.11.2"
-          install: false
-          cache: true
-          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
       # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
       # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
       # etc. removed). Below that floor an unknown `allowBuilds` key is silently
@@ -1152,19 +1021,13 @@ jobs:
         with:
           workspaces: |
             integration_tests/rust-sqlx-sqlite -> target
-      - uses: actions/setup-go@v7
+      # ~keep The CI profile (mise.ci.toml) locks the language lines these projects target.
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          go-version-file: integration_tests/go-database-sql-sqlite/go.mod
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "21"
+          mise-env: ci
+          tools: go python=3.12 node=24 java=temurin-21 ruby=3.4 uv pnpm
+      # ~keep The committed Gemfile.lock files are written by Bundler 4, newer than the one Ruby ships.
+      - run: gem install bundler --no-document
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
@@ -1183,31 +1046,15 @@ jobs:
         with:
           otp-version: "26"
           elixir-version: "1.16"
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.4"
-          # The pinned Ruby ships a Bundler older than 4.x, but the committed Gemfile.lock files
-          # are written by Bundler 4. An older Bundler cannot read a newer
-          # lockfile: it re-execs to install the newer one mid-step and then
-          # fails to resolve gems. A newer Bundler reads older lockfiles fine.
-          bundler: latest
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
           extensions: pdo_sqlite
 
-      - run: pip install uv
-      # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
-      # release cannot change the answer under one and not the other. No
-      # `runtime` input: `actions/setup-node` above already provides node 24.
-      # `install: false` because there is no root package.json -- each project
-      # below runs its own `pnpm install`.
-      - uses: pnpm/setup@v3
-        with:
-          version: "12.11.2"
-          install: false
-          cache: true
-          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # pnpm is mise.toml's, the same as ci.yml's generated-query-code gate, so a
+      # new pnpm release cannot change the answer under one and not the other.
+      # There is no root package.json -- each project below runs its own
+      # `pnpm install`.
       # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
       # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
       # etc. removed). Below that floor an unknown `allowBuilds` key is silently
@@ -1333,19 +1180,13 @@ jobs:
           workspaces: |
             integration_tests/rust-sqlx-redshift -> target
             integration_tests/rust-tokio-postgres-redshift -> target
-      - uses: actions/setup-go@v7
+      # ~keep The CI profile (mise.ci.toml) locks the language lines these projects target.
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          go-version-file: integration_tests/go-pgx-redshift/go.mod
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "21"
+          mise-env: ci
+          tools: go python=3.12 node=22 java=temurin-21 ruby=3.4 uv pnpm
+      # ~keep The committed Gemfile.lock files are written by Bundler 4, newer than the one Ruby ships.
+      - run: gem install bundler --no-document
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
@@ -1364,31 +1205,15 @@ jobs:
         with:
           otp-version: "26"
           elixir-version: "1.16"
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.4"
-          # The pinned Ruby ships a Bundler older than 4.x, but the committed Gemfile.lock files
-          # are written by Bundler 4. An older Bundler cannot read a newer
-          # lockfile: it re-execs to install the newer one mid-step and then
-          # fails to resolve gems. A newer Bundler reads older lockfiles fine.
-          bundler: latest
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
           extensions: pdo_pgsql
 
-      - run: pip install uv
-      # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
-      # release cannot change the answer under one and not the other. No
-      # `runtime` input: `actions/setup-node` above already provides node 22.
-      # `install: false` because there is no root package.json -- each project
-      # below runs its own `pnpm install`.
-      - uses: pnpm/setup@v3
-        with:
-          version: "12.11.2"
-          install: false
-          cache: true
-          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # pnpm is mise.toml's, the same as ci.yml's generated-query-code gate, so a
+      # new pnpm release cannot change the answer under one and not the other.
+      # There is no root package.json -- each project below runs its own
+      # `pnpm install`.
       # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
       # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
       # etc. removed). Below that floor an unknown `allowBuilds` key is silently
@@ -1483,19 +1308,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
+      # ~keep The CI profile (mise.ci.toml) locks the language lines these projects target.
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          python-version: "3.12"
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: integration_tests/go-gosnowflake/go.mod
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "21"
+          mise-env: ci
+          tools: python=3.12 node=22 go java=temurin-21 uv pnpm
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
@@ -1511,18 +1328,10 @@ jobs:
             exit 1
           fi
 
-      - run: pip install uv
-      # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
-      # release cannot change the answer under one and not the other. No
-      # `runtime` input: `actions/setup-node` above already provides node 22.
-      # `install: false` because there is no root package.json -- each project
-      # below runs its own `pnpm install`.
-      - uses: pnpm/setup@v3
-        with:
-          version: "12.11.2"
-          install: false
-          cache: true
-          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # pnpm is mise.toml's, the same as ci.yml's generated-query-code gate, so a
+      # new pnpm release cannot change the answer under one and not the other.
+      # There is no root package.json -- each project below runs its own
+      # `pnpm install`.
       # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
       # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
       # etc. removed). Below that floor an unknown `allowBuilds` key is silently

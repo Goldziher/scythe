@@ -77,9 +77,11 @@ jobs:
           echo "Version: $version"
           echo "Bundled parser helpers expected: $has_helpers"
 
-      - uses: go-task/setup-task@v2
+      # ~keep config-ref: a dispatched older tag may predate mise.toml.
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          version: 3.x
+          install: "false"
+          config-ref: ${{ github.sha }}
 
       # Runs before anything irreversible. `publish_crates` treats crates.io's
       # "already exists" as success, so a crate left at the previous version
@@ -95,11 +97,11 @@ jobs:
           declared="$(awk -F'"' '/^version = /{print $2; exit}' crates/scythe-cli/Cargo.toml)"
           if [ "$declared" != "$version" ]; then
             echo "::error::tag is v$version but crates/scythe-cli/Cargo.toml declares $declared."
-            echo "::error::Run 'task version:sync VERSION=$version' and commit before tagging."
+            echo "::error::Run 'mise run version:sync $version' and commit before tagging."
             exit 1
           fi
 
-          task version:check
+          mise run version:check
 
       - name: Detect already-published versions
         id: published
@@ -258,11 +260,12 @@ jobs:
         with:
           targets: ${{ matrix.triple }}
 
-      - uses: actions/setup-python@v7
+      # ~keep The size ratchet and the archive smoke test both need python3; the
+      # ~keep runner images do not guarantee it on PATH under bash.
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          # ~keep The size ratchet and the archive smoke test both need python3; the
-          # ~keep runner images do not guarantee it on PATH under bash.
-          python-version: "3.13"
+          tools: python
+          config-ref: ${{ github.sha }}
 
       - name: Build the release binary
         run: |
@@ -683,9 +686,19 @@ jobs:
     if: always() && needs.meta.result == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-node@v7
+      # ~keep This job has no checkout of its own; only the mise config is needed.
+      - uses: actions/checkout@v7
         with:
-          node-version: "22"
+          sparse-checkout: |
+            mise.toml
+            mise.lock
+            mise.ci.toml
+            mise.ci.lock
+          sparse-checkout-cone-mode: false
+      - uses: xberg-io/actions/setup-mise@v1
+        with:
+          mise-env: ci
+          tools: node=22
 
       - name: Assert crates.io, the GitHub release, npm and PyPI all carry the version
         env:
@@ -795,18 +808,11 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
 
-      - uses: pnpm/action-setup@v6
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          version: "12.11.2"
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v10.3.2
-        with:
-          python-version: "3.12"
+          mise-env: ci
+          tools: pnpm node=22 uv python=3.12
+          config-ref: ${{ github.sha }}
 
       - name: Build and install npm wrapper
         working-directory: release/npm
@@ -919,14 +925,12 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
 
-      - uses: pnpm/action-setup@v6
+      # ~keep pnpm publishes through npm's OIDC trusted publishing with no registry .npmrc.
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          version: "12.11.2"
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-          registry-url: "https://registry.npmjs.org"
+          mise-env: ci
+          tools: pnpm node=22
+          config-ref: ${{ github.sha }}
 
       - name: Set package version
         working-directory: release/npm
@@ -970,10 +974,11 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
 
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v10.3.2
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          python-version: "3.12"
+          mise-env: ci
+          tools: uv python=3.12
+          config-ref: ${{ github.sha }}
 
       - name: Set package version
         working-directory: release/pypi

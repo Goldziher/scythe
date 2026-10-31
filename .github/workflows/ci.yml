@@ -23,6 +23,13 @@ jobs:
     with:
       setup-rust: true
 
+  toolchain:
+    name: "Validate: Toolchain"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: xberg-io/actions/check-toolchain@v1
+
   release-canary-config:
     name: "Validate: Release Canary"
     runs-on: ubuntu-latest
@@ -30,17 +37,14 @@ jobs:
       targets: ${{ steps.targets.outputs.targets }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          python-version: "3.13"
-      - uses: go-task/setup-task@v2
-        with:
-          version: 3.x
+          tools: python
       - name: Validate release targets and size ratchets
-        run: task release:canary:config
+        run: mise run release:canary:config
       - name: Export release target matrix
         id: targets
-        run: echo "targets=$(task --silent release:canary:matrix)" >> "$GITHUB_OUTPUT"
+        run: echo "targets=$(mise run release:canary:matrix)" >> "$GITHUB_OUTPUT"
 
   release-canary-unix:
     name: "Build: Release Canary (${{ matrix.target }})"
@@ -68,19 +72,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-canary-${{ matrix.target }}
-      - uses: actions/setup-python@v7
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          python-version: "3.13"
-      - uses: go-task/setup-task@v2
-        with:
-          version: 3.x
+          tools: python
       # ~keep Native build, mirroring the publish workflow: each archive is built on
       # ~keep its own platform, so the canary must exercise the same toolchain instead
       # ~keep of a cross-compiler the release no longer uses.
       - name: Build and size-check bundled-DuckDB binary
         env:
           RELEASE_TARGET: ${{ matrix.target }}
-        run: task release:canary:target TARGET="$RELEASE_TARGET"
+        run: mise run release:canary:target "$RELEASE_TARGET"
 
   release-canary-linux:
     name: "Build: Release Canary (${{ matrix.target }})"
@@ -117,8 +118,8 @@ jobs:
           echo "CARGO_HOME=/opt/cargo" >> "$GITHUB_ENV"
           echo "RUSTUP_HOME=/opt/rustup" >> "$GITHUB_ENV"
           echo "/opt/cargo/bin" >> "$GITHUB_PATH"
-      # ~keep Inlined rather than `task release:canary:target`: the manylinux image has
-      # ~keep no Node, so the setup-task action cannot install into this container.
+      # ~keep Inlined rather than `mise run release:canary:target`: this container job
+      # ~keep installs its toolchain by hand above instead of through setup-mise.
       - name: Build and size-check bundled-DuckDB binary
         env:
           RELEASE_TARGET: ${{ matrix.target }}
@@ -140,16 +141,14 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - uses: go-task/setup-task@v2
-        with:
-          version: 3.x
-      # Pinned rather than relying on the runner image's default python:
+      # python is pinned rather than relying on the runner image's default:
       # scripts/check-provenance-versions.py imports `tomllib`, which is 3.11+.
       # On an older interpreter the step would fail with an ImportError that
-      # looks nothing like the version mismatch it exists to report.
-      - uses: actions/setup-python@v7
+      # looks nothing like the version mismatch it exists to report. cargo-deny
+      # backs the "Audit dependencies" step below.
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          python-version: "3.13"
+          tools: python cargo-deny
       # Until now `version:check` ran only in publish.yaml, *after* the release
       # tag was already pushed -- see the comment at publish.yaml:72-78, which
       # records that v0.10.0 and v0.11.0 both shipped five crates instead of
@@ -158,7 +157,7 @@ jobs:
       # one that can actually stop a bad release, because it runs on every push
       # and pull request while the mistake is still cheap to fix.
       - name: Check crate versions and inter-crate pins
-        run: task version:check
+        run: mise run version:check
       # `generated-freshness` (below) proves this by actually regenerating
       # everything, which takes real toolchains and ~20 minutes. This step
       # catches the one specific, recurring failure mode -- a version bump
@@ -228,9 +227,9 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace -- -D warnings
       # `deny.toml` has existed for a long time and no workflow ever invoked it.
-      # The `Goldziher/poly@v0` step in the test job below installs poly to put
-      # its bundled checkers on PATH; it does not run `poly lint`, so the
-      # cargo-deny pass that runs locally never ran here.
+      # The test job below installs poly to put its bundled checkers on PATH; it
+      # does not run `poly lint`, so the cargo-deny pass that runs locally never
+      # ran here.
       #
       # Both flags are load-bearing, and neither is optional:
       #
@@ -248,9 +247,6 @@ jobs:
       #                             build on a stale entry, which is what makes
       #                             the list self-expiring rather than
       #                             self-perpetuating.
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-deny
       - name: Audit dependencies
         run: cargo deny --all-features check -D advisory-not-detected
 
@@ -261,16 +257,16 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: go-task/setup-task@v2
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          version: 3.x
+          install: "false"
       # The gate needs the pinned PostgreSQL parser helpers, which are built from
       # source (and cached by the shared target dir). `cluster-scope:test` builds
       # the host helpers, builds the CLI, then asserts every planted cluster-scoped
       # statement is refused and every database-local one accepted -- with counts,
       # so a matrix that examines nothing cannot pass.
       - name: Build parser helpers and run the cluster-scope acceptance controls
-        run: task cluster-scope:test
+        run: mise run cluster-scope:test
 
   test:
     name: Test
@@ -288,27 +284,20 @@ jobs:
       # separate `biome`, `ruff` and `php` installs this job used to carry, and
       # it is already this repository's linter. That leaves only the checkers
       # poly delegates rather than bundles.
-      - uses: Goldziher/poly@v0
+      #
       # gofmt ships with the Go toolchain and `ruby -c` with Ruby, so these two
-      # setup actions cost nothing beyond what poly does not cover. Both were
-      # previously relied on implicitly from the runner image, which meant an
-      # image change could disarm them with no signal.
-      - uses: actions/setup-go@v7
-        with:
-          go-version: "stable"
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.3"
+      # cost nothing beyond what poly does not cover. Both were previously
+      # relied on implicitly from the runner image, which meant an image change
+      # could disarm them with no signal.
+      #
       # node and tsc are for the `javascript-*` JSDoc backends only: #81
       # requires the output to parse under real `node` and to typecheck under
       # `tsc --checkJs --strict`. poly's oxc lints JavaScript but does not
       # typecheck JSDoc annotations, so tsc is not redundant with it.
-      - uses: actions/setup-node@v7
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          node-version: "22"
-      - uses: pnpm/action-setup@v6
-        with:
-          version: "12.11.2"
+          mise-env: ci
+          tools: github:Goldziher/poly go ruby=3.3 node=22 pnpm
       - name: Install TypeScript
         run: |
           export PNPM_HOME="$RUNNER_TEMP/pnpm-global"
@@ -395,22 +384,14 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: go-task/setup-task@v2
-        with:
-          version: 3.x
       # check-generated-syntax.sh runs in --strict mode below (CI=true also
       # implies strict), so every checker it looks for must actually be on
       # PATH here -- otherwise a missing toolchain silently no-ops the guard
       # it exists to provide instead of failing loudly.
-      - uses: actions/setup-python@v7
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          python-version: "3.13"
-      - uses: actions/setup-go@v7
-        with:
-          go-version: "stable"
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.3"
+          mise-env: ci
+          tools: python=3.13 go ruby=3.3
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.4"
@@ -422,7 +403,7 @@ jobs:
       # scaffolding and test harnesses from tools/integration-test-generator/templates/.
       - name: Regenerate integration scaffolding and code
         working-directory: integration_tests
-        run: task generate:all
+        run: mise run generate:all
       # A formatter once reflowed the templates as prose, which produced
       # harnesses whose string literals were split across lines. That reached CI
       # as unrelated-looking compiler errors, so parse the output directly.
@@ -445,7 +426,7 @@ jobs:
           status=$(git status --porcelain -- integration_tests/)
           if [ -n "$status" ]; then
             echo "$status"
-            echo "::error::Committed integration code is stale or incomplete. Run 'cd integration_tests && task generate:all' and commit the result. If a backend directory is untracked here, it is new output that must be committed; if you removed a backend, its old directory must be deleted by hand."
+            echo "::error::Committed integration code is stale or incomplete. Run 'cd integration_tests && mise run generate:all' and commit the result. If a backend directory is untracked here, it is new output that must be committed; if you removed a backend, its old directory must be deleted by hand."
             exit 1
           fi
 
@@ -454,16 +435,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      # ~keep pnpm 12 keeps its content-addressable store under PNPM_HOME, and the
-      # ~keep "Install TypeScript" step below moves PNPM_HOME to a temp dir. Left
-      # ~keep alone, pnpm/setup records a store path before that move and its post
-      # ~keep step saves a path nothing wrote to, so the job fails with "Path(s)
-      # ~keep specified in the action for caching do(es) not exist" after every
-      # ~keep real step has passed. Pinning the store makes restore, every install
-      # ~keep and the save agree; the pnpm/setup step repeats it because a post
-      # ~keep step does not reliably inherit `$GITHUB_ENV`.
-      - name: Pin the pnpm store outside PNPM_HOME
-        run: echo "PNPM_CONFIG_STORE_DIR=$RUNNER_TEMP/pnpm-store" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       # 115 committed files under integration_tests/**/generated/,
       # integration_tests/*/src/queries.rs and the Java/Kotlin generated/
@@ -480,22 +451,13 @@ jobs:
       # compiling committed output with no live database).
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-python@v7
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          python-version: "3.13"
-      - uses: actions/setup-go@v7
-        with:
-          go-version: "stable"
-      - uses: actions/setup-java@v6
-        with:
-          distribution: "temurin"
-          java-version: "21"
+          mise-env: ci
+          tools: python=3.13 go java=temurin-21 ruby=3.3 pnpm node=22
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0"
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.3"
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.17"
@@ -503,35 +465,20 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.4"
-      # pnpm 9 rejects the generated `pnpm-workspace.yaml`: it carries only
-      # `allowBuilds` settings and no `packages:` key, which pnpm 9 treats as a
-      # fatal "packages field missing or empty" while pnpm 10+ accepts it as a
-      # settings-only workspace file. Pinned at 9, this job failed all 21
-      # typescript projects before reading a single generated file.
-      #
-      # `install: false` because there is no package.json at the repository
+      # pnpm (from mise.toml) must stay at 10 or later: pnpm 9 rejects the
+      # generated `pnpm-workspace.yaml`, which carries only `allowBuilds`
+      # settings and no `packages:` key, as a fatal "packages field missing or
+      # empty", while pnpm 10+ accepts it as a settings-only workspace file.
+      # Pinned at 9, this job failed all 21 typescript projects before reading
+      # a single generated file. There is no package.json at the repository
       # root -- every project under integration_tests/ runs its own
-      # `pnpm install --frozen-lockfile`, and the cache key is keyed off those
-      # per-project lockfiles rather than a root one that does not exist.
-      - uses: pnpm/setup@v3
-        env:
-          # ~keep Same pin as the first step: the action itself must resolve and
-          # ~keep save the same store in its main and post runs.
-          PNPM_CONFIG_STORE_DIR: ${{ runner.temp }}/pnpm-store
-        with:
-          version: "12.11.2"
-          runtime: node@22
-          install: false
-          cache: true
-          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+      # `pnpm install --frozen-lockfile`.
+      #
       # No standalone kotlinc here any more: generated Kotlin is checked by a
       # real `gradle compileKotlin` against each project, which resolves the
       # Kotlin compiler through the project's own plugin. See the Kotlin note
       # in scripts/check-generated-syntax.sh for why the bare-compiler check
       # had to go. `gradle` comes from the runner image, like `javac`.
-      - uses: pnpm/action-setup@v6
-        with:
-          version: "12.11.2"
       - name: Install TypeScript
         run: |
           export PNPM_HOME="$RUNNER_TEMP/pnpm-global"
@@ -595,7 +542,7 @@ jobs:
       #
       # This is a hard gate, not `continue-on-error: true` -- a step that
       # cannot fail is the exact anti-pattern the rest of this job exists to
-      # eliminate (see Taskfile.yaml's old `cargo check --workspace
+      # eliminate (see version:sync's old `cargo check --workspace
       # 2>/dev/null || true`). 1 of the 27 postgresql-engine projects
       # currently fails against the torture schema -- do not trust this count
       # without re-running the script, it has been wrong twice: it read "24 of
@@ -667,11 +614,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          python-version: "3.13"
-      - name: Install uv
-        run: pip install uv
+          tools: python uv
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.4"
@@ -844,22 +789,13 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-python@v7
+      - uses: xberg-io/actions/setup-mise@v1
         with:
-          python-version: "3.13"
-      - uses: actions/setup-go@v7
-        with:
-          go-version: "stable"
-      - uses: actions/setup-java@v6
-        with:
-          distribution: "temurin"
-          java-version: "21"
+          mise-env: ci
+          tools: python=3.13 go java=temurin-21 ruby=3.3 pnpm
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0"
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.3"
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.17"
@@ -872,9 +808,6 @@ jobs:
           curl -sL https://github.com/JetBrains/kotlin/releases/download/v2.1.20/kotlin-compiler-2.1.20.zip -o kotlin.zip
           unzip -q kotlin.zip -d /opt/kotlin
           echo "/opt/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
-      - uses: pnpm/action-setup@v6
-        with:
-          version: "12.11.2"
       - name: Install TypeScript
         run: |
           export PNPM_HOME="$RUNNER_TEMP/pnpm-global"
