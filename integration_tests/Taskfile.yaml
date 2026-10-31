@@ -937,12 +937,16 @@ tasks:
   # Snowflake. Start it with `task snowflake:emulator:up` first, except for
   # python-snowflake, which embeds fakesnow in-process.
   test:python-snowflake:
-    desc: Run python-snowflake integration test (fakesnow emulator)
+    desc: Run python-snowflake integration test (fakesnow emulator, connector 4.x client)
     dir: python-snowflake
     env:
       SNOWFLAKE_USE_FAKESNOW: "1"
     cmds:
-      - uv run python test_integration.py
+      # ~keep fakesnow 0.12.1 imports snowflake.connector.converter, which the 5.x
+      # ~keep connector removed, and upstream has no 5.x-compatible release yet.
+      # ~keep The harness lock is on 5.x so generated type checking covers it; the
+      # ~keep emulator run pins the client to the 4.x line it can actually drive.
+      - uv run --with "snowflake-connector-python<5" python test_integration.py
 
   test:typescript-snowflake:
     desc: Run typescript-snowflake integration test (fakesnow emulator)

@@ -1,8 +1,9 @@
-# scythe:provenance v=0.20.1 backend=python-snowflake engine=snowflake schema=sch2:c91500313602fb46 queries=q1:4bc3d50da85e2742 options=opt1:cbf29ce484222325  # noqa: E501
+# scythe:provenance v=0.20.2 backend=python-snowflake engine=snowflake schema=sch2:c91500313602fb46 queries=q1:4bc3d50da85e2742 options=opt1:cbf29ce484222325  # noqa: E501
 import datetime  # noqa: F401
 import decimal  # noqa: F401
 from dataclasses import dataclass
 from enum import Enum  # noqa: F401
+from typing import Any
 
 import snowflake.connector  # noqa: F401
 
@@ -12,6 +13,12 @@ snowflake.connector.paramstyle = "qmark"  # this module emits qmark binds
 class ScytheNoRowsError(Exception):
     """Raised by a `:one` query when no row matches."""
 
+
+def _scythe_row(row: dict[str, Any] | tuple[Any, ...]) -> dict[str, Any]:
+    """Index a Snowflake row by its lower-case column name."""
+    if isinstance(row, dict):
+        return {str(key).lower(): value for key, value in row.items()}
+    raise TypeError("snowflake DictCursor returned a positional row")
 
 
 def create_order(
@@ -45,21 +52,22 @@ def get_orders_by_user(
     user_id: int,
 ) -> list[GetOrdersByUserRow]:
     """Execute GetOrdersByUser query."""
-    cur = conn.cursor()
+    cur = conn.cursor(snowflake.connector.DictCursor)
     cur.execute(
         """SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC""",
         (user_id,),
     )
     rows = cur.fetchall()
-    return [
-        GetOrdersByUserRow(
-            id=r[0],
-            total=r[1],
-            notes=r[2],
-            created_at=r[3],
-        )
-        for r in rows
-    ]
+    result: list[GetOrdersByUserRow] = []
+    for r in rows:
+        values = _scythe_row(r)
+        result.append(GetOrdersByUserRow(
+            id=values["id"],
+            total=values["total"],
+            notes=values["notes"],
+            created_at=values["created_at"],
+        ))
+    return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +83,7 @@ def get_order_total(
     user_id: int,
 ) -> GetOrderTotalRow:
     """Execute GetOrderTotal query."""
-    cur = conn.cursor()
+    cur = conn.cursor(snowflake.connector.DictCursor)
     cur.execute(
         """SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?""",
         (user_id,),
@@ -83,7 +91,8 @@ def get_order_total(
     row = cur.fetchone()
     if row is None:
         raise ScytheNoRowsError("GetOrderTotal: no rows returned")
-    return GetOrderTotalRow(total_sum=row[0])
+    values = _scythe_row(row)
+    return GetOrderTotalRow(total_sum=values["total_sum"])
 
 
 def delete_orders_by_user(
@@ -119,7 +128,7 @@ def get_user_by_id(
     id: int,
 ) -> GetUserByIdRow:
     """Execute GetUserById query."""
-    cur = conn.cursor()
+    cur = conn.cursor(snowflake.connector.DictCursor)
     cur.execute(
         """SELECT id, name, email, active, metadata, created_at, updated_at FROM users WHERE id = ?""",
         (id,),
@@ -127,14 +136,15 @@ def get_user_by_id(
     row = cur.fetchone()
     if row is None:
         raise ScytheNoRowsError("GetUserById: no rows returned")
+    values = _scythe_row(row)
     return GetUserByIdRow(
-        id=row[0],
-        name=row[1],
-        email=row[2],
-        active=row[3],
-        metadata=row[4],
-        created_at=row[5],
-        updated_at=row[6],
+        id=values["id"],
+        name=values["name"],
+        email=values["email"],
+        active=values["active"],
+        metadata=values["metadata"],
+        created_at=values["created_at"],
+        updated_at=values["updated_at"],
     )
 
 
@@ -151,10 +161,18 @@ def list_active_users(
     conn: snowflake.connector.SnowflakeConnection,
 ) -> list[ListActiveUsersRow]:
     """Execute ListActiveUsers query."""
-    cur = conn.cursor()
+    cur = conn.cursor(snowflake.connector.DictCursor)
     cur.execute("""SELECT id, name, email FROM users WHERE active = TRUE""")
     rows = cur.fetchall()
-    return [ListActiveUsersRow(id=r[0], name=r[1], email=r[2]) for r in rows]
+    result: list[ListActiveUsersRow] = []
+    for r in rows:
+        values = _scythe_row(r)
+        result.append(ListActiveUsersRow(
+            id=values["id"],
+            name=values["name"],
+            email=values["email"],
+        ))
+    return result
 
 
 def create_user(
@@ -207,8 +225,16 @@ def search_users(
     name: str,
 ) -> list[SearchUsersRow]:
     """Execute SearchUsers query."""
-    cur = conn.cursor()
+    cur = conn.cursor(snowflake.connector.DictCursor)
     cur.execute("""SELECT id, name, email FROM users WHERE name LIKE ?""", (name,))
     rows = cur.fetchall()
-    return [SearchUsersRow(id=r[0], name=r[1], email=r[2]) for r in rows]
+    result: list[SearchUsersRow] = []
+    for r in rows:
+        values = _scythe_row(r)
+        result.append(SearchUsersRow(
+            id=values["id"],
+            name=values["name"],
+            email=values["email"],
+        ))
+    return result
 

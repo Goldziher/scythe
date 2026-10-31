@@ -12,11 +12,31 @@ use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 
 use super::python_common::{
-    PythonRowType, generate_grouped_fold_positional, generate_grouped_structs_py, no_rows_exception_def,
-    write_def_signature, write_execute_call, write_missing_row_guard,
+    PythonRowType, generate_grouped_structs_py, no_rows_exception_def, write_def_signature, write_execute_call,
+    write_missing_row_guard, write_return_call,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/python-snowflake.toml");
+
+/// Maps a `DictCursor` row onto the analyzer's lower-case column names.
+///
+/// Snowflake upper-cases unquoted identifiers and preserves quoted ones, so
+/// indexing a row with a literal projected name misses one of the two. Reading
+/// by name rather than position also keeps the generated code typed against
+/// snowflake-connector-python 5.x, whose cursor rows are `dict[str, Any]`.
+///
+/// The tuple arm exists only for the type checker: 5.1 types `Connection.cursor`
+/// as returning the whole cursor union even when passed `DictCursor`, so the
+/// row type keeps that union and rejects a tuple at runtime rather than
+/// indexing it blindly.
+const ROW_HELPER_DEF: &str = concat!(
+    "\n",
+    "def _scythe_row(row: dict[str, Any] | tuple[Any, ...]) -> dict[str, Any]:\n",
+    "    \"\"\"Index a Snowflake row by its lower-case column name.\"\"\"\n",
+    "    if isinstance(row, dict):\n",
+    "        return {str(key).lower(): value for key, value in row.items()}\n",
+    "    raise TypeError(\"snowflake DictCursor returned a positional row\")\n",
+);
 
 pub struct PythonSnowflakeBackend {
     manifest: BackendManifest,
@@ -87,6 +107,7 @@ impl CodegenBackend for PythonSnowflakeBackend {
                  import decimal  # noqa: F401\n\
                  {import_line}\n\
                  from enum import Enum  # noqa: F401\n\
+                 from typing import Any\n\
                  \n\
                  import snowflake.connector  # noqa: F401\n\
                  \n\
@@ -101,6 +122,7 @@ impl CodegenBackend for PythonSnowflakeBackend {
                 "import datetime  # noqa: F401\n\
                  import decimal  # noqa: F401\n\
                  from enum import Enum  # noqa: F401\n\
+                 from typing import Any\n\
                  \n\
                  {third_party}\n\
                  \n\
@@ -108,7 +130,7 @@ impl CodegenBackend for PythonSnowflakeBackend {
                  \n",
             )
         };
-        format!("{header}{}", no_rows_exception_def())
+        format!("{header}{}{ROW_HELPER_DEF}", no_rows_exception_def())
     }
 
     fn generate_struct_decl(
@@ -174,26 +196,17 @@ impl CodegenBackend for PythonSnowflakeBackend {
                 };
                 write_def_signature(&mut out, "def", &func_name, CONN_PARAM, &kw_params, &ret);
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
-                let _ = writeln!(out, "    cur = conn.cursor()");
+                let _ = writeln!(out, "    cur = conn.cursor(snowflake.connector.DictCursor)");
                 let args = (!params.is_empty()).then_some(args_tuple.as_str());
                 write_execute_call(&mut out, "    ", "cur.execute", &sql, args);
                 let _ = writeln!(out, "    row = cur.fetchone()");
                 write_missing_row_guard(&mut out, "    ", "row", is_one, &analyzed.name);
+                let _ = writeln!(out, "    values = _scythe_row(row)");
                 let field_assignments: Vec<String> = columns
                     .iter()
-                    .enumerate()
-                    .map(|(i, col)| format!("{}=row[{}]", col.field_name, i))
+                    .map(|col| format!("{}={}", col.field_name, row_value("values", col)))
                     .collect();
-                let oneliner = format!("    return {}({})", struct_name, field_assignments.join(", "));
-                if oneliner.len() <= 88 {
-                    let _ = writeln!(out, "{}", oneliner);
-                } else {
-                    let _ = writeln!(out, "    return {}(", struct_name);
-                    for fa in &field_assignments {
-                        let _ = writeln!(out, "        {},", fa);
-                    }
-                    let _ = writeln!(out, "    )");
-                }
+                write_return_call(&mut out, "    ", struct_name, &field_assignments);
             }
             QueryCommand::Batch => {
                 let batch_fn_name = format!("{}_batch", func_name);
@@ -229,32 +242,32 @@ impl CodegenBackend for PythonSnowflakeBackend {
                 let ret = format!("list[{}]", struct_name);
                 write_def_signature(&mut out, "def", &func_name, CONN_PARAM, &kw_params, &ret);
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
-                let _ = writeln!(out, "    cur = conn.cursor()");
+                let _ = writeln!(out, "    cur = conn.cursor(snowflake.connector.DictCursor)");
                 let args = (!params.is_empty()).then_some(args_tuple.as_str());
                 write_execute_call(&mut out, "    ", "cur.execute", &sql, args);
                 let _ = writeln!(out, "    rows = cur.fetchall()");
                 let field_assignments: Vec<String> = columns
                     .iter()
-                    .enumerate()
-                    .map(|(i, col)| format!("{}=r[{}]", col.field_name, i))
+                    .map(|col| format!("{}={}", col.field_name, row_value("values", col)))
                     .collect();
-                let oneliner = format!(
-                    "    return [{}({}) for r in rows]",
+                let _ = writeln!(out, "    result: {ret} = []");
+                let _ = writeln!(out, "    for r in rows:");
+                let _ = writeln!(out, "        values = _scythe_row(r)");
+                let append = format!(
+                    "        result.append({}({}))",
                     struct_name,
                     field_assignments.join(", ")
                 );
-                if oneliner.len() <= 88 {
-                    let _ = writeln!(out, "{}", oneliner);
+                if append.len() <= 88 {
+                    let _ = writeln!(out, "{append}");
                 } else {
-                    let _ = writeln!(out, "    return [");
-                    let _ = writeln!(out, "        {}(", struct_name);
+                    let _ = writeln!(out, "        result.append({}(", struct_name);
                     for fa in &field_assignments {
-                        let _ = writeln!(out, "            {},", fa);
+                        let _ = writeln!(out, "            {fa},");
                     }
-                    let _ = writeln!(out, "        )");
-                    let _ = writeln!(out, "        for r in rows");
-                    let _ = writeln!(out, "    ]");
+                    let _ = writeln!(out, "        ))");
                 }
+                let _ = writeln!(out, "    return result");
             }
             QueryCommand::Exec => {
                 write_def_signature(&mut out, "def", &func_name, CONN_PARAM, &kw_params, "None");
@@ -340,7 +353,6 @@ impl CodegenBackend for PythonSnowflakeBackend {
         let analyzed = request.analyzed;
         let parent_struct_name = request.parent_struct_name;
         let child_struct_name = request.child_struct_name;
-        let all_columns = request.all_columns;
         let parent_columns = request.parent_columns;
         let child_columns = request.child_columns;
         let params = request.params;
@@ -389,7 +401,7 @@ impl CodegenBackend for PythonSnowflakeBackend {
             let _ = writeln!(out, ") -> list[{parent_struct_name}]:");
         }
         let _ = writeln!(out, "    \"\"\"Execute {} grouped query.\"\"\"", analyzed.name);
-        let _ = writeln!(out, "    cur = conn.cursor()");
+        let _ = writeln!(out, "    cur = conn.cursor(snowflake.connector.DictCursor)");
         let _ = writeln!(out, "    cur.execute(");
         let _ = writeln!(out, "        \"\"\"");
         for line in sql.lines() {
@@ -402,9 +414,8 @@ impl CodegenBackend for PythonSnowflakeBackend {
         let _ = writeln!(out, "    )");
         let _ = writeln!(out, "    rows = cur.fetchall()");
 
-        generate_grouped_fold_positional(
+        generate_grouped_fold_named(
             &mut out,
-            all_columns,
             parent_struct_name,
             child_struct_name,
             parent_columns,
@@ -414,6 +425,64 @@ impl CodegenBackend for PythonSnowflakeBackend {
 
         Ok(out)
     }
+}
+
+/// The lower-case row key a projected column is read by.
+///
+/// `_scythe_row` lower-cases the driver's key, and Snowflake's unquoted
+/// identifiers arrive upper-cased, so the analyzer's own spelling is lowered
+/// to match.
+fn column_key(column: &ResolvedColumn) -> String {
+    column.name.to_lowercase().replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// A `values["column"]` read for the normalized row mapping `values`.
+fn row_value(values_var: &str, column: &ResolvedColumn) -> String {
+    format!("{values_var}[\"{}\"]", column_key(column))
+}
+
+/// Emits the `:grouped` client-side fold using name-keyed row access.
+///
+/// The positional variant in `python_common` cannot be used here:
+/// snowflake-connector-python 5.x types `fetchall()` rows as `dict[str, Any]`,
+/// so indexing a row by position does not type-check against it.
+fn generate_grouped_fold_named(
+    out: &mut String,
+    parent_struct_name: &str,
+    child_struct_name: &str,
+    parent_columns: &[ResolvedColumn],
+    child_columns: &[ResolvedColumn],
+    key_column: &str,
+) {
+    let _ = writeln!(out, "    _index: dict = {{}}");
+    let _ = writeln!(out, "    _entries: list = []");
+    let _ = writeln!(out, "    for row in rows:");
+    let _ = writeln!(out, "        values = _scythe_row(row)");
+    let _ = writeln!(out, "        key = values[\"{}\"]", key_column.to_lowercase());
+    let _ = writeln!(out, "        if key not in _index:");
+    let _ = writeln!(out, "            _index[key] = len(_entries)");
+    let _ = writeln!(out, "            _entries.append((");
+    let _ = writeln!(out, "                {{");
+    for col in parent_columns {
+        let _ = writeln!(
+            out,
+            "                    \"{}\": {},",
+            col.field_name,
+            row_value("values", col)
+        );
+    }
+    let _ = writeln!(out, "                }},");
+    let _ = writeln!(out, "                [],");
+    let _ = writeln!(out, "            ))");
+    let _ = writeln!(out, "        _entries[_index[key]][1].append({child_struct_name}(");
+    for col in child_columns {
+        let _ = writeln!(out, "            {}={},", col.field_name, row_value("values", col));
+    }
+    let _ = writeln!(out, "        ))");
+    let _ = writeln!(out, "    return [");
+    let _ = writeln!(out, "        {parent_struct_name}(**parent_kwargs, children=children)");
+    let _ = writeln!(out, "        for parent_kwargs, children in _entries");
+    let _ = write!(out, "    ]");
 }
 
 #[cfg(test)]
@@ -546,5 +615,73 @@ mod tests {
             !query_fn.contains("async def"),
             "snowflake fn must be synchronous; got:\n{query_fn}"
         );
+        assert!(
+            query_fn.contains("values[\"id\"]"),
+            "grouped fn must read the key by name; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("row[") && !query_fn.contains("r[0]"),
+            "grouped fn must not emit positional row access; got:\n{query_fn}"
+        );
+    }
+
+    fn make_flat_query(command: QueryCommand) -> AnalyzedQuery {
+        let columns = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int64".to_string(),
+                nullable: false,
+                ..Default::default()
+            },
+            AnalyzedColumn {
+                name: "total_sum".to_string(),
+                neutral_type: "decimal".to_string(),
+                nullable: true,
+                ..Default::default()
+            },
+        ];
+        AnalyzedQuery::build(|aq| {
+            aq.name = "GetOrderTotal".to_string();
+            aq.command = command;
+            aq.sql = "SELECT id, total_sum FROM orders".to_string();
+            aq.columns = columns;
+            aq.params = vec![];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = None;
+            aq.custom = vec![];
+        })
+    }
+
+    /// snowflake-connector-python 5.x types `fetchall()` rows as `dict[str, Any]`,
+    /// so positional access fails `pyrefly check -p strict`; every row-returning
+    /// command must read by projected column name through the `DictCursor`.
+    #[test]
+    fn test_snowflake_reads_rows_by_name_not_position() {
+        let backend = PythonSnowflakeBackend::new("snowflake").unwrap();
+        for command in [QueryCommand::One, QueryCommand::Opt, QueryCommand::Many] {
+            let query = make_flat_query(command);
+            let result = crate::generate_with_backend(&query, &backend).unwrap();
+            let query_fn = result.query_fn.as_deref().unwrap();
+            assert!(
+                query_fn.contains("conn.cursor(snowflake.connector.DictCursor)"),
+                "fn must use DictCursor; got:\n{query_fn}"
+            );
+            assert!(
+                query_fn.contains("_scythe_row("),
+                "fn must normalize the row; got:\n{query_fn}"
+            );
+            assert!(
+                query_fn.contains("values[\"id\"]") && query_fn.contains("values[\"total_sum\"]"),
+                "fn must read by column name; got:\n{query_fn}"
+            );
+            assert!(
+                !query_fn.contains("row[0]") && !query_fn.contains("r[0]"),
+                "fn must not emit positional row access; got:\n{query_fn}"
+            );
+        }
     }
 }

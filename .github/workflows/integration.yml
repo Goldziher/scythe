@@ -1544,7 +1544,11 @@ jobs:
         working-directory: integration_tests/python-snowflake
         env:
           SNOWFLAKE_USE_FAKESNOW: "1"
-        run: uv run python test_integration.py
+        # ~keep fakesnow 0.12.1 imports snowflake.connector.converter, removed by the
+        # ~keep 5.x connector, and upstream has no 5.x-compatible release yet. The
+        # ~keep harness lock stays on 5.x so "Validate: Generated Type Checking"
+        # ~keep covers it; the emulator run pins the client to the 4.x line it drives.
+        run: uv run --with "snowflake-connector-python<5" python test_integration.py
 
       # python-snowflake talks to fakesnow in-process. Every other driver
       # below speaks the real Snowflake REST API over HTTP, so they share one

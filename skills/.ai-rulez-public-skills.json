@@ -2,12 +2,12 @@
   "source": "plugin/skills",
   "skill_count": 1,
   "files": {
-    "scythe/SKILL.md": "1b79d14e7dd01d5a77fbe294d72476d79c97a7f403be5982bed8b6071f0e0723",
-    "scythe/index.md": "0f73cb97bd44d5851c94886d919edd3ea015c3a22693d8f1d51890c80dae653a",
-    "scythe/references/annotations.md": "12dc49af8ad2ec1f1ee48dc40e7d26694bbfba644acc3bd63c4d83da6f786e52",
-    "scythe/references/backends.md": "a323bfc096cab2cae2cc3f680a9032138d508c3b95fd427e01d85cfaf0178958",
-    "scythe/references/cli-reference.md": "728ecdac62eb38f9182f515ec675400c4c581ec5b518c2628c71a0839d90fd8e",
-    "scythe/references/configuration.md": "a92b9322f81a63e204c052a7d9e1b531decda3f3ab6ae213fa665ae95b833151",
-    "scythe/references/lint-rules.md": "e1c00791ba7525df59c97607cfc90c951e744289928be63e1dde0e7367ac2ba8"
+    "scythe/SKILL.md": "e9445527a17a9ddd904e2abcc3c0a51a76457917a86b70b3a16b9ee6c3babfea",
+    "scythe/index.md": "b44e9fb147091d710f00aa09fe07433e16a4e783a020defc864d9c97ff4e3d51",
+    "scythe/references/annotations.md": "85f4a98d8062af427dc5fdc7f3778d4d5095648cdf17726dc0cc140abbec02a9",
+    "scythe/references/backends.md": "a1abcf5f056502d0ea4a4806508238c1aaa76430d4097dcfffc6f7a321263611",
+    "scythe/references/cli-reference.md": "ea62db8f579ee75ce3d12af52e29948afb1e389acbb33fc610d9cbb70a868828",
+    "scythe/references/configuration.md": "b526bcf03b38fe7bfa948d7ab75eb194ccb432beb16b768de64b8117b1039de1",
+    "scythe/references/lint-rules.md": "300f2a45f38381a9ab3164aa7d1818a2219effaa3a07bb152e705dbd894b17af"
   }
 }

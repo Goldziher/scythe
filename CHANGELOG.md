@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.2] - 2026-10-31
+
+### Changed
+
+- `duckdb` and `libduckdb-sys` move from the exact `=1.10506.1` pin to the
+  `1.20000` caret range. The pin existed only because DuckDB 1.2's static
+  extension autoregister archive broke the zig cross-linker the pre-0.20.1
+  single-job pipeline used; every archive is built natively on its own runner
+  now, so the workaround is obsolete (issue #278).
+- `release/duckdb-binary-sizes.json` is re-baselined for the DuckDB 1.2
+  binaries from native canary builds on the hosts this change could build on.
+  Entries that could not be observed here are marked `"measured": false` and
+  keep their previous figure until CI's `task release:canary` records them.
+- The `python-snowflake` backend reads result rows by projected column name
+  through `snowflake.connector.DictCursor` instead of by position. Generated
+  code therefore type-checks against both snowflake-connector-python 4.x and
+  5.x, whose `cursor.fetchall()` rows are typed `dict[str, Any]` (issue #281).
+  The python-snowflake harness lockfile moves to 5.1.0 and its minimum Python
+  to 3.11, as required by that connector release. The fakesnow-emulator run
+  pins the client to 4.x at invocation time because fakesnow 0.12.1 still
+  imports a module the 5.x connector removed; 5.x is covered by generated type
+  checking.
+- Workspace dependencies upgraded, including `sqruff-lib` 0.44 and the DuckDB
+  1.2 stack (`arrow` 60, `comfy-table` 8, `zip` removal). `cargo update` also
+  took the compatible patch releases across the workspace.
+
 ## [0.20.1] - 2026-10-27
 
 ### Fixed

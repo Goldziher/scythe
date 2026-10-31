@@ -150,7 +150,7 @@ fn should_execute_files_in_order_and_preserve_duckdb_catalog_metadata() {
                         name: "active",
                         resolved_type: "boolean",
                         raw_type: "BOOLEAN",
-                        default: Some("CAST('t' AS BOOLEAN)"),
+                        default: Some("true"),
                         nullable: false,
                         primary_key: false,
                         generated: None,

@@ -6,35 +6,45 @@
       "binary": "scythe",
       "baseline_bytes": 32268576,
       "observed_bundled_bytes": 71887992,
-      "max_bytes": 78615936
+      "max_bytes": 78615936,
+      "measured": false,
+      "provenance": "carried over from the 1.10506.1 observation; re-record with task release:canary on the manylinux_2_28_x86_64 runner"
     },
     {
       "triple": "aarch64-unknown-linux-gnu",
       "binary": "scythe",
       "baseline_bytes": 28409384,
       "observed_bundled_bytes": 65240208,
-      "max_bytes": 71188096
+      "max_bytes": 71188096,
+      "measured": false,
+      "provenance": "carried over from the 1.10506.1 observation; re-record with task release:canary on the manylinux_2_28_aarch64 runner"
     },
     {
       "triple": "x86_64-apple-darwin",
       "binary": "scythe",
       "baseline_bytes": 36680176,
-      "observed_bundled_bytes": 86464732,
-      "max_bytes": 94602480
+      "observed_bundled_bytes": 84145528,
+      "max_bytes": 91721728,
+      "measured": true,
+      "provenance": "native task release:canary:target build on a macOS arm64 host"
     },
     {
       "triple": "aarch64-apple-darwin",
       "binary": "scythe",
       "baseline_bytes": 34108064,
-      "observed_bundled_bytes": 81798208,
-      "max_bytes": 89683616
+      "observed_bundled_bytes": 79556096,
+      "max_bytes": 86716416,
+      "measured": true,
+      "provenance": "native task release:canary:target build on a macOS arm64 host"
     },
     {
       "triple": "x86_64-pc-windows-msvc",
       "binary": "scythe.exe",
       "baseline_bytes": 37347840,
       "observed_bundled_bytes": 77229568,
-      "max_bytes": 84576768
+      "max_bytes": 84576768,
+      "measured": false,
+      "provenance": "carried over from the previous windows-gnu target; re-record from the first MSVC canary observation"
     }
   ]
 }

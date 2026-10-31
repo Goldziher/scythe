@@ -20,8 +20,10 @@ packaging, so a binary above its maximum fails the release before any archive is
 Windows does not provide. The script fails rather than producing a partial archive.
 
 Update a target's `observed_bundled_bytes` and `max_bytes` deliberately when a reviewed dependency or code change
-accounts for the increase; the Windows figures currently carried over from the previous `windows-gnu` target must be
-re-recorded from the first MSVC canary observation.
+accounts for the increase. Each target records `"measured": true` with a provenance note only after a native canary
+observation on that platform; an entry still carried over from an earlier observation carries `"measured": false` and
+its note names the runner that has to record it. The Windows figures currently carried over from the previous
+`windows-gnu` target must be re-recorded from the first MSVC canary observation.
 
 # Publish order
 
