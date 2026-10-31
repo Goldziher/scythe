@@ -32,6 +32,6 @@ forwarding arguments and the exit code.
 Warm the cache at build time:
 
 ```dockerfile
-RUN corepack enable && corepack prepare pnpm@12.11.2 --activate \
+RUN corepack enable && corepack prepare pnpm@12.15.0 --activate \
     && pnpm add --save-dev scythe-cli && pnpm exec scythe --version
 ```

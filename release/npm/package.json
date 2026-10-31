@@ -30,5 +30,5 @@
     "yauzl": "^3.4.0"
   },
   "devDependencies": {},
-  "packageManager": "pnpm@12.11.2"
+  "packageManager": "pnpm@12.15.0"
 }

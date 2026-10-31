@@ -1,6 +1,2 @@
 baseline = "v1.12.3"
 task_sets = ["docs-site", "lint-format"]
-
-[overrides.pnpm]
-version = "12.11.2"
-reason = "27 committed pnpm-lock.yaml files record pnpm 12.11.2 under packageManagerDependencies; moving needs a relock"
