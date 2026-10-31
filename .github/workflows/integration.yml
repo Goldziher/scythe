@@ -76,7 +76,9 @@ jobs:
       - name: Run PG schema migration
         run: PGPASSWORD=scythe psql -h localhost -U scythe -d scythe_test -f integration_tests/sql/pg/schema.sql
 
-      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -365,7 +367,9 @@ jobs:
       - name: Run MySQL schema migration
         run: mysql -h 127.0.0.1 -u scythe -pscythe scythe_test < integration_tests/sql/mysql/schema.sql
 
-      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -519,7 +523,9 @@ jobs:
       - name: Run MariaDB schema migration
         run: mysql -h 127.0.0.1 -u scythe -pscythe scythe_test < integration_tests/sql/mariadb/schema.sql
 
-      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -824,7 +830,9 @@ jobs:
           /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "Scythe_Test1" -C -Q "CREATE DATABASE scythe_test"
           /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "Scythe_Test1" -C -d scythe_test -i integration_tests/sql/mssql/schema.sql
 
-      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -1016,7 +1024,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -1174,7 +1184,9 @@ jobs:
       - name: Run Redshift PG-compat schema migration
         run: PGPASSWORD=scythe psql -h localhost -U scythe -d scythe_redshift_test -f integration_tests/sql/redshift/schema_pg_compat.sql
 
-      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |

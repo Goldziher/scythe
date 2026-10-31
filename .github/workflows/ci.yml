@@ -66,8 +66,9 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
+      - uses: dtolnay/rust-toolchain@v1
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
@@ -137,8 +138,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
+      - uses: dtolnay/rust-toolchain@v1
         with:
+          toolchain: stable
           components: clippy
       - uses: Swatinem/rust-cache@v2
       # python is pinned rather than relying on the runner image's default:
@@ -255,7 +257,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
       - uses: Swatinem/rust-cache@v2
       - uses: xberg-io/actions/setup-mise@v1
         with:
@@ -273,7 +277,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
       - uses: Swatinem/rust-cache@v2
       # Every checker `validate_with_tools` (scythe-codegen/src/validation.rs)
       # drives must be on PATH here, because the test step runs it in strict
@@ -369,7 +375,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
       - uses: Swatinem/rust-cache@v2
       - name: Generate integration tests from fixtures
         run: cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-codegen/tests/generated
@@ -382,7 +390,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
       - uses: Swatinem/rust-cache@v2
       # check-generated-syntax.sh runs in --strict mode below (CI=true also
       # implies strict), so every checker it looks for must actually be on
@@ -449,7 +459,9 @@ jobs:
       # Toolchain setup below is the validate-snippets block verbatim (that
       # job independently needed all ten languages for the same reason:
       # compiling committed output with no live database).
-      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
       - uses: Swatinem/rust-cache@v2
       - uses: xberg-io/actions/setup-mise@v1
         with:
@@ -787,7 +799,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
       - uses: Swatinem/rust-cache@v2
       - uses: xberg-io/actions/setup-mise@v1
         with:
