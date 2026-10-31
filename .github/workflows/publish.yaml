@@ -101,7 +101,14 @@ jobs:
             exit 1
           fi
 
-          mise run version:check
+          # ~keep Gate on the tag's own tracked files: setup-mise restores the current mise
+          # ~keep config into an older checkout, so the task list would always offer
+          # ~keep version:check, and main's script fails against trees that predate it.
+          if git cat-file -e HEAD:mise-tasks/version/check.sh 2>/dev/null; then
+            mise run version:check
+          else
+            echo "::notice::v$version predates mise-tasks/version/check.sh; skipped it. The Cargo.toml check above still ran."
+          fi
 
       - name: Detect already-published versions
         id: published
