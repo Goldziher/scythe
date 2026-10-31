@@ -6,7 +6,10 @@ description = 'SQL compilation and code generation framework — compiles annota
 gitignore = true
 presets = ["claude", "codex", "opencode", "pi"]
 builtins = [
+  '!ai-governance/agent-workflow',
   '!git-workflow',
+  '!testing/test-alongside-code',
+  '!testing/tdd-workflow',
   'rust',
   'python',
   'typescript',
@@ -24,22 +27,15 @@ builtins = [
 [[includes]]
 name = 'xberg-core'
 source = 'https://github.com/xberg-io/agent-conventions.git'
-ref = "adb0caa92c4d8155fb1680618f72a321a832660b"
+version = "^1"
 path = 'modules/core'
 merge_strategy = 'local-override'
 
 [[includes]]
 name = 'xberg-cicd'
 source = 'https://github.com/xberg-io/agent-conventions.git'
-ref = "adb0caa92c4d8155fb1680618f72a321a832660b"
+version = "^1"
 path = 'modules/cicd'
-merge_strategy = 'local-override'
-
-[[includes]]
-name = 'xberg-e2e-generator'
-source = 'https://github.com/xberg-io/agent-conventions.git'
-ref = "adb0caa92c4d8155fb1680618f72a321a832660b"
-path = 'modules/e2e-generator'
 merge_strategy = 'local-override'
 
 [mcp]
@@ -47,3 +43,8 @@ self_server_command = ["pnpm", "dlx", "ai-rulez@5.7.0", "mcp"]
 
 [lock]
 include_outputs = false
+
+# Goldziher/ai-rulez#485: ai-rulez reports the exported public skill copy as a duplicate of its source. ~keep
+[[lint.ignore_rules]]
+rules = ["AR701"]
+paths = ["skills/*/SKILL.md"]

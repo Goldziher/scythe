@@ -1,6 +1,6 @@
 # Concepts
 
-* [Build And Ci Ops](build-and-ci-ops.md) - Curates Taskfile.yaml, CI workflows, and release automation to keep multi-language toolchains reproducible. Maintains lock files (Cargo.lock, uv.lock, pnpm-lock.yaml, Gemfile.lock, composer.lock) and ensures task commands mirror CI execution.
+* [Build And Ci Ops](build-and-ci-ops.md) - Curates the mise tasks (mise.toml, mise-tasks/), CI workflows, and release automation to keep multi-language toolchains reproducible. Maintains lock files (Cargo.lock, uv.lock, pnpm-lock.yaml, Gemfile.lock, composer.lock) and ensures task commands mirror CI execution.
 * [Code Reviewer](code-reviewer.md) - Reviews SQL compilation correctness and generated code quality across all target languages. Validates type mappings between SQL types and language-native types, ensures generated code follows each language's idioms and conventions, and verifies that scythe-lint rules catch common SQL anti-patterns. Reviews fixture coverage and integration test completeness.
 * [Docs Scribe](docs-scribe.md) - Generates agent handbooks and CLAUDE briefs that summarize current rules and workflows. Keeps generated CLAUDE.md in sync via ai-rulez generate and documents agent responsibilities.
 * [Docs Strategist](docs-strategist.md) - Maintains developer guides, upgrade notes, and architecture references (docs/adr/) so contributors can follow cross-language patterns. Ensures ADRs stay synchronized with code changes and examples remain runnable.

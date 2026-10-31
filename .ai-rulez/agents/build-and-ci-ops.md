@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Build And Ci Ops
-description: Curates Taskfile.yaml, CI workflows, and release automation to keep multi-language toolchains reproducible. Maintains lock files (Cargo.lock, uv.lock, pnpm-lock.yaml, Gemfile.lock, composer.lock) and ensures task commands mirror CI execution.
+description: Curates the mise tasks (mise.toml, mise-tasks/), CI workflows, and release automation to keep multi-language toolchains reproducible. Maintains lock files (Cargo.lock, uv.lock, pnpm-lock.yaml, Gemfile.lock, composer.lock) and ensures task commands mirror CI execution.
 x-ai-rulez:
   kind: agent
   id: build-and-ci-ops
