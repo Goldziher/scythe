@@ -1,10 +1,10 @@
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:c64a5b37ee47d8e3104a2eed7ffb781da3e2bd6f49ffa768dba1298dd8289efd
-Source-Hash: blake3:e6ef3a7175e6b9c2925b099f843eff6d151240b235f1a3676d1dadcd2c330c0a
+Content-Hash: blake3:a13bf2d3895429edae481fab1eb81a2a6a298c6690e187a0bd5c1b12156f11f7
+Source-Hash: blake3:bcc197f0dde443cc11b753bd6bb5d9992793f20ef5b75fe76a8a69c6e29e2384
 Schema-Version: v1
 -->
 
 # Concepts
 
-* [Scythe SQL-to-Code Generator](SKILL.md) - Generate type-safe database access code from annotated SQL; configure scythe.toml, select drivers, lint or format SQL, and migrate sqlc projects.
+- [Scythe SQL-to-Code Generator](SKILL.md) - Generate type-safe database access code from annotated SQL; configure scythe.toml, select drivers, lint or format SQL, and migrate sqlc projects.

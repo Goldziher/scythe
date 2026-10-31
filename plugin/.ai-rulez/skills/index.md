@@ -1,3 +1,3 @@
 # Subdirectories
 
-* [scythe](scythe/index.md)
+- [scythe](scythe/index.md)

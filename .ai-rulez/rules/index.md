@@ -1,3 +1,3 @@
 # Concepts
 
-* [Python Type Checker](python-type-checker.md)
+- [Python Type Checker](python-type-checker.md)

@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:e6ef3a7175e6b9c2925b099f843eff6d151240b235f1a3676d1dadcd2c330c0a",
+  "source_hash": "blake3:bcc197f0dde443cc11b753bd6bb5d9992793f20ef5b75fe76a8a69c6e29e2384",
   "outputs": {
     ".claude-plugin/plugin.json": {
       "content_hash": "blake3:2525526730d15096a54c8581f4c7de0ea9b907992d7de7f0fa5c68d73a6825aa",
@@ -19,7 +19,7 @@
       "mode": "0644"
     },
     ".cursor-plugin/skills/scythe/index.md": {
-      "content_hash": "blake3:c64a5b37ee47d8e3104a2eed7ffb781da3e2bd6f49ffa768dba1298dd8289efd",
+      "content_hash": "blake3:a13bf2d3895429edae481fab1eb81a2a6a298c6690e187a0bd5c1b12156f11f7",
       "mode": "0644"
     },
     ".cursor-plugin/skills/scythe/references/annotations.md": {
@@ -67,7 +67,7 @@
       "mode": "0644"
     },
     ".hermes/package/src/scythe_hermes_plugin/skills/scythe/index.md": {
-      "content_hash": "blake3:c64a5b37ee47d8e3104a2eed7ffb781da3e2bd6f49ffa768dba1298dd8289efd",
+      "content_hash": "blake3:a13bf2d3895429edae481fab1eb81a2a6a298c6690e187a0bd5c1b12156f11f7",
       "mode": "0644"
     },
     ".hermes/package/src/scythe_hermes_plugin/skills/scythe/references/annotations.md": {
@@ -107,7 +107,7 @@
       "mode": "0644"
     },
     ".hermes/plugins/scythe/skills/scythe/index.md": {
-      "content_hash": "blake3:c64a5b37ee47d8e3104a2eed7ffb781da3e2bd6f49ffa768dba1298dd8289efd",
+      "content_hash": "blake3:a13bf2d3895429edae481fab1eb81a2a6a298c6690e187a0bd5c1b12156f11f7",
       "mode": "0644"
     },
     ".hermes/plugins/scythe/skills/scythe/references/annotations.md": {
@@ -147,7 +147,7 @@
       "mode": "0644"
     },
     ".opencode/skills/scythe/index.md": {
-      "content_hash": "blake3:c64a5b37ee47d8e3104a2eed7ffb781da3e2bd6f49ffa768dba1298dd8289efd",
+      "content_hash": "blake3:a13bf2d3895429edae481fab1eb81a2a6a298c6690e187a0bd5c1b12156f11f7",
       "mode": "0644"
     },
     ".opencode/skills/scythe/references/annotations.md": {
@@ -175,7 +175,7 @@
       "mode": "0644"
     },
     ".pi/skills/scythe/index.md": {
-      "content_hash": "blake3:c64a5b37ee47d8e3104a2eed7ffb781da3e2bd6f49ffa768dba1298dd8289efd",
+      "content_hash": "blake3:a13bf2d3895429edae481fab1eb81a2a6a298c6690e187a0bd5c1b12156f11f7",
       "mode": "0644"
     },
     ".pi/skills/scythe/references/annotations.md": {
@@ -227,7 +227,7 @@
       "mode": "0644"
     },
     "skills/scythe/index.md": {
-      "content_hash": "blake3:c64a5b37ee47d8e3104a2eed7ffb781da3e2bd6f49ffa768dba1298dd8289efd",
+      "content_hash": "blake3:a13bf2d3895429edae481fab1eb81a2a6a298c6690e187a0bd5c1b12156f11f7",
       "mode": "0644"
     },
     "skills/scythe/references/annotations.md": {
