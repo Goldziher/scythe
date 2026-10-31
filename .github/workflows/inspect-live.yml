@@ -70,7 +70,7 @@ jobs:
       # indistinguishable from a clean database, which is precisely what
       # UnsupportedDriver exists to prevent.
       mysql:
-        image: mysql:8
+        image: mysql:9.7
         env:
           MYSQL_ROOT_PASSWORD: scythe
         ports:
@@ -119,7 +119,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: scythe
           POSTGRES_PASSWORD: scythe

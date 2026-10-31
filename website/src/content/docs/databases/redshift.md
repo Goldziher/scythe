@@ -112,7 +112,7 @@ SELECT id, name FROM users WHERE id = $1;
 - **QUALIFY clause** -- Redshift does not support `QUALIFY`. Use subqueries with window functions instead.
 
 :::caution
-The `integration-redshift` CI job runs against plain `postgres:16-alpine`, not Redshift (see
+The `integration-redshift` CI job runs against plain `postgres:18-alpine`, not Redshift (see
 `.github/workflows/integration.yml`). `SUPER`, `IDENTITY`, and other Redshift-only behavior are exercised
 at the type-mapping level only -- there is no verification against a real Redshift cluster. Every project on
 that leg connects with a PostgreSQL wire driver; no Redshift JDBC or ODBC driver is loaded anywhere in CI.

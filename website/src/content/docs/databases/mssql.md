@@ -102,7 +102,7 @@ SELECT id, name FROM users WHERE id = @p1;
 ```bash
 docker run -e 'ACCEPT_EULA=Y' -e 'MSSQL_SA_PASSWORD=YourStrong@Passw0rd' \
   -p 1433:1433 --name mssql \
-  mcr.microsoft.com/mssql/server:2022-latest
+  mcr.microsoft.com/mssql/server:2025-latest
 ```
 
 ## Notes

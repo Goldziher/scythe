@@ -177,7 +177,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: scythe
           POSTGRES_PASSWORD: scythe

@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: scythe
       POSTGRES_PASSWORD: scythe
@@ -14,7 +14,7 @@ services:
       retries: 10
 
   mysql:
-    image: mysql:8.0
+    image: mysql:9.7
     environment:
       MYSQL_ROOT_PASSWORD: scythe
       MYSQL_DATABASE: scythe_test
@@ -50,7 +50,7 @@ services:
   # "Redshift and Snowflake are substitutes" section of README.md for the
   # divergences this cannot show.
   redshift-pg-compat:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: scythe
       POSTGRES_PASSWORD: scythe
@@ -67,7 +67,7 @@ services:
   # but no service ever backed it locally -- `mise run test:elixir-tds-mssql` could
   # only ever have worked against a hand-started container.
   mssql:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: mcr.microsoft.com/mssql/server:2025-latest
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: Scythe_Test1
@@ -84,7 +84,7 @@ services:
       retries: 20
 
   mariadb:
-    image: mariadb:11
+    image: mariadb:12.3
     environment:
       MARIADB_ROOT_PASSWORD: scythe
       MARIADB_DATABASE: scythe_test

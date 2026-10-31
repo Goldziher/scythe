@@ -54,7 +54,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: scythe
           POSTGRES_PASSWORD: scythe
@@ -343,7 +343,7 @@ jobs:
 
     services:
       mysql:
-        image: mysql:8.0
+        image: mysql:9.7
         env:
           MYSQL_ROOT_PASSWORD: scythe
           MYSQL_DATABASE: scythe_test
@@ -500,7 +500,7 @@ jobs:
 
     services:
       mariadb:
-        image: mariadb:11
+        image: mariadb:12.3
         env:
           MARIADB_ROOT_PASSWORD: scythe
           MARIADB_DATABASE: scythe_test
@@ -800,7 +800,7 @@ jobs:
 
     services:
       mssql:
-        image: mcr.microsoft.com/mssql/server:2022-latest
+        image: mcr.microsoft.com/mssql/server:2025-latest
         env:
           ACCEPT_EULA: "Y"
           MSSQL_SA_PASSWORD: "Scythe_Test1"
@@ -1162,7 +1162,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: scythe
           POSTGRES_PASSWORD: scythe
