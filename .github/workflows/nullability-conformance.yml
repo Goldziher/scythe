@@ -52,7 +52,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
       - uses: Swatinem/rust-cache@v2
       - name: Run SQLite conformance leg
         run: cargo test -p scythe-conformance --features sqlite,live-tests --test live -- --nocapture
@@ -82,7 +82,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
       - uses: Swatinem/rust-cache@v2
       - name: Run PostgreSQL conformance leg
         run: cargo test -p scythe-conformance --features pg,live-tests --test live -- --nocapture
@@ -116,7 +116,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
       - uses: Swatinem/rust-cache@v2
       - name: Run MySQL conformance leg
         run: cargo test -p scythe-conformance --features mysql,live-tests --test live -- --nocapture
@@ -147,7 +147,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
       - uses: Swatinem/rust-cache@v2
       - name: Run MariaDB conformance leg
         run: cargo test -p scythe-conformance --features mariadb,live-tests --test live -- --nocapture
@@ -180,7 +180,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
       - uses: Swatinem/rust-cache@v2
       - name: Run SQL Server conformance leg
         run: cargo test -p scythe-conformance --features mssql,live-tests --test live -- --nocapture
@@ -240,7 +240,7 @@ jobs:
           echo "LD_LIBRARY_PATH=/usr/lib/oracle/23/client64/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
           echo "RUSTFLAGS=-L/usr/lib/oracle/23/client64/lib" >> "$GITHUB_ENV"
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
       - uses: Swatinem/rust-cache@v2
       - name: Run Oracle conformance leg
         run: cargo test -p scythe-conformance --features oracle,live-tests --test live -- --nocapture

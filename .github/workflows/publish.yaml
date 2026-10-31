@@ -256,7 +256,7 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
         with:
           targets: ${{ matrix.triple }}
 
@@ -416,7 +416,7 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
 
       - name: Authenticate to crates.io
         uses: rust-lang/crates-io-auth-action@v1
@@ -989,7 +989,7 @@ jobs:
         run: uv build
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@release/v1 # ~keep Upstream has no major tag; release/v1 is its floating ref.
         with:
           packages-dir: release/pypi/dist
           # The meta job's pypi_exists probe is a single check with a race window

@@ -84,7 +84,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -133,7 +133,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable # ~keep No major tags upstream; rust-toolchain.toml pins the channel.
 
       - uses: Swatinem/rust-cache@v2
         with:
