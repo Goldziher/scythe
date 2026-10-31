@@ -5,21 +5,21 @@ directory per backend (language + driver + engine combination).
 
 ## How these directories are produced
 
-Two generators feed this tree, run via `task generate:all`:
+Two generators feed this tree, run via `mise run generate:all`:
 
 1. `tools/integration-test-generator` renders each backend's scaffolding (`scythe.toml`, the
    test harness, and the dependency manifest) from `tools/integration-test-generator/templates/`.
    The full backend list is defined once, in `build_backends()`
    (`tools/integration-test-generator/src/main.rs`); run
    `cargo run --quiet -p integration-test-generator -- --list` to print it. Do not hand-maintain
-   a copy of this list elsewhere — `integration_tests/Taskfile.yaml`'s `generate` task consumes
+   a copy of this list elsewhere — `integration_tests/mise.toml`'s `generate` task consumes
    it directly so the two can't drift.
 2. `scythe generate`, run inside each backend directory, renders the `generated/` (or
    language-equivalent) query code from `sql/*/schema.sql` and `sql/*/queries/*.sql`.
 
 Both are generated output. Never hand-edit files under a backend's `generated/` directory, or
 `scythe.toml`/dependency manifests for a backend that `build_backends()` owns — fix the
-generator or the jinja templates instead, then run `task generate:all` and commit the result.
+generator or the jinja templates instead, then run `mise run generate:all` and commit the result.
 
 ## Coverage completeness is enforced, not audited
 
@@ -28,7 +28,7 @@ generator or the jinja templates instead, then run `task generate:all` and commi
 
 1. every backend manifest under `crates/scythe-codegen/manifests/` resolves to an integration
    project here;
-2. every integration project has a `test:<project>` target in `Taskfile.yaml`;
+2. every integration project has a `test:<project>` task in `mise.toml`;
 3. every integration project is run by a step in `.github/workflows/integration.yml`.
 
 A project's `(backend, engine)` is mapped onto the manifest it selects by calling the real
@@ -83,7 +83,7 @@ CI never sees it) and safe to delete locally with `rm -rf`; do not add it to thi
 
 ### Hand-maintained by design
 
-The `HAND_MAINTAINED` list in `Taskfile.yaml` is the source of truth for this group — this section
+The `HAND_MAINTAINED` list in `mise.toml` is the source of truth for this group — this section
 must list exactly what it lists.
 
 - `kotlin-jdbc-ext` — exercises the `extension_functions = "true"` codegen option for the
@@ -96,13 +96,13 @@ must list exactly what it lists.
 
   All three have their own hand-written `scythe.toml` and dependency manifest, but their
   `generated/` output is still produced by `scythe generate` and drifts like any other generated
-  output, so `task generate` regenerates them too — via the explicit `HAND_MAINTAINED` list in
-  `Taskfile.yaml`, since they are absent from `build_backends()`. Only their scaffolding is
+  output, so `mise run generate` regenerates them too — via the explicit `HAND_MAINTAINED` list in
+  `mise.toml`, since they are absent from `build_backends()`. Only their scaffolding is
   hand-written; their query code is gated like everything else. If you add another directory of
   this kind, add it to `HAND_MAINTAINED` as well or its output will silently rot.
 
 Losing track of which hand-maintained directories are load-bearing test coverage versus inert
 local cruft is exactly how the Oracle LOB regression coverage was destroyed during 0.12.0. Keep
 this section accurate: if you add a new hand-maintained directory outside the generator, add it
-to `HAND_MAINTAINED` in `Taskfile.yaml` and list it above in the same change. Never add an
+to `HAND_MAINTAINED` in `mise.toml` and list it above in the same change. Never add an
 untracked, gitignored-only directory to this list — see the note above the hand-maintained group.

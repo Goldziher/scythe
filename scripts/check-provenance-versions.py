@@ -48,7 +48,7 @@ PROVENANCE_RE = re.compile(r"scythe:provenance v=(\d+\.\d+\.\d+)")
 #
 # The changelog page reproduces CHANGELOG.md, and its 0.14.0 entry -- the one
 # announcing provenance headers -- quotes a header as it looked when the
-# feature shipped. `task version:sync` rewrites `v=` across website/src, so
+# feature shipped. `mise run version:sync` rewrites `v=` across website/src, so
 # without this the 0.14.0 entry would be rewritten to claim the current version
 # on every single release, permanently misstating what 0.14.0 actually emitted.
 # The gate exists so a reader cannot copy a stale *live* example; a changelog
@@ -163,7 +163,7 @@ def main() -> int:
         )
         print("\n".join(offenders), file=sys.stderr)
         print(
-            f"Run 'task version:sync VERSION={expected}', regenerate the website snippets, and commit the result.",
+            f"Run 'mise run version:sync {expected}', regenerate the website snippets, and commit the result.",
             file=sys.stderr,
         )
 

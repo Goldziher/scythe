@@ -14,7 +14,7 @@
 # tools/integration-test-generator/templates/*.jinja, not hand-written.
 # Dependabot has no way to know that, so any ecosystem scoped at (or scanning
 # into) integration_tests/ gets it opening PRs that edit generated files
-# directly. Those PRs cannot merge cleanly: the next `task generate:all` run
+# directly. Those PRs cannot merge cleanly: the next `mise run generate:all` run
 # reverts them, and the `generated-freshness` CI job fails the diff in the
 # meantime. This is why go, maven, gradle, npm (for integration_tests/),
 # pip, bundler, and packagist/composer are deliberately NOT configured as

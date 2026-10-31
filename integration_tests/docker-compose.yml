@@ -63,8 +63,8 @@ services:
       timeout: 5s
       retries: 10
 
-  # The Taskfile has referenced MSSQL_URL since the mssql projects were added,
-  # but no service ever backed it locally -- `task test:elixir-tds-mssql` could
+  # The integration tasks have referenced MSSQL_URL since the mssql projects were added,
+  # but no service ever backed it locally -- `mise run test:elixir-tds-mssql` could
   # only ever have worked against a hand-started container.
   mssql:
     image: mcr.microsoft.com/mssql/server:2022-latest

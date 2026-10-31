@@ -120,7 +120,7 @@ copy_member "$repo_root/LICENSE" "LICENSE"
 copy_member "$repo_root/README.md" "README.md"
 
 if [ "$is_windows" = true ]; then
-  # ~keep Verbatim the note `task pg:parsers:all` writes, so the archive and the build tree
+  # ~keep Verbatim the note build_pg_parser_helpers.sh writes, so the archive and the build tree
   # ~keep explain the absent helpers the same way. Only the target name is filled in.
   {
     printf '%s\n' \

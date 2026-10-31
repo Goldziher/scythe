@@ -7,7 +7,7 @@
 //! different weight (`sqlx`: template rendering only; `typescript-kysely`:
 //! discriminated-union join grouping plus Zod schema emission).
 //!
-//! Run with `task bench` or `cargo bench -p scythe-codegen --bench analyze_codegen`.
+//! Run with `mise run bench` or `cargo bench -p scythe-codegen --bench analyze_codegen`.
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use scythe_codegen::{generate_with_backend, get_backend};

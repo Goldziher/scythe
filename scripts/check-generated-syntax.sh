@@ -221,7 +221,7 @@ if [ "$harness_only" -eq 0 ]; then
   # committed java-jdbc-* project's pom.xml, and elixirc has no load path
   # for MyXQL/Tds, which is exactly what every committed elixir-*
   # project's `mix deps.get` provides. A real build tool run against the
-  # real project reports what CI's `task test:*` would actually hit.
+  # real project reports what CI's `mise run test:*` would actually hit.
   #
   # Kotlin joined them for the same reason, one backend later. It ran
   # through a bare `kotlinc` per-file check justified by "generated Kotlin

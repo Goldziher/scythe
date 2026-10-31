@@ -9,8 +9,8 @@ macOS on `macos-latest` and `macos-15-intel`, Windows on `windows-2022` with MSV
 an archive that cannot be produced on its own platform is a bug in the pipeline, not something a cross-toolchain should
 paper over.
 
-Run `task release:canary:target TARGET=<triple>` to build and size-check one target on a host that can build it, or
-`task release:canary` to run every target the host can build. The publish workflow runs the per-target check before
+Run `mise run release:canary:target <triple>` to build and size-check one target on a host that can build it, or
+`mise run release:canary` to run every target the host can build. The publish workflow runs the per-target check before
 packaging, so a binary above its maximum fails the release before any archive is uploaded.
 
 `scripts/package-release.sh <triple>` turns a built binary into the published archive: `scythe`, the pinned

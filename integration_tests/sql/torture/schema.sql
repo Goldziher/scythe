@@ -9,7 +9,7 @@
 -- one or more target languages, and a column name that collides with a
 -- name scythe itself might synthesize. This schema exists only to give the
 -- compile gate (scripts/check-generated-backends.py) something with teeth.
--- It is never migrated into the live database used by the `task test:*`
+-- It is never migrated into the live database used by the `mise run test:*`
 -- integration tests, and no `scythe.toml` under integration_tests/ other
 -- than the ones the gate writes into a scratch copy points at it.
 --

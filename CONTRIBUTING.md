@@ -5,21 +5,21 @@
 Prerequisites:
 
 - [rustup](https://rustup.rs/) (installs the pinned toolchain from `.rust-toolchain.toml`)
-- [Task](https://taskfile.dev/) runner
+- [mise](https://mise.jdx.dev/) (installs the pinned tools from `mise.toml` and runs the tasks)
 - Docker (for integration tests only)
 
 ```bash
 git clone https://github.com/Goldziher/scythe.git
 cd scythe
-task setup    # install pre-commit hooks, fetch dependencies
-task check    # run lint + test — verify everything passes
+mise run setup    # install tools and pre-commit hooks, fetch dependencies
+mise run check    # run lint + test — verify everything passes
 ```
 
 This should take under 5 minutes from clone to green tests.
 
 ## Pre-commit hooks
 
-Install the git hooks with `task setup` (or `poly hooks install` directly). On
+Install the git hooks with `mise run setup` (or `poly hooks install` directly). On
 every commit, poly runs lint, format, and file-safety checks plus `cargo clippy`;
 the Cargo hook also runs `cargo sort`, `cargo machete`, and `cargo deny`, and the
 commit-msg hook validates the message. Run all hooks manually with
@@ -74,7 +74,7 @@ Key directories:
 
 6. Add test fixture expectations in `testing_data/` if the backend requires new fixture coverage.
 
-7. Add integration test tasks in `integration_tests/Taskfile.yaml`.
+7. Add integration test tasks in `integration_tests/mise.toml`.
 
 All 275+ existing fixtures will automatically test the new backend through snapshot tests.
 
@@ -106,12 +106,12 @@ All 275+ existing fixtures will automatically test the new backend through snaps
 
 | Command | What it runs |
 |---|---|
-| `task test` | Unit tests + snapshot tests + fixture-generated tests |
-| `task test:verbose` | Same, with `--nocapture` output |
-| `task lint` | All linters via poly (fmt, clippy, cargo-deny, cargo-machete, etc.) |
-| `task check` | Lint + test combined |
-| `task snippets:validate` | Validate documentation code snippets at syntax level |
-| `task snippets:validate:compile` | Validate documentation code snippets at compile level |
+| `mise run test` | Unit tests + snapshot tests + fixture-generated tests |
+| `mise run test:verbose` | Same, with `--nocapture` output |
+| `mise run lint` | All linters via poly (fmt, clippy, cargo-deny, cargo-machete, etc.) |
+| `mise run check` | Lint + test combined |
+| `mise run snippets:validate` | Validate documentation code snippets at syntax level |
+| `mise run snippets:validate:compile` | Validate documentation code snippets at compile level |
 
 ## Fixture Conventions
 
@@ -139,13 +139,13 @@ cargo fmt --all
 Integration tests require Docker. From `integration_tests/`:
 
 ```bash
-task db:up        # start PostgreSQL/MySQL/SQLite containers
-task db:migrate   # apply schema
-task all          # run all integration tests
-task db:down      # stop containers
+mise run db:up        # start PostgreSQL/MySQL/SQLite containers
+mise run db:migrate   # apply schema
+mise run all          # run all integration tests
+mise run db:down      # stop containers
 ```
 
-Individual integration tests: `task test:rust-sqlx`, `task test:python-psycopg3`, etc.
+Individual integration tests: `mise run test:rust-sqlx`, `mise run test:python-psycopg3`, etc.
 
 ## Code Style
 
@@ -208,10 +208,10 @@ By contributing, you agree that your contributions will be licensed under the MI
 ## AI governance and plugin bundles
 
 Use ai-rulez 5.7.0 from reviewed source `291b11fa381c0ff49b0f9065b386281d63c90b17`.
-Installing governance hooks requires Python 3.11 or newer. Run `task governance:hooks`
+Installing governance hooks requires Python 3.11 or newer. Run `mise run governance:hooks`
 without replacing existing local preferences. Edit `.ai-rulez/` for maintainer
 governance and `plugin/.ai-rulez/` for installable product skills. Run
-`task governance:check` and `task plugin:verify` before committing.
+`mise run governance:check` and `mise run plugin:verify` before committing.
 See [plugin installation and publishing](plugin/assets/README.md).
 
 Registry publisher identities and initial account enrollment are documented in [Plugin distribution](.github/PLUGIN-PUBLISHING.md).

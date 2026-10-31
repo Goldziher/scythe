@@ -4,7 +4,7 @@
 ``ai-rulez generate --plugin`` renders every per-runtime plugin manifest under
 ``plugin/`` from ``plugin/.ai-rulez/config.plugins.toml``'s ``[plugin].version``. This script
 keeps that single source pinned to the CLI crate version in ``crates/scythe-cli/Cargo.toml`` (the repo's
-version source of truth), alongside the existing crate version synchronization. Run via ``task plugin:generate`` (which then regenerates the bundles);
+version source of truth), alongside the existing crate version synchronization. Run via ``mise run plugin:generate`` (which then regenerates the bundles);
 freshness of the generated bundles themselves is enforced by ``ai-rulez verify
 --plugin`` in CI, so this script only touches the config source.
 
@@ -32,7 +32,7 @@ if not PLUGIN_CONFIG.exists():
 # ~keep Matches the `version` key of the `[plugin]` table only. The file also has a
 # top-level ai-rulez schema `version = "5.0"` that must never be rewritten.
 PLUGIN_VERSION_RE = re.compile(r'(\[plugin\][^\[]*?\nversion = ")([^"]*)(")', re.DOTALL)
-SYNC_HINT = "run `task plugin:generate` to re-pin the plugin and regenerate its bundles"
+SYNC_HINT = "run `mise run plugin:generate` to re-pin the plugin and regenerate its bundles"
 
 
 def core_version() -> str:
