@@ -207,7 +207,7 @@ By contributing, you agree that your contributions will be licensed under the MI
 
 ## AI governance and plugin bundles
 
-Use ai-rulez 5.7.0 from reviewed source `291b11fa381c0ff49b0f9065b386281d63c90b17`.
+ai-rulez is never pinned: the tasks run its latest release through `npx -y ai-rulez@latest` (Node 22 or later).
 Installing governance hooks requires Python 3.11 or newer. Run `mise run governance:hooks`
 without replacing existing local preferences. Edit `.ai-rulez/` for maintainer
 governance and `plugin/.ai-rulez/` for installable product skills. Run

@@ -50,9 +50,6 @@ jobs:
           PYCODE
       - name: Install ai-rulez
         uses: xberg-io/actions/setup-ai-rulez@v1
-        with:
-          ai-rulez-version: "5.7.0"
-          source-revision: "291b11fa381c0ff49b0f9065b386281d63c90b17"
       - name: Verify the target release version matches the plugin
         env:
           PLUGIN_RELEASE_TAG: ${{ inputs.tag }}
@@ -106,9 +103,6 @@ jobs:
           tools: node=24
       - name: Install ai-rulez
         uses: xberg-io/actions/setup-ai-rulez@v1
-        with:
-          ai-rulez-version: "5.7.0"
-          source-revision: "291b11fa381c0ff49b0f9065b386281d63c90b17"
       - name: Verify plugin versions and generated resources before publishing
         env:
           VERSION: ${{ inputs.tag }}
@@ -216,9 +210,6 @@ jobs:
           fetch-depth: 0
       - name: Install ai-rulez
         uses: xberg-io/actions/setup-ai-rulez@v1
-        with:
-          ai-rulez-version: "5.7.0"
-          source-revision: "291b11fa381c0ff49b0f9065b386281d63c90b17"
       - name: Verify plugin versions and generated resources before publishing
         env:
           VERSION: ${{ inputs.tag }}

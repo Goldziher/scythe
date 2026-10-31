@@ -39,7 +39,7 @@ path = 'modules/cicd'
 merge_strategy = 'local-override'
 
 [mcp]
-self_server_command = ["pnpm", "dlx", "ai-rulez@5.7.0", "mcp"]
+self_server_command = ["npx", "-y", "ai-rulez@latest", "mcp"]
 
 [lock]
 include_outputs = false
