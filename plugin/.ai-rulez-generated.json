@@ -1,21 +1,21 @@
 {
   "schema_version": "v1",
-  "source_hash": "blake3:bcc197f0dde443cc11b753bd6bb5d9992793f20ef5b75fe76a8a69c6e29e2384",
+  "source_hash": "blake3:0feb5ede68bb43341aa002c05d3a21d5cf01d190e7a98ade5d857a0a2cf0a903",
   "outputs": {
     ".claude-plugin/plugin.json": {
-      "content_hash": "blake3:2525526730d15096a54c8581f4c7de0ea9b907992d7de7f0fa5c68d73a6825aa",
+      "content_hash": "blake3:76c7c4c72696dd00359115f846a8a32c8ef860089ffcf31e0435057e9da22a58",
       "mode": "0644"
     },
     ".codex-plugin/plugin.json": {
-      "content_hash": "blake3:a32bb999999d7cbfb5d74692305902d531364d8dd759078c08873702020bf8d0",
+      "content_hash": "blake3:30b7fd9bbd8d6995b43e787d6a81a63e393d24c79371a2cd155d3cba3881747b",
       "mode": "0644"
     },
     ".cursor-plugin/plugin.json": {
-      "content_hash": "blake3:52ff427588aca314bbab58fdc301b382cb90c1dd1984d73faf83fb1108dded1e",
+      "content_hash": "blake3:a537bfe29d571a3521342eafa128473fe2235db8b4f16be27ebd357aa13843e9",
       "mode": "0644"
     },
     ".cursor-plugin/skills/scythe/SKILL.md": {
-      "content_hash": "blake3:6a12d1847e66d56407a130b305634d77a392fb2fd2fc9c3991b190d56aac1c78",
+      "content_hash": "blake3:595bd7f8580d20a833ba4b277dc90e723c25526fd63223d41d5f669347c9f457",
       "mode": "0644"
     },
     ".cursor-plugin/skills/scythe/index.md": {
@@ -31,7 +31,7 @@
       "mode": "0644"
     },
     ".cursor-plugin/skills/scythe/references/cli-reference.md": {
-      "content_hash": "blake3:a67f06a3f07e614d5b46bac5a90506bc35740ea361261d752527f0be0594adbe",
+      "content_hash": "blake3:f97aa47aa4eb45155c22e732317bc14b3ba49833454d533ebce3dc193dccc368",
       "mode": "0644"
     },
     ".cursor-plugin/skills/scythe/references/configuration.md": {
@@ -43,15 +43,15 @@
       "mode": "0644"
     },
     ".factory-plugin/plugin.json": {
-      "content_hash": "blake3:34a48bc912aea4743d0dc259ec1c5478ad7784a9bad5d36cdc60212c9b0c3bbf",
+      "content_hash": "blake3:b8aea310fb46b323b392fdd8bec96fcea13dfd65fb823286e88054f092fcf788",
       "mode": "0644"
     },
     ".hermes/package/pyproject.toml": {
-      "content_hash": "blake3:a025cdb4a7da6a57e0256bd46a6493c3facf52de1634564082702586afe8ca19",
+      "content_hash": "blake3:ce5285bbf847219b79b02bd836a2b943fc40adf705ba0b36ea7105bad199f6c4",
       "mode": "0644"
     },
     ".hermes/package/src/scythe_hermes_plugin/__init__.py": {
-      "content_hash": "blake3:8c4bc1a6bd416ede9dba50bc3340403195b2da9520c3e3359dea2a35de8fe5b0",
+      "content_hash": "blake3:573a841824c855ac63f2cc740054ba6fb0b2b3d7d8a6cb80053d0d7be165f3e1",
       "mode": "0644"
     },
     ".hermes/package/src/scythe_hermes_plugin/hermes.py": {
@@ -59,11 +59,11 @@
       "mode": "0644"
     },
     ".hermes/package/src/scythe_hermes_plugin/plugin.yaml": {
-      "content_hash": "blake3:167bab6b13020353dd4385ff18bdbdc22e7924327a20350c4aced462ee6cdfa3",
+      "content_hash": "blake3:4d34ddcf55a4c3e727cc347a519317b4680b6f99c65df88a8c2902b02821285d",
       "mode": "0644"
     },
     ".hermes/package/src/scythe_hermes_plugin/skills/scythe/SKILL.md": {
-      "content_hash": "blake3:6a12d1847e66d56407a130b305634d77a392fb2fd2fc9c3991b190d56aac1c78",
+      "content_hash": "blake3:595bd7f8580d20a833ba4b277dc90e723c25526fd63223d41d5f669347c9f457",
       "mode": "0644"
     },
     ".hermes/package/src/scythe_hermes_plugin/skills/scythe/index.md": {
@@ -79,7 +79,7 @@
       "mode": "0644"
     },
     ".hermes/package/src/scythe_hermes_plugin/skills/scythe/references/cli-reference.md": {
-      "content_hash": "blake3:a67f06a3f07e614d5b46bac5a90506bc35740ea361261d752527f0be0594adbe",
+      "content_hash": "blake3:f97aa47aa4eb45155c22e732317bc14b3ba49833454d533ebce3dc193dccc368",
       "mode": "0644"
     },
     ".hermes/package/src/scythe_hermes_plugin/skills/scythe/references/configuration.md": {
@@ -91,7 +91,7 @@
       "mode": "0644"
     },
     ".hermes/plugins/scythe/__init__.py": {
-      "content_hash": "blake3:8c4bc1a6bd416ede9dba50bc3340403195b2da9520c3e3359dea2a35de8fe5b0",
+      "content_hash": "blake3:573a841824c855ac63f2cc740054ba6fb0b2b3d7d8a6cb80053d0d7be165f3e1",
       "mode": "0644"
     },
     ".hermes/plugins/scythe/hermes.py": {
@@ -99,11 +99,11 @@
       "mode": "0644"
     },
     ".hermes/plugins/scythe/plugin.yaml": {
-      "content_hash": "blake3:167bab6b13020353dd4385ff18bdbdc22e7924327a20350c4aced462ee6cdfa3",
+      "content_hash": "blake3:4d34ddcf55a4c3e727cc347a519317b4680b6f99c65df88a8c2902b02821285d",
       "mode": "0644"
     },
     ".hermes/plugins/scythe/skills/scythe/SKILL.md": {
-      "content_hash": "blake3:6a12d1847e66d56407a130b305634d77a392fb2fd2fc9c3991b190d56aac1c78",
+      "content_hash": "blake3:595bd7f8580d20a833ba4b277dc90e723c25526fd63223d41d5f669347c9f457",
       "mode": "0644"
     },
     ".hermes/plugins/scythe/skills/scythe/index.md": {
@@ -119,7 +119,7 @@
       "mode": "0644"
     },
     ".hermes/plugins/scythe/skills/scythe/references/cli-reference.md": {
-      "content_hash": "blake3:a67f06a3f07e614d5b46bac5a90506bc35740ea361261d752527f0be0594adbe",
+      "content_hash": "blake3:f97aa47aa4eb45155c22e732317bc14b3ba49833454d533ebce3dc193dccc368",
       "mode": "0644"
     },
     ".hermes/plugins/scythe/skills/scythe/references/configuration.md": {
@@ -143,7 +143,7 @@
       "mode": "0644"
     },
     ".opencode/skills/scythe/SKILL.md": {
-      "content_hash": "blake3:6a12d1847e66d56407a130b305634d77a392fb2fd2fc9c3991b190d56aac1c78",
+      "content_hash": "blake3:595bd7f8580d20a833ba4b277dc90e723c25526fd63223d41d5f669347c9f457",
       "mode": "0644"
     },
     ".opencode/skills/scythe/index.md": {
@@ -159,7 +159,7 @@
       "mode": "0644"
     },
     ".opencode/skills/scythe/references/cli-reference.md": {
-      "content_hash": "blake3:a67f06a3f07e614d5b46bac5a90506bc35740ea361261d752527f0be0594adbe",
+      "content_hash": "blake3:f97aa47aa4eb45155c22e732317bc14b3ba49833454d533ebce3dc193dccc368",
       "mode": "0644"
     },
     ".opencode/skills/scythe/references/configuration.md": {
@@ -171,7 +171,7 @@
       "mode": "0644"
     },
     ".pi/skills/scythe/SKILL.md": {
-      "content_hash": "blake3:6a12d1847e66d56407a130b305634d77a392fb2fd2fc9c3991b190d56aac1c78",
+      "content_hash": "blake3:595bd7f8580d20a833ba4b277dc90e723c25526fd63223d41d5f669347c9f457",
       "mode": "0644"
     },
     ".pi/skills/scythe/index.md": {
@@ -187,7 +187,7 @@
       "mode": "0644"
     },
     ".pi/skills/scythe/references/cli-reference.md": {
-      "content_hash": "blake3:a67f06a3f07e614d5b46bac5a90506bc35740ea361261d752527f0be0594adbe",
+      "content_hash": "blake3:f97aa47aa4eb45155c22e732317bc14b3ba49833454d533ebce3dc193dccc368",
       "mode": "0644"
     },
     ".pi/skills/scythe/references/configuration.md": {
@@ -207,23 +207,23 @@
       "mode": "0644"
     },
     "gemini-extension.json": {
-      "content_hash": "blake3:6d860ac85e3debba1970b2858a9841534cab5114b26d0a0095f4e718c8aed0dc",
+      "content_hash": "blake3:59a2617e7382ccc965f1704456029e06864c6bbd0e782f576d7c77c43a40bcd5",
       "mode": "0644"
     },
     "kimi.plugin.json": {
-      "content_hash": "blake3:8787ebee3ee6fb46a73d06297525d43828d3df52cc9d147bd0dbeebbc29ab218",
+      "content_hash": "blake3:e1df9b4d9d3039fce2b7572c863e555556d7cc4145e7e91e432a9810a6d017d0",
       "mode": "0644"
     },
     "package.json": {
-      "content_hash": "blake3:1b18d31765f6fa8eee419421cd5e665fda3875b3995e0c535ae04fb1560b37ac",
+      "content_hash": "blake3:727dc02780d82bbc4461acf84ab280919e1bf03a9db1fa0c84c7f708843c8c39",
       "mode": "0644"
     },
     "plugin.json": {
-      "content_hash": "blake3:049ea38d5b16b68f4d3a4546852b87f790e3e36a4c3e7e336d01377450cd8f4d",
+      "content_hash": "blake3:1e21438529e1a83465318bc3b753c0b10ba00757f5c48454eac05896ed6ffcff",
       "mode": "0644"
     },
     "skills/scythe/SKILL.md": {
-      "content_hash": "blake3:6a12d1847e66d56407a130b305634d77a392fb2fd2fc9c3991b190d56aac1c78",
+      "content_hash": "blake3:595bd7f8580d20a833ba4b277dc90e723c25526fd63223d41d5f669347c9f457",
       "mode": "0644"
     },
     "skills/scythe/index.md": {
@@ -239,7 +239,7 @@
       "mode": "0644"
     },
     "skills/scythe/references/cli-reference.md": {
-      "content_hash": "blake3:a67f06a3f07e614d5b46bac5a90506bc35740ea361261d752527f0be0594adbe",
+      "content_hash": "blake3:f97aa47aa4eb45155c22e732317bc14b3ba49833454d533ebce3dc193dccc368",
       "mode": "0644"
     },
     "skills/scythe/references/configuration.md": {

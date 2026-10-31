@@ -2518,7 +2518,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "scythe-backend"
-version = "0.20.2"
+version = "0.20.3"
 dependencies = [
  "ahash",
  "serde",
@@ -2528,7 +2528,7 @@ dependencies = [
 
 [[package]]
 name = "scythe-cli"
-version = "0.20.2"
+version = "0.20.3"
 dependencies = [
  "ahash",
  "assert_cmd",
@@ -2554,7 +2554,7 @@ dependencies = [
 
 [[package]]
 name = "scythe-codegen"
-version = "0.20.2"
+version = "0.20.3"
 dependencies = [
  "ahash",
  "criterion",
@@ -2592,7 +2592,7 @@ dependencies = [
 
 [[package]]
 name = "scythe-core"
-version = "0.20.2"
+version = "0.20.3"
 dependencies = [
  "ahash",
  "serde",
@@ -2603,7 +2603,7 @@ dependencies = [
 
 [[package]]
 name = "scythe-inspect"
-version = "0.20.2"
+version = "0.20.3"
 dependencies = [
  "async-trait",
  "duckdb",
@@ -2625,7 +2625,7 @@ dependencies = [
 
 [[package]]
 name = "scythe-lint"
-version = "0.20.2"
+version = "0.20.3"
 dependencies = [
  "ahash",
  "scythe-core",

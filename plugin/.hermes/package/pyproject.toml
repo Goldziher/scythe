@@ -4,7 +4,7 @@ build-backend = 'hatchling.build'
 
 [project]
 name = 'scythe-hermes-plugin'
-version = '0.20.2'
+version = '0.20.3'
 description = 'Generate typed database access code from SQL, configure drivers, lint and format queries. Skills only; install the Scythe CLI separately.'
 license = 'MIT'
 requires-python = '>=3.11'

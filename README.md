@@ -135,7 +135,7 @@ yourself to run it.
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.20.2
+    rev: v0.20.3
     hooks:
       - id: scythe-fmt        # format SQL
       - id: scythe-lint       # lint with auto-fix

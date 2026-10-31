@@ -4,10 +4,10 @@
 version = 1
 ai_rulez_version = '5.9.8'
 scope = 'all'
-tree = 'sha256:f5e626152546c91d5e9ff6a7bbfbf36458f25a8883299f6b2ae624b2ee37db72'
+tree = 'sha256:2d792156573546de28f6f4b009abffacf68d3b6e46483505d316c86917a7dab9'
 
 [[item]]
 kind = 'skill'
 id = 'scythe'
 path = 'skills/scythe'
-digest = 'sha256:ef9f0e19593277417fbde0bff7a543bf7d4daf7db5efc303560be20a3cb8274a'
+digest = 'sha256:fbf18a56aece8a385e070497c25b2fbba94c31126d40a44b7c57da573d410230'

@@ -6,8 +6,8 @@ license: MIT
 
 <!--
 AI-RULEZ :: GENERATED FILE — DO NOT EDIT
-Content-Hash: blake3:6a12d1847e66d56407a130b305634d77a392fb2fd2fc9c3991b190d56aac1c78
-Source-Hash: blake3:bcc197f0dde443cc11b753bd6bb5d9992793f20ef5b75fe76a8a69c6e29e2384
+Content-Hash: blake3:595bd7f8580d20a833ba4b277dc90e723c25526fd63223d41d5f669347c9f457
+Source-Hash: blake3:0feb5ede68bb43341aa002c05d3a21d5cf01d190e7a98ade5d857a0a2cf0a903
 Schema-Version: v1
 -->
 
@@ -354,7 +354,7 @@ drift = "off"           # skip schema drift checking
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.20.2
+    rev: v0.20.3
     hooks:
       - id: scythe-fmt       # Format SQL files
       - id: scythe-lint      # Lint SQL with auto-fix

@@ -1,6 +1,6 @@
 [package]
 name = "scythe-backend"
-version = "0.20.2"
+version = "0.20.3"
 edition = "2024"
 license = "MIT"
 license-file = "../../LICENSE"
