@@ -5,19 +5,19 @@
       "triple": "x86_64-unknown-linux-gnu",
       "binary": "scythe",
       "baseline_bytes": 32268576,
-      "observed_bundled_bytes": 71887992,
-      "max_bytes": 78615936,
-      "measured": false,
-      "provenance": "carried over from the 1.10506.1 observation; re-record with task release:canary on the manylinux_2_28_x86_64 runner"
+      "observed_bundled_bytes": 90756472,
+      "max_bytes": 98926592,
+      "measured": true,
+      "provenance": "recorded by the v0.20.2 publish run on the manylinux_2_28_x86_64 runner (commit 8926cb61)"
     },
     {
       "triple": "aarch64-unknown-linux-gnu",
       "binary": "scythe",
       "baseline_bytes": 28409384,
-      "observed_bundled_bytes": 65240208,
-      "max_bytes": 71188096,
-      "measured": false,
-      "provenance": "carried over from the 1.10506.1 observation; re-record with task release:canary on the manylinux_2_28_aarch64 runner"
+      "observed_bundled_bytes": 78929912,
+      "max_bytes": 86036480,
+      "measured": true,
+      "provenance": "recorded by the v0.20.2 publish run on the manylinux_2_28_aarch64 runner (commit 8926cb61)"
     },
     {
       "triple": "x86_64-apple-darwin",
@@ -41,10 +41,10 @@
       "triple": "x86_64-pc-windows-msvc",
       "binary": "scythe.exe",
       "baseline_bytes": 37347840,
-      "observed_bundled_bytes": 77229568,
-      "max_bytes": 84576768,
-      "measured": false,
-      "provenance": "carried over from the previous windows-gnu target; re-record from the first MSVC canary observation"
+      "observed_bundled_bytes": 88047616,
+      "max_bytes": 95973376,
+      "measured": true,
+      "provenance": "recorded natively by the v0.20.2 publish run on windows-latest/msvc (commit 8926cb61)"
     }
   ]
 }
