@@ -951,14 +951,10 @@ jobs:
       - name: Publish to npm
         working-directory: release/npm
         # This repository has no NPM_TOKEN, so publishing goes through npm's OIDC
-        # trusted publishing.
-        #
-        # NODE_AUTH_TOKEN must be empty AND unset: `setup-node` with a
-        # `registry-url` writes an .npmrc containing
-        # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`, and with no such
-        # variable in the environment npm sends the literal unexpanded string as a
-        # token rather than falling through to OIDC. uncomment, ai-rulez and
-        # basemind all clear it the same way.
+        # trusted publishing: pnpm exchanges the job's id-token for a short-lived
+        # publish token. No step writes an .npmrc. NODE_AUTH_TOKEN is still cleared
+        # and unset so a token set on the runner or the job cannot take precedence
+        # over OIDC.
         env:
           NODE_AUTH_TOKEN: ""
         run: |
