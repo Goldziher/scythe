@@ -75,6 +75,10 @@ if [ -n "$files" ]; then
     sed -i '' -E 's/(scythe:provenance v=)[0-9]+\.[0-9]+\.[0-9]+/\1'"$version"'/g' "$f"
   done
 fi
+# ~keep The rev: pin rewrite above edits plugin/.ai-rulez/skills, which the plugin
+# ~keep root's ai-rulez.lock pins; relock it before regenerating or validation
+# ~keep fails with AR752/AR981.
+npx -y ai-rulez@latest -C plugin lock
 mise run plugin:generate
 mise run version:check
 # `cargo check --workspace` is not subsumed by the regeneration step
