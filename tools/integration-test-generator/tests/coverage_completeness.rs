@@ -274,25 +274,21 @@ fn every_backend_manifest_has_an_integration_project() {
 }
 
 /// #135: every integration project is runnable locally, i.e. has a
-/// `test:<project>` target in `integration_tests/Taskfile.yaml`. A project only
+/// `test:<project>` task in `integration_tests/mise.toml`. A project only
 /// reachable by hand-assembling a command out of the CI workflow is a project
 /// nobody debugs.
 #[test]
-fn every_integration_project_has_a_taskfile_target() {
-    let taskfile = repo_root().join("integration_tests/Taskfile.yaml");
-    let contents = read_to_string(&taskfile);
+fn every_integration_project_has_a_mise_task() {
+    let config = repo_root().join("integration_tests/mise.toml");
+    let contents = read_to_string(&config);
 
     let gaps: BTreeMap<String, String> = integration_projects()
         .into_iter()
-        .filter(|(project, _)| !contents.contains(&format!("\n  test:{project}:")))
-        .map(|(project, _)| (project, format!("no 'test:*' target in {}", taskfile.display())))
+        .filter(|(project, _)| !contents.contains(&format!("\n[tasks.\"test:{project}\"]\n")))
+        .map(|(project, _)| (project, format!("no 'test:*' task in {}", config.display())))
         .collect();
 
-    assert_ratchet(
-        &gaps,
-        &load_exemptions(&exemptions_path(), "taskfile-targets"),
-        "taskfile-targets",
-    );
+    assert_ratchet(&gaps, &load_exemptions(&exemptions_path(), "mise-tasks"), "mise-tasks");
 }
 
 /// #118/#134: every integration project is actually executed by a job in the

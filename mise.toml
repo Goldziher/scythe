@@ -18,3 +18,166 @@ ruby = "3.4.12"
 "github:Goldziher/poly" = "0.31.2"
 cargo-deny = "0.20.2"
 actionlint = "1.7.12"
+
+[env]
+DOCS_DIR = "website"
+
+[task_config]
+includes = ["mise-tasks", "mise-tasks/shared.toml"]
+
+[tasks.setup]
+description = "Install all dependencies and initialize project. Idempotent."
+run = ["mise install", "cargo fetch", { task = "governance:hooks" }, "echo 'Setup complete'"]
+
+[tasks.build]
+description = "Build release binary"
+run = "cargo build --workspace --release"
+
+[tasks."release:canary:config"]
+description = "Validate release targets and bundled-DuckDB binary-size limits"
+run = [
+  "python3 -m unittest scripts/test_release_canary.py scripts/test_cargo_release.py",
+  "python3 scripts/test_package_release.py",
+  "python3 scripts/release-canary.py validate",
+]
+
+[tasks."release:canary:matrix"]
+description = "Print the release target matrix as JSON"
+quiet = true
+run = "python3 scripts/release-canary.py matrix"
+
+[tasks."pg:parsers"]
+description = "Build the pinned PostgreSQL parser helpers for the host"
+run = "sh crates/scythe-cli/src/commands/audit/build_pg_parser_helpers.sh target/pg-parser-helpers"
+
+[tasks."cluster-scope:test"]
+description = "Run the cluster-scope gate acceptance controls against the host helpers"
+run = [
+  { task = "pg:parsers" },
+  "cargo build -p scythe-cli",
+  "sh scripts/test-cluster-scope-gate.sh target/debug/scythe target/pg-parser-helpers 18",
+]
+
+[tasks.test]
+description = "Run all tests"
+run = "cargo test --workspace"
+
+[tasks."test:verbose"]
+description = "Run tests with verbose output"
+run = "cargo test --workspace -- --nocapture"
+
+[tasks.bench]
+description = "Run criterion benchmarks"
+run = "cargo bench --workspace"
+
+[tasks.check]
+description = "Run all checks (lint + test)"
+run = [{ task = "lint" }, { task = "test" }]
+
+[tasks."generated:check-syntax"]
+description = "Compile/type-check every committed generated file under integration_tests/ (harnesses + query code)"
+run = "./scripts/check-generated-syntax.sh"
+
+[tasks."generated:check-syntax:harness"]
+description = "Syntax-check only the hand-written harnesses under integration_tests/ (subset of generated:check-syntax)"
+run = "./scripts/check-generated-syntax.sh --harness-only"
+
+[tasks."generated:check-torture"]
+description = "Regenerate every postgresql-engine backend against sql/torture/schema.sql and real-build-check it (issue #146)"
+run = ["cargo build --release -p scythe-cli", "python3 scripts/check-generated-backends.py"]
+
+[tasks."snippets:build"]
+description = "Build the snippet-runner tool"
+run = "cargo build -p snippet-runner --release"
+
+[tasks."snippets:list"]
+description = "List all documentation snippets"
+depends = ["snippets:build"]
+run = "./target/release/snippet-runner list -s website/src/content/docs README.md"
+
+[tasks."snippets:validate"]
+description = "Validate documentation snippets (syntax level)"
+depends = ["snippets:build"]
+run = "./target/release/snippet-runner validate -s website/src/content/docs README.md -L syntax"
+
+[tasks."snippets:validate:compile"]
+description = "Validate documentation snippets (compile level)"
+depends = ["snippets:build"]
+run = "./target/release/snippet-runner validate -s website/src/content/docs README.md -L compile"
+
+[tasks."snippets:validate:lang"]
+description = "Validate specific language snippets"
+depends = ["snippets:build"]
+usage = '''
+arg "<languages>" help="Comma-separated snippet languages to validate"
+flag "--level <level>" default="syntax" help="Validation level: syntax or compile"
+'''
+run = './target/release/snippet-runner validate -s website/src/content/docs README.md -L "{{usage.level}}" -l "{{usage.languages}}"'
+
+[tasks.clean]
+description = "Clean build artifacts"
+run = "cargo clean"
+
+[tasks.update]
+description = "Update dependencies (workspace + dev tooling + integration tests)"
+run = [
+  "cargo upgrade --incompatible",
+  "cargo update",
+  "uv lock --upgrade",
+  { task = "update:integration" },
+  # cargo rewrites Cargo.toml with its own 4-space indent, which poly then rejects. Reformat here so a
+  # dependency bump cannot leave CI red. ~keep
+  "poly fmt --fix .",
+]
+
+[tasks."update:integration"]
+description = "Update lock files in all integration test projects"
+run = [
+  'for f in integration_tests/*/Cargo.lock; do (cd "${f%/*}" && cargo update); done',
+  'for f in integration_tests/*/uv.lock; do (cd "${f%/*}" && uv lock --upgrade); done',
+  'for f in integration_tests/*/pnpm-lock.yaml; do (cd "${f%/*}" && pnpm update --lockfile-only); done',
+  'for f in integration_tests/*/go.sum; do (cd "${f%/*}" && go get -u ./... && go mod tidy); done',
+  'for f in integration_tests/*/Gemfile.lock; do (cd "${f%/*}" && bundle lock --update); done',
+  'for f in integration_tests/*/mix.lock; do (cd "${f%/*}" && mix deps.update --all); done',
+  'for f in integration_tests/*/composer.lock; do (cd "${f%/*}" && composer update --no-install); done',
+]
+
+[tasks."plugin:generate"]
+description = "Generate all eleven native coding-agent runtimes and public skills"
+run = [
+  "python3 scripts/sync_plugin_version.py",
+  "npx -y ai-rulez@latest generate --plugin --no-local --strict-config",
+  "python3 scripts/sync_public_skills.py",
+]
+
+[tasks."plugin:verify"]
+description = "Verify plugin provenance, runtime contracts and public skills"
+run = [
+  "python3 scripts/sync_plugin_version.py --check",
+  "npx -y ai-rulez@latest verify --plugin",
+  "python3 scripts/sync_public_skills.py --check",
+  "python3 scripts/tests/test_public_skills.py",
+  "node --test scripts/tests/plugin-skills.test.mjs",
+]
+
+[tasks."governance:hooks"]
+description = "Provision pinned native governance hooks without replacing local preferences"
+run = [
+  """python3 -c 'from pathlib import Path; p = Path("poly.local.toml"); \
+p.exists() or p.write_text("[hook_preferences]\\nchannels = [\\"system\\"]\\n")'""",
+  "poly hooks update",
+  "poly hooks install",
+]
+
+[tasks."governance:generate"]
+description = "Generate native AI governance outputs"
+run = "npx -y ai-rulez@latest generate --no-local --strict-config"
+
+[tasks."governance:check"]
+description = "Validate native AI governance and freshness"
+run = [
+  "npx -y ai-rulez@latest migrate okf --check",
+  "npx -y ai-rulez@latest validate --strict --no-local",
+  "npx -y ai-rulez@latest lock --check",
+  "npx -y ai-rulez@latest generate --check --no-local --strict-config",
+]

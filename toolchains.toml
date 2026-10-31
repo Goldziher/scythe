@@ -1,4 +1,5 @@
 baseline = "v1.12.3"
+task_sets = ["docs-site", "lint-format"]
 
 [overrides.pnpm]
 version = "12.11.2"

@@ -1,0 +1,1079 @@
+# Integration-test tasks. Run them from this directory (`cd integration_tests && mise run <task>`, or
+# `mise -C integration_tests run <task>` from the repository root): the [env] below points every harness at
+# the docker-compose services and applies only under integration_tests/. Tools come from the root mise.toml.
+
+[env]
+DATABASE_URL = "postgres://scythe:scythe@localhost:5433/scythe_test"
+MYSQL_URL = "mysql://scythe:scythe@127.0.0.1:3307/scythe_test"
+MARIADB_URL = "mysql://scythe:scythe@127.0.0.1:3308/scythe_test"
+ORACLE_URL = "oracle://scythe:scythe@localhost:1521/XEPDB1"
+SQLITE_PATH = "/tmp/scythe_test.db"
+DATABASE_PATH = "/tmp/scythe_test.db"
+# DuckDB is embedded like SQLite, but every harness opens its own in-memory (":memory:") connection instead
+# of a shared file -- the schema's unconditional CREATE SEQUENCE statements would fail on a second run
+# against the same on-disk file. This var exists for parity with the other embedded engines and so a harness
+# can still be pointed at a real file for local debugging.
+DUCKDB_PATH = ":memory:"
+MSSQL_URL = "sqlserver://sa:Scythe_Test1@localhost:1433?database=master"
+# Points at the `redshift-pg-compat` compose service, i.e. PostgreSQL with a substituted schema -- not
+# Redshift. See docker-compose.yml.
+REDSHIFT_URL = "postgres://scythe:scythe@localhost:5434/scythe_redshift_test"
+# Points at the fakesnow emulator started by `mise run snowflake:emulator:up`, i.e. DuckDB behind a
+# Snowflake REST facade -- not Snowflake.
+SNOWFLAKE_URL = "snowflake://fake:snow@127.0.0.1:64616/testdb/public?account=fakesnow&protocol=http"
+
+[vars]
+# gosnowflake takes a DSN, not a URL, and needs insecureMode for plain HTTP.
+snowflake_go_dsn = "fake:snow@127.0.0.1:64616/testdb/public?account=fakesnow&protocol=http&insecureMode=true"
+
+[tasks."db:up"]
+description = "Start database containers"
+run = 'docker compose up -d --wait'
+
+[tasks."db:down"]
+description = "Stop database containers"
+run = 'docker compose down -v'
+
+[tasks."db:migrate"]
+description = "Run PG schema migration"
+run = 'PGPASSWORD=scythe psql -h localhost -p 5433 -U scythe -d scythe_test -f sql/pg/schema.sql'
+
+[tasks."db:migrate:mysql"]
+description = "Run MySQL schema migration"
+run = 'mysql -h 127.0.0.1 -P 3307 -u scythe -pscythe scythe_test < sql/mysql/schema.sql'
+
+[tasks."db:migrate:mariadb"]
+description = "Run MariaDB schema migration"
+run = 'mysql -h 127.0.0.1 -P 3308 -u scythe -pscythe scythe_test < sql/mariadb/schema.sql'
+
+[tasks."db:migrate:redshift"]
+description = "Apply the PG-compat Redshift schema to the redshift-pg-compat service"
+run = 'PGPASSWORD=scythe psql -h localhost -p 5434 -U scythe -d scythe_redshift_test -f sql/redshift/schema_pg_compat.sql'
+
+[tasks."db:migrate:mssql"]
+description = "Run MSSQL schema migration"
+run = "docker compose exec -T mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Scythe_Test1 -C -b -i /dev/stdin < sql/mssql/schema.sql"
+
+[tasks."snowflake:emulator:up"]
+description = "Start the fakesnow emulator the snowflake test:* targets talk to"
+dir = "{{config_root}}/fakesnow"
+run = """
+set -e
+uv run fakesnow_server.py &
+echo $! > /tmp/scythe-fakesnow.pid
+curl --retry 30 --retry-all-errors --retry-delay 1 --silent --output /dev/null http://127.0.0.1:64616/
+"""
+
+[tasks."snowflake:emulator:down"]
+description = "Stop the fakesnow emulator"
+run = [
+  'kill "$(cat /tmp/scythe-fakesnow.pid)"',
+  'rm -f /tmp/scythe-fakesnow.pid',
+]
+
+[tasks."db:reset"]
+description = "Drop and recreate all tables"
+run = [
+  'PGPASSWORD=scythe psql -h localhost -p 5433 -U scythe -d scythe_test -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"',
+  { task = "db:migrate" },
+]
+
+[tasks."generate:scaffolding"]
+description = "Regenerate project scaffolding and test harnesses from the jinja templates"
+dir = "{{config_root}}/.."
+run = 'cargo run --quiet -p integration-test-generator'
+
+[tasks."generate:all"]
+description = "Regenerate scaffolding and then backend code"
+run = [
+  { task = "generate:scaffolding" },
+  { task = "generate" },
+]
+
+# Build the workspace scythe-cli binary in release mode. `generate` invokes the resulting binary by absolute
+# path instead of the bare `scythe` command, so regeneration always uses the working tree's compiler even if
+# an older `scythe` release is first on $PATH (see issue #85). Cargo no-ops here when the binary is already
+# up to date, so depending task-graphs pay this cost once, not once per backend.
+[tasks."build:scythe"]
+description = "Build the workspace scythe-cli binary in release mode"
+dir = "{{config_root}}/.."
+run = "cargo build --release -p scythe-cli"
+
+# The backend list comes from the generator's own `build_backends()` (via `--list`), not a hand-maintained
+# copy, so this task can never drift from what `generate:scaffolding` actually produces. See
+# tools/integration-test-generator/src/main.rs and integration_tests/README.md for the 3 directories
+# intentionally excluded because they are hand-maintained outside the generator.
+#
+# HAND_MAINTAINED own their scythe.toml by hand (they pin one-off codegen options, or in
+# rust-sqlx-nested-json's case a schema and dependency set the generator has no template for), but their
+# query code still comes from `scythe generate`, so it drifts like any other generated output and belongs in
+# this loop. Omitting one does not fail anything loudly: its committed code simply stops tracking the
+# generator, which is how rust-sqlx-nested-json came to still carry the pre-0.14.0 banner and no provenance
+# header while every other artifact had moved on.
+#
+# The binary is invoked by absolute path, from the target directory `build:scythe` built into: CARGO_TARGET_DIR
+# when set (relative to the repository root, where cargo ran), else the repository's target/.
+[tasks.generate]
+description = "Regenerate code for all backends"
+depends = ["build:scythe"]
+shell = "bash -euo pipefail -c"
+env = { HAND_MAINTAINED = "kotlin-jdbc-ext php-pdo-namespace rust-sqlx-nested-json" }
+run = """
+target_dir="${CARGO_TARGET_DIR:-target}"
+case "$target_dir" in
+/*) ;;
+*) target_dir="$(cd .. && pwd)/$target_dir" ;;
+esac
+scythe_bin="$target_dir/release/scythe"
+backends=$(cd .. && cargo run --quiet -p integration-test-generator -- --list)
+for backend in $backends $HAND_MAINTAINED; do
+  (cd "$backend" && "$scythe_bin" generate)
+done
+"""
+
+# --- PostgreSQL backends ---
+[tasks."test:rust-sqlx"]
+description = "Run rust-sqlx integration test"
+dir = "{{config_root}}/rust-sqlx"
+run = 'cargo run --quiet'
+
+[tasks."test:rust-tokio-postgres"]
+description = "Run rust-tokio-postgres integration test"
+dir = "{{config_root}}/rust-tokio-postgres"
+run = 'cargo run --quiet'
+
+[tasks."test:python-psycopg3"]
+description = "Run python-psycopg3 integration test"
+dir = "{{config_root}}/python-psycopg3"
+run = 'uv run python test_integration.py'
+
+[tasks."test:python-asyncpg"]
+description = "Run python-asyncpg integration test"
+dir = "{{config_root}}/python-asyncpg"
+run = 'uv run python test_integration.py'
+
+[tasks."test:python-psycopg3-pydantic"]
+description = "Run python-psycopg3-pydantic integration test"
+dir = "{{config_root}}/python-psycopg3-pydantic"
+run = 'uv run python test_integration.py'
+
+[tasks."test:python-psycopg3-msgspec"]
+description = "Run python-psycopg3-msgspec integration test"
+dir = "{{config_root}}/python-psycopg3-msgspec"
+run = 'uv run python test_integration.py'
+
+[tasks."test:go-pgx"]
+description = "Run go-pgx integration test"
+dir = "{{config_root}}/go-pgx"
+run = 'go run .'
+
+# Every `pnpm install` below is a bare `--frozen-lockfile`, with no
+# `2>/dev/null || pnpm install` fallback. That fallback used to sit on all 17
+# of them, and it turned the one thing `--frozen-lockfile` exists to do into
+# a no-op: the flag's entire job is to exit non-zero when pnpm-lock.yaml has
+# drifted from package.json, and `|| pnpm install` caught exactly that exit,
+# then *rewrote the lockfile* to match. So a drifted lockfile produced a
+# green run and a dirty working tree instead of a failure -- against a
+# dependency set nobody had reviewed, in a repository whose policy is that
+# every lock file is committed. Verified by adding a dependency to
+# typescript-pg/package.json without relocking: the fallback form exited 0
+# (and edited pnpm-lock.yaml), the bare form exited 1 with
+# ERR_PNPM_OUTDATED_LOCKFILE.
+#
+# If this now fails, the fix is `mise -C .. run update:integration` (or
+# `pnpm install --lockfile-only` in the offending project) and committing the
+# resulting lockfile -- not restoring the fallback.
+[tasks."test:typescript-postgres"]
+description = "Run typescript-postgres integration test"
+dir = "{{config_root}}/typescript-postgres"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:typescript-pg"]
+description = "Run typescript-pg integration test"
+dir = "{{config_root}}/typescript-pg"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:typescript-pg-camel"]
+description = "Run typescript-pg-camel integration test"
+dir = "{{config_root}}/typescript-pg-camel"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:typescript-pg-zod"]
+description = "Run typescript-pg-zod integration test"
+dir = "{{config_root}}/typescript-pg-zod"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:typescript-pg-outer-join-unions"]
+description = "Run typescript-pg-outer-join-unions integration test"
+dir = "{{config_root}}/typescript-pg-outer-join-unions"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:typescript-pg-zod-outer-join-unions"]
+description = "Run typescript-pg-zod-outer-join-unions integration test"
+dir = "{{config_root}}/typescript-pg-zod-outer-join-unions"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:typescript-pg-structs-only"]
+description = "Type-check typescript-pg-structs-only and assert its structural shape (no driver import, no query functions)"
+dir = "{{config_root}}/typescript-pg-structs-only"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+  { task = "structs-only-check" },
+]
+
+[tasks."structs-only-check"]
+description = "Assert the structs_only output has no driver import or query functions and keeps its types"
+hide = true
+dir = "{{config_root}}/typescript-pg-structs-only"
+run = """
+set -e
+if grep -q 'from "pg"' generated/queries.ts; then
+  echo "FAIL: structs_only output must not import the pg driver" >&2
+  exit 1
+fi
+if grep -qE '^export async function ' generated/queries.ts; then
+  echo "FAIL: structs_only output must not emit query functions" >&2
+  exit 1
+fi
+for symbol in "export interface GetUserByIdRow" "export const UserStatusValues"; do
+  if ! grep -qF "$symbol" generated/queries.ts; then
+    echo "FAIL: structs_only output must still emit '$symbol'" >&2
+    exit 1
+  fi
+done
+echo "PASS: structs_only output has no driver import, no query functions, and keeps type declarations"
+"""
+
+[tasks."test:typescript-kysely"]
+description = "Run typescript-kysely integration test"
+dir = "{{config_root}}/typescript-kysely"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:typescript-kysely-camel"]
+description = "Run typescript-kysely-camel integration test"
+dir = "{{config_root}}/typescript-kysely-camel"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:java-jdbc"]
+description = "Run java-jdbc integration test"
+dir = "{{config_root}}/java-jdbc"
+run = 'mvn -q compile exec:java'
+
+[tasks."test:kotlin-jdbc"]
+description = "Run kotlin-jdbc integration test"
+dir = "{{config_root}}/kotlin-jdbc"
+run = 'gradle run --quiet'
+
+[tasks."test:java-r2dbc"]
+description = "Run java-r2dbc integration test"
+dir = "{{config_root}}/java-r2dbc"
+run = 'mvn -q compile exec:java'
+
+[tasks."test:kotlin-r2dbc"]
+description = "Run kotlin-r2dbc integration test"
+dir = "{{config_root}}/kotlin-r2dbc"
+run = 'gradle run --quiet'
+
+[tasks."test:kotlin-exposed"]
+description = "Run kotlin-exposed integration test"
+dir = "{{config_root}}/kotlin-exposed"
+run = 'gradle run --quiet'
+
+[tasks."test:csharp-npgsql"]
+description = "Run csharp-npgsql integration test"
+dir = "{{config_root}}/csharp-npgsql"
+run = 'dotnet run'
+
+[tasks."test:elixir-postgrex"]
+description = "Run elixir-postgrex integration test"
+dir = "{{config_root}}/elixir-postgrex"
+run = [
+  'mix deps.get --quiet',
+  'mix run test/integration_test.exs',
+]
+
+[tasks."test:elixir-ecto"]
+description = "Run elixir-ecto integration test"
+dir = "{{config_root}}/elixir-ecto"
+run = [
+  'mix deps.get --quiet',
+  'mix run test/integration_test.exs',
+]
+
+[tasks."test:ruby-pg"]
+description = "Run ruby-pg integration test"
+dir = "{{config_root}}/ruby-pg"
+run = [
+  'bundle install --quiet',
+  'bundle exec ruby test_integration.rb',
+]
+
+[tasks."test:php-pdo"]
+description = "Run php-pdo integration test"
+dir = "{{config_root}}/php-pdo"
+run = 'php test_integration.php'
+
+[tasks."test:php-amphp"]
+description = "Run php-amphp integration test"
+dir = "{{config_root}}/php-amphp"
+run = [
+  'composer install --quiet',
+  'php test_integration.php',
+]
+
+[tasks."test:rust-sqlx-nested-json"]
+description = "Run rust-sqlx-nested-json integration test"
+dir = "{{config_root}}/rust-sqlx-nested-json"
+run = 'cargo run --quiet'
+
+[tasks."test:kotlin-jdbc-ext"]
+description = "Run kotlin-jdbc-ext integration test (kotlin-jdbc with extension_functions)"
+dir = "{{config_root}}/kotlin-jdbc-ext"
+run = 'gradle run --quiet'
+
+# php-pdo-namespace generates into a PHP namespace and ships no harness --
+# its whole point is the shape of the emitted file, so a lint of that file is
+# the complete test rather than a stand-in for a missing one.
+[tasks."test:php-pdo-namespace"]
+description = "Lint the namespaced php-pdo output and assert the namespace declaration"
+dir = "{{config_root}}/php-pdo-namespace"
+run = [
+  'php -l generated/queries.php',
+  "grep -qF 'namespace App\\Database\\Generated;' generated/queries.php",
+]
+
+# --- MySQL backends ---
+[tasks."test:rust-sqlx-mysql"]
+description = "Run rust-sqlx-mysql integration test"
+dir = "{{config_root}}/rust-sqlx-mysql"
+env = { DATABASE_URL = "{{env.MYSQL_URL}}" }
+run = 'cargo run --quiet'
+
+[tasks."test:go-database-sql-mysql"]
+description = "Run go-database-sql-mysql integration test"
+dir = "{{config_root}}/go-database-sql-mysql"
+run = 'go run .'
+
+[tasks."test:python-aiomysql"]
+description = "Run python-aiomysql integration test"
+dir = "{{config_root}}/python-aiomysql"
+run = 'uv run python test_integration.py'
+
+[tasks."test:typescript-mysql2"]
+description = "Run typescript-mysql2 integration test"
+dir = "{{config_root}}/typescript-mysql2"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:typescript-kysely-mysql2"]
+description = "Run typescript-kysely-mysql2 integration test"
+dir = "{{config_root}}/typescript-kysely-mysql2"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:java-jdbc-mysql"]
+description = "Run java-jdbc-mysql integration test"
+dir = "{{config_root}}/java-jdbc-mysql"
+run = 'mvn -q compile exec:java'
+
+[tasks."test:kotlin-jdbc-mysql"]
+description = "Run kotlin-jdbc-mysql integration test"
+dir = "{{config_root}}/kotlin-jdbc-mysql"
+run = 'gradle run --quiet'
+
+[tasks."test:csharp-mysqlconnector"]
+description = "Run csharp-mysqlconnector integration test"
+dir = "{{config_root}}/csharp-mysqlconnector"
+run = 'dotnet run'
+
+[tasks."test:elixir-myxql"]
+description = "Run elixir-myxql integration test"
+dir = "{{config_root}}/elixir-myxql"
+run = [
+  'mix deps.get --quiet',
+  'mix run test/integration_test.exs',
+]
+
+[tasks."test:ruby-mysql2"]
+description = "Run ruby-mysql2 integration test"
+dir = "{{config_root}}/ruby-mysql2"
+run = [
+  'bundle install --quiet',
+  'bundle exec ruby test_integration.rb',
+]
+
+[tasks."test:ruby-trilogy"]
+description = "Run ruby-trilogy integration test"
+dir = "{{config_root}}/ruby-trilogy"
+run = [
+  'bundle install --quiet',
+  'bundle exec ruby test_integration.rb',
+]
+
+[tasks."test:php-pdo-mysql"]
+description = "Run php-pdo-mysql integration test"
+dir = "{{config_root}}/php-pdo-mysql"
+run = 'php test_integration.php'
+
+[tasks."test:php-amphp-mysql"]
+description = "Run php-amphp-mysql integration test"
+dir = "{{config_root}}/php-amphp-mysql"
+run = [
+  'composer install --quiet',
+  'php test_integration.php',
+]
+
+# --- MariaDB backends ---
+[tasks."test:rust-sqlx-mariadb"]
+description = "Run rust-sqlx-mariadb integration test"
+dir = "{{config_root}}/rust-sqlx-mariadb"
+env = { DATABASE_URL = "{{env.MARIADB_URL}}" }
+run = 'cargo run --quiet'
+
+[tasks."test:go-database-sql-mariadb"]
+description = "Run go-database-sql-mariadb integration test"
+dir = "{{config_root}}/go-database-sql-mariadb"
+run = 'go run .'
+
+[tasks."test:python-aiomysql-mariadb"]
+description = "Run python-aiomysql-mariadb integration test"
+dir = "{{config_root}}/python-aiomysql-mariadb"
+run = 'uv run python test_integration.py'
+
+[tasks."test:typescript-mysql2-mariadb"]
+description = "Run typescript-mysql2-mariadb integration test"
+dir = "{{config_root}}/typescript-mysql2-mariadb"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:typescript-kysely-mariadb"]
+description = "Run typescript-kysely-mariadb integration test"
+dir = "{{config_root}}/typescript-kysely-mariadb"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:java-jdbc-mariadb"]
+description = "Run java-jdbc-mariadb integration test"
+dir = "{{config_root}}/java-jdbc-mariadb"
+run = 'mvn -q compile exec:java'
+
+[tasks."test:kotlin-jdbc-mariadb"]
+description = "Run kotlin-jdbc-mariadb integration test"
+dir = "{{config_root}}/kotlin-jdbc-mariadb"
+run = 'gradle run --quiet'
+
+[tasks."test:csharp-mysqlconnector-mariadb"]
+description = "Run csharp-mysqlconnector-mariadb integration test"
+dir = "{{config_root}}/csharp-mysqlconnector-mariadb"
+run = 'dotnet run'
+
+[tasks."test:elixir-myxql-mariadb"]
+description = "Run elixir-myxql-mariadb integration test"
+dir = "{{config_root}}/elixir-myxql-mariadb"
+run = [
+  'mix deps.get --quiet',
+  'mix run test/integration_test.exs',
+]
+
+[tasks."test:ruby-mysql2-mariadb"]
+description = "Run ruby-mysql2-mariadb integration test"
+dir = "{{config_root}}/ruby-mysql2-mariadb"
+run = [
+  'bundle install --quiet',
+  'bundle exec ruby test_integration.rb',
+]
+
+[tasks."test:ruby-trilogy-mariadb"]
+description = "Run ruby-trilogy-mariadb integration test"
+dir = "{{config_root}}/ruby-trilogy-mariadb"
+run = [
+  'bundle install --quiet',
+  'bundle exec ruby test_integration.rb',
+]
+
+[tasks."test:php-pdo-mariadb"]
+description = "Run php-pdo-mariadb integration test"
+dir = "{{config_root}}/php-pdo-mariadb"
+run = 'php test_integration.php'
+
+# --- Oracle backends ---
+[tasks."test:python-oracledb-oracle"]
+description = "Run python-oracledb-oracle integration test"
+dir = "{{config_root}}/python-oracledb-oracle"
+run = 'uv run python test_integration.py'
+
+[tasks."test:typescript-oracledb-oracle"]
+description = "Run typescript-oracledb-oracle integration test"
+dir = "{{config_root}}/typescript-oracledb-oracle"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:go-godror-oracle"]
+description = "Run go-godror-oracle integration test"
+dir = "{{config_root}}/go-godror-oracle"
+run = 'go run .'
+
+[tasks."test:java-jdbc-oracle"]
+description = "Run java-jdbc-oracle integration test"
+dir = "{{config_root}}/java-jdbc-oracle"
+run = 'mvn -q compile exec:java'
+
+[tasks."test:kotlin-jdbc-oracle"]
+description = "Run kotlin-jdbc-oracle integration test"
+dir = "{{config_root}}/kotlin-jdbc-oracle"
+run = 'gradle run --quiet'
+
+[tasks."test:csharp-oracle"]
+description = "Run csharp-oracle integration test"
+dir = "{{config_root}}/csharp-oracle"
+run = 'dotnet run'
+
+[tasks."test:elixir-jamdb-oracle"]
+description = "Run elixir-jamdb-oracle integration test"
+dir = "{{config_root}}/elixir-jamdb-oracle"
+run = [
+  'mix deps.get --quiet',
+  'mix run test/integration_test.exs',
+]
+
+[tasks."test:ruby-oci8-oracle"]
+description = "Run ruby-oci8-oracle integration test"
+dir = "{{config_root}}/ruby-oci8-oracle"
+run = [
+  'bundle install --quiet',
+  'bundle exec ruby test_integration.rb',
+]
+
+[tasks."test:rust-sibyl-oracle"]
+description = "Run rust-sibyl-oracle integration test"
+dir = "{{config_root}}/rust-sibyl-oracle"
+run = 'cargo run --quiet'
+
+# --- SQLite backends ---
+[tasks."test:rust-sqlx-sqlite"]
+description = "Run rust-sqlx-sqlite integration test"
+dir = "{{config_root}}/rust-sqlx-sqlite"
+env = { DATABASE_URL = "sqlite://{{env.SQLITE_PATH}}" }
+run = 'cargo run --quiet'
+
+[tasks."test:go-database-sql-sqlite"]
+description = "Run go-database-sql-sqlite integration test"
+dir = "{{config_root}}/go-database-sql-sqlite"
+run = 'go run .'
+
+[tasks."test:python-aiosqlite"]
+description = "Run python-aiosqlite integration test"
+dir = "{{config_root}}/python-aiosqlite"
+run = 'uv run python test_integration.py'
+
+[tasks."test:typescript-better-sqlite3"]
+description = "Run typescript-better-sqlite3 integration test"
+dir = "{{config_root}}/typescript-better-sqlite3"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:typescript-kysely-sqlite"]
+description = "Run typescript-kysely-sqlite integration test"
+dir = "{{config_root}}/typescript-kysely-sqlite"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:typescript-node-sqlite"]
+description = "Run typescript-node-sqlite integration test"
+dir = "{{config_root}}/typescript-node-sqlite"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:typescript-wasm-sqlite"]
+description = "Run typescript-wasm-sqlite integration test"
+dir = "{{config_root}}/typescript-wasm-sqlite"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:java-jdbc-sqlite"]
+description = "Run java-jdbc-sqlite integration test"
+dir = "{{config_root}}/java-jdbc-sqlite"
+run = 'mvn -q compile exec:java'
+
+[tasks."test:kotlin-jdbc-sqlite"]
+description = "Run kotlin-jdbc-sqlite integration test"
+dir = "{{config_root}}/kotlin-jdbc-sqlite"
+run = 'gradle run --quiet'
+
+[tasks."test:csharp-microsoft-sqlite"]
+description = "Run csharp-microsoft-sqlite integration test"
+dir = "{{config_root}}/csharp-microsoft-sqlite"
+run = 'dotnet run'
+
+[tasks."test:elixir-exqlite"]
+description = "Run elixir-exqlite integration test"
+dir = "{{config_root}}/elixir-exqlite"
+run = [
+  'mix deps.get --quiet',
+  'mix run test/integration_test.exs',
+]
+
+[tasks."test:ruby-sqlite3"]
+description = "Run ruby-sqlite3 integration test"
+dir = "{{config_root}}/ruby-sqlite3"
+run = [
+  'bundle install --quiet',
+  'bundle exec ruby test_integration.rb',
+]
+
+# --- MSSQL backends ---
+[tasks."test:elixir-tds-mssql"]
+description = "Run elixir-tds-mssql integration test"
+dir = "{{config_root}}/elixir-tds-mssql"
+run = [
+  'mix deps.get --quiet',
+  'mix run test/integration_test.exs',
+]
+
+[tasks."test:typescript-kysely-mssql"]
+description = "Run typescript-kysely-mssql integration test"
+dir = "{{config_root}}/typescript-kysely-mssql"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:go-database-sql-duckdb"]
+description = "Run go-database-sql-duckdb integration test"
+dir = "{{config_root}}/go-database-sql-duckdb"
+run = 'go run .'
+
+[tasks."test:python-duckdb"]
+description = "Run python-duckdb integration test"
+dir = "{{config_root}}/python-duckdb"
+run = 'uv run python test_integration.py'
+
+[tasks."test:typescript-duckdb"]
+description = "Run typescript-duckdb integration test"
+dir = "{{config_root}}/typescript-duckdb"
+run = [
+  'pnpm install --frozen-lockfile',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:java-jdbc-duckdb"]
+description = "Run java-jdbc-duckdb integration test"
+dir = "{{config_root}}/java-jdbc-duckdb"
+run = 'mvn -q compile exec:java'
+
+[tasks."test:kotlin-jdbc-duckdb"]
+description = "Run kotlin-jdbc-duckdb integration test"
+dir = "{{config_root}}/kotlin-jdbc-duckdb"
+run = 'gradle run --quiet'
+
+[tasks."test:php-pdo-sqlite"]
+description = "Run php-pdo-sqlite integration test"
+dir = "{{config_root}}/php-pdo-sqlite"
+run = 'php test_integration.php'
+
+[tasks."test:rust-tiberius-mssql"]
+description = "Run rust-tiberius-mssql integration test"
+dir = "{{config_root}}/rust-tiberius-mssql"
+run = 'cargo run --quiet'
+
+[tasks."test:go-database-sql-mssql"]
+description = "Run go-database-sql-mssql integration test"
+dir = "{{config_root}}/go-database-sql-mssql"
+run = [
+  'go mod tidy',
+  'go run .',
+]
+
+[tasks."test:python-pyodbc-mssql"]
+description = "Run python-pyodbc-mssql integration test"
+dir = "{{config_root}}/python-pyodbc-mssql"
+run = 'uv run python test_integration.py'
+
+[tasks."test:typescript-mssql"]
+description = "Run typescript-mssql integration test"
+dir = "{{config_root}}/typescript-mssql"
+run = [
+  'pnpm install --frozen-lockfile 2>/dev/null || pnpm install',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:java-jdbc-mssql"]
+description = "Run java-jdbc-mssql integration test"
+dir = "{{config_root}}/java-jdbc-mssql"
+run = 'mvn -q compile exec:java'
+
+[tasks."test:kotlin-jdbc-mssql"]
+description = "Run kotlin-jdbc-mssql integration test"
+dir = "{{config_root}}/kotlin-jdbc-mssql"
+run = 'gradle run --quiet'
+
+[tasks."test:csharp-sqlclient-mssql"]
+description = "Run csharp-sqlclient-mssql integration test"
+dir = "{{config_root}}/csharp-sqlclient-mssql"
+run = 'dotnet run'
+
+[tasks."test:ruby-tiny-tds-mssql"]
+description = "Run ruby-tiny-tds-mssql integration test"
+dir = "{{config_root}}/ruby-tiny-tds-mssql"
+run = [
+  'bundle install --quiet',
+  'bundle exec ruby test_integration.rb',
+]
+
+[tasks."test:php-pdo-mssql"]
+description = "Run php-pdo-mssql integration test"
+dir = "{{config_root}}/php-pdo-mssql"
+run = 'php test_integration.php'
+
+# --- Redshift backends ---
+#
+# These run against the `redshift-pg-compat` compose service -- stock
+# PostgreSQL with sql/redshift/schema_pg_compat.sql, in which IDENTITY was
+# substituted for SERIAL and GETDATE() for NOW(). They are not Redshift and
+# cannot show the divergences listed in README.md; run
+# `mise run db:migrate:redshift` first.
+[tasks."test:rust-sqlx-redshift"]
+description = "Run rust-sqlx-redshift integration test (PG-compat substitute)"
+dir = "{{config_root}}/rust-sqlx-redshift"
+run = 'cargo run --quiet'
+
+[tasks."test:rust-tokio-postgres-redshift"]
+description = "Run rust-tokio-postgres-redshift integration test (PG-compat substitute)"
+dir = "{{config_root}}/rust-tokio-postgres-redshift"
+run = 'cargo run --quiet'
+
+[tasks."test:python-psycopg3-redshift"]
+description = "Run python-psycopg3-redshift integration test (PG-compat substitute)"
+dir = "{{config_root}}/python-psycopg3-redshift"
+run = 'uv run python test_integration.py'
+
+[tasks."test:python-asyncpg-redshift"]
+description = "Run python-asyncpg-redshift integration test (PG-compat substitute)"
+dir = "{{config_root}}/python-asyncpg-redshift"
+run = 'uv run python test_integration.py'
+
+[tasks."test:go-pgx-redshift"]
+description = "Run go-pgx-redshift integration test (PG-compat substitute)"
+dir = "{{config_root}}/go-pgx-redshift"
+run = [
+  'go mod tidy',
+  'go run .',
+]
+
+[tasks."test:typescript-pg-redshift"]
+description = "Run typescript-pg-redshift integration test (PG-compat substitute)"
+dir = "{{config_root}}/typescript-pg-redshift"
+run = [
+  'pnpm install --frozen-lockfile 2>/dev/null || pnpm install',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:typescript-postgres-redshift"]
+description = "Run typescript-postgres-redshift integration test (PG-compat substitute)"
+dir = "{{config_root}}/typescript-postgres-redshift"
+run = [
+  'pnpm install --frozen-lockfile 2>/dev/null || pnpm install',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:typescript-kysely-redshift"]
+description = "Run typescript-kysely-redshift integration test (PG-compat substitute)"
+dir = "{{config_root}}/typescript-kysely-redshift"
+run = [
+  'pnpm install --frozen-lockfile 2>/dev/null || pnpm install',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:java-jdbc-redshift"]
+description = "Run java-jdbc-redshift integration test (PG-compat substitute)"
+dir = "{{config_root}}/java-jdbc-redshift"
+run = 'mvn -q compile exec:java'
+
+[tasks."test:kotlin-jdbc-redshift"]
+description = "Run kotlin-jdbc-redshift integration test (PG-compat substitute)"
+dir = "{{config_root}}/kotlin-jdbc-redshift"
+run = 'gradle run --quiet'
+
+[tasks."test:csharp-npgsql-redshift"]
+description = "Run csharp-npgsql-redshift integration test (PG-compat substitute)"
+dir = "{{config_root}}/csharp-npgsql-redshift"
+run = 'dotnet run'
+
+[tasks."test:elixir-postgrex-redshift"]
+description = "Run elixir-postgrex-redshift integration test (PG-compat substitute)"
+dir = "{{config_root}}/elixir-postgrex-redshift"
+run = [
+  'mix deps.get --quiet',
+  'mix run test/integration_test.exs',
+]
+
+[tasks."test:ruby-pg-redshift"]
+description = "Run ruby-pg-redshift integration test (PG-compat substitute)"
+dir = "{{config_root}}/ruby-pg-redshift"
+run = [
+  'bundle install --quiet',
+  'bundle exec ruby test_integration.rb',
+]
+
+[tasks."test:php-pdo-redshift"]
+description = "Run php-pdo-redshift integration test (PG-compat substitute)"
+dir = "{{config_root}}/php-pdo-redshift"
+run = 'php test_integration.php'
+
+[tasks."test:python-snowflake"]
+description = "Run python-snowflake integration test (fakesnow emulator, connector 4.x client)"
+dir = "{{config_root}}/python-snowflake"
+env = { SNOWFLAKE_USE_FAKESNOW = "1" }
+
+# ~keep fakesnow 0.12.1 imports snowflake.connector.converter, which the 5.x
+# ~keep connector removed, and upstream has no 5.x-compatible release yet.
+# ~keep The harness lock is on 5.x so generated type checking covers it; the
+# ~keep emulator run pins the client to the 4.x line it can actually drive.
+run = 'uv run --with "snowflake-connector-python<5" python test_integration.py'
+
+[tasks."test:typescript-snowflake"]
+description = "Run typescript-snowflake integration test (fakesnow emulator)"
+dir = "{{config_root}}/typescript-snowflake"
+run = [
+  'pnpm install --frozen-lockfile 2>/dev/null || pnpm install',
+  'pnpm exec tsc --noEmit',
+  'pnpm exec tsx test.ts',
+]
+
+[tasks."test:go-gosnowflake"]
+description = "Run go-gosnowflake integration test (fakesnow emulator)"
+dir = "{{config_root}}/go-gosnowflake"
+env = { SNOWFLAKE_URL = "{{vars.snowflake_go_dsn}}" }
+run = [
+  'go mod tidy',
+  'go run .',
+]
+
+[tasks."test:java-jdbc-snowflake"]
+description = "Run java-jdbc-snowflake integration test (fakesnow emulator)"
+dir = "{{config_root}}/java-jdbc-snowflake"
+run = 'mvn -q compile exec:java'
+
+[tasks."test:kotlin-jdbc-snowflake"]
+description = "Run kotlin-jdbc-snowflake integration test (fakesnow emulator)"
+dir = "{{config_root}}/kotlin-jdbc-snowflake"
+run = 'gradle run --quiet'
+
+[tasks."test:csharp-snowflake"]
+description = "Run csharp-snowflake integration test (fakesnow emulator)"
+dir = "{{config_root}}/csharp-snowflake"
+run = 'dotnet run'
+
+[tasks."test:php-pdo-snowflake"]
+description = "Run php-pdo-snowflake integration test (fakesnow emulator)"
+dir = "{{config_root}}/php-pdo-snowflake"
+run = 'php test_integration.php'
+
+[tasks.all]
+description = "Run all integration tests"
+run = [
+  { task = "db:reset" },
+  # PostgreSQL
+  { task = "test:rust-sqlx" },
+  { task = "test:rust-tokio-postgres" },
+  { task = "test:python-psycopg3" },
+  { task = "test:python-asyncpg" },
+  { task = "test:python-psycopg3-pydantic" },
+  { task = "test:python-psycopg3-msgspec" },
+  { task = "test:go-pgx" },
+  { task = "test:typescript-postgres" },
+  { task = "test:typescript-pg" },
+  { task = "test:typescript-pg-camel" },
+  { task = "test:typescript-pg-zod" },
+  { task = "test:typescript-pg-outer-join-unions" },
+  { task = "test:typescript-pg-zod-outer-join-unions" },
+  { task = "test:typescript-pg-structs-only" },
+  { task = "test:typescript-kysely" },
+  { task = "test:typescript-kysely-camel" },
+  { task = "test:java-jdbc" },
+  { task = "test:kotlin-jdbc" },
+  { task = "test:java-r2dbc" },
+  { task = "test:kotlin-r2dbc" },
+  { task = "test:kotlin-exposed" },
+  { task = "test:csharp-npgsql" },
+  { task = "test:elixir-postgrex" },
+  { task = "test:elixir-ecto" },
+  { task = "test:ruby-pg" },
+  { task = "test:php-pdo" },
+  { task = "test:php-amphp" },
+  # MySQL
+  { task = "test:rust-sqlx-mysql" },
+  { task = "test:go-database-sql-mysql" },
+  { task = "test:python-aiomysql" },
+  { task = "test:typescript-mysql2" },
+  { task = "test:typescript-kysely-mysql2" },
+  { task = "test:java-jdbc-mysql" },
+  { task = "test:kotlin-jdbc-mysql" },
+  { task = "test:csharp-mysqlconnector" },
+  { task = "test:elixir-myxql" },
+  { task = "test:ruby-mysql2" },
+  { task = "test:ruby-trilogy" },
+  { task = "test:php-pdo-mysql" },
+  { task = "test:php-amphp-mysql" },
+  # MariaDB
+  { task = "test:rust-sqlx-mariadb" },
+  { task = "test:go-database-sql-mariadb" },
+  { task = "test:python-aiomysql-mariadb" },
+  { task = "test:typescript-mysql2-mariadb" },
+  { task = "test:typescript-kysely-mariadb" },
+  { task = "test:java-jdbc-mariadb" },
+  { task = "test:kotlin-jdbc-mariadb" },
+  { task = "test:csharp-mysqlconnector-mariadb" },
+  { task = "test:elixir-myxql-mariadb" },
+  { task = "test:ruby-mysql2-mariadb" },
+  { task = "test:ruby-trilogy-mariadb" },
+  { task = "test:php-pdo-mariadb" },
+  # Oracle
+  { task = "test:python-oracledb-oracle" },
+  { task = "test:typescript-oracledb-oracle" },
+  { task = "test:go-godror-oracle" },
+  { task = "test:java-jdbc-oracle" },
+  { task = "test:kotlin-jdbc-oracle" },
+  { task = "test:csharp-oracle" },
+  { task = "test:elixir-jamdb-oracle" },
+  { task = "test:ruby-oci8-oracle" },
+  { task = "test:rust-sibyl-oracle" },
+  # SQLite
+  { task = "test:rust-sqlx-sqlite" },
+  { task = "test:go-database-sql-sqlite" },
+  { task = "test:python-aiosqlite" },
+  { task = "test:typescript-better-sqlite3" },
+  { task = "test:typescript-kysely-sqlite" },
+  { task = "test:typescript-node-sqlite" },
+  { task = "test:typescript-wasm-sqlite" },
+  { task = "test:java-jdbc-sqlite" },
+  { task = "test:kotlin-jdbc-sqlite" },
+  { task = "test:csharp-microsoft-sqlite" },
+  { task = "test:elixir-exqlite" },
+  { task = "test:ruby-sqlite3" },
+  { task = "test:php-pdo-sqlite" },
+  # DuckDB
+  { task = "test:go-database-sql-duckdb" },
+  { task = "test:python-duckdb" },
+  { task = "test:typescript-duckdb" },
+  { task = "test:java-jdbc-duckdb" },
+  { task = "test:kotlin-jdbc-duckdb" },
+  # MSSQL
+  { task = "test:elixir-tds-mssql" },
+  { task = "test:typescript-kysely-mssql" },
+  { task = "test:rust-tiberius-mssql" },
+  { task = "test:go-database-sql-mssql" },
+  { task = "test:python-pyodbc-mssql" },
+  { task = "test:typescript-mssql" },
+  { task = "test:java-jdbc-mssql" },
+  { task = "test:kotlin-jdbc-mssql" },
+  { task = "test:csharp-sqlclient-mssql" },
+  { task = "test:ruby-tiny-tds-mssql" },
+  { task = "test:php-pdo-mssql" },
+  # PostgreSQL, hand-maintained option-combination projects
+  { task = "test:rust-sqlx-nested-json" },
+  { task = "test:kotlin-jdbc-ext" },
+  { task = "test:php-pdo-namespace" },
+]
+
+[tasks."all:redshift"]
+description = "Run every Redshift project against the PG-compat substitute (see README.md)"
+run = [
+  { task = "db:migrate:redshift" },
+  { task = "test:rust-sqlx-redshift" },
+  { task = "test:rust-tokio-postgres-redshift" },
+  { task = "test:python-psycopg3-redshift" },
+  { task = "test:python-asyncpg-redshift" },
+  { task = "test:go-pgx-redshift" },
+  { task = "test:typescript-pg-redshift" },
+  { task = "test:typescript-postgres-redshift" },
+  { task = "test:typescript-kysely-redshift" },
+  { task = "test:java-jdbc-redshift" },
+  { task = "test:kotlin-jdbc-redshift" },
+  { task = "test:csharp-npgsql-redshift" },
+  { task = "test:elixir-postgrex-redshift" },
+  { task = "test:ruby-pg-redshift" },
+  { task = "test:php-pdo-redshift" },
+]
+
+[tasks."all:snowflake"]
+description = "Run every Snowflake project against the fakesnow emulator (see README.md)"
+shell = "bash -euo pipefail -c"
+
+# python-snowflake embeds fakesnow in-process, so it runs before the shared server is started and does not
+# need it. The trap stops the server whether or not the remaining projects pass.
+run = """
+mise run test:python-snowflake
+mise run snowflake:emulator:up
+trap 'mise run snowflake:emulator:down' EXIT
+for project in typescript-snowflake go-gosnowflake java-jdbc-snowflake kotlin-jdbc-snowflake csharp-snowflake php-pdo-snowflake; do
+  mise run "test:$project"
+done
+"""

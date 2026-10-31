@@ -33,7 +33,7 @@ struct Cli {
     /// Print backend directory names (one per line) and exit without generating anything.
     ///
     /// This is the manifest of record for `build_backends()` — consumers such as
-    /// `integration_tests/Taskfile.yaml` should derive their backend lists from this
+    /// `integration_tests/mise.toml` should derive their backend lists from this
     /// output instead of hand-maintaining a copy, so the two can never drift.
     #[arg(long)]
     list: bool,

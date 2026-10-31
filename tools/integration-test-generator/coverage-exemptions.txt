@@ -91,9 +91,9 @@ kotlin-r2dbc|sqlite : no io.r2dbc:r2dbc-sqlite artifact exists on Maven Central;
 # the first.
 php-pdo|oracle : blocked in crates/scythe-codegen/src/backends/php_pdo.rs (php_pdo.rs:31-45) -- no "oracle" engine arm and no RETURNING-INTO reconstruction like ruby_oci8.rs/python_oracledb.rs have; the pdo_oci CI extension gap is real but secondary
 
-[taskfile-targets]
-# Integration projects with no `test:<project>` target in
-# integration_tests/Taskfile.yaml. Empty: all 32 that issue #135 found were
+[mise-tasks]
+# Integration projects with no `test:<project>` task in
+# integration_tests/mise.toml. Empty: all 32 that issue #135 found were
 # added. Keep it empty.
 
 [ci-steps]
@@ -104,8 +104,8 @@ php-pdo|oracle : blocked in crates/scythe-codegen/src/backends/php_pdo.rs (php_p
 # These were issue #118. php-pdo-sqlite is closed: integration-sqlite needs no
 # service container and already installs pdo_sqlite, so it only needed the
 # `Test php-pdo-sqlite` step. ruby-oci8-oracle, kotlin-jdbc-ext and
-# php-pdo-namespace are closed the same way -- each had a `test:*` Taskfile
-# target already and no missing infrastructure, so each only needed its step
+# php-pdo-namespace are closed the same way -- each had a `test:*` task
+# already and no missing infrastructure, so each only needed its step
 # added to integration-oracle or integration-pg.
 #
 # elixir-jamdb-oracle is closed too, but it earned its step the hard way: the
