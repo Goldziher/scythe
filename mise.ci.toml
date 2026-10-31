@@ -1,0 +1,9 @@
+# Loaded only with MISE_ENV=ci, so the versions CI selects with setup-mise `tools: <tool>=<version>` stay
+# locked. The integration and generated-code jobs keep the language lines the integration projects were
+# written against: java 21 (maven.compiler.source 21), node 22 (24 for the node:sqlite job), python 3.12,
+# and ruby 3.3 for the checker-only jobs. ~keep
+[tools]
+java = ["temurin-25.0.5+8.0.LTS", "temurin-21.0.13+9.0.LTS"]
+node = ["26.12.1", "24.22.2", "22.23.4"]
+python = ["3.13.18", "3.12.16"]
+ruby = ["3.4.12", "3.3.13"]
