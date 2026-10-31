@@ -992,7 +992,7 @@ jobs:
         run: uv build
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1 # ~keep Upstream has no major tag; release/v1 is its floating ref.
+        uses: pypa/gh-action-pypi-publish@v1.14.3
         with:
           packages-dir: release/pypi/dist
           # The meta job's pypi_exists probe is a single check with a race window
