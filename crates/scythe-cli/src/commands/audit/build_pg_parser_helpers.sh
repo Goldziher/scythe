@@ -156,14 +156,24 @@ build_one() {
       make_ar="zig ar"
     fi
   fi
+  # ~keep libpg_query 15 vendors PostgreSQL 15 headers that declare tree walkers unprototyped
+  # ~keep (`bool (*walker) ()`). C23, the default since GCC 15 (Ubuntu 26.04), reads that as
+  # ~keep `(void)` and rejects every walker call, so 15 is built as gnu17. 18 is C23-clean.
+  make_cflags=""
+  if [ "$major" = 15 ]; then
+    make_cflags="-std=gnu17"
+  fi
+  if [ "$define_strchrnul" = 1 ]; then
+    make_cflags="$make_cflags -DHAVE_STRCHRNUL"
+  fi
   if [ -n "$make_ar" ]; then
-    if [ "$define_strchrnul" = 1 ]; then
-      make -C "$source_dir" CC="$cc_command" AR="$make_ar" CFLAGS=-DHAVE_STRCHRNUL libpg_query.a
+    if [ -n "$make_cflags" ]; then
+      make -C "$source_dir" CC="$cc_command" AR="$make_ar" CFLAGS="$make_cflags" libpg_query.a
     else
       make -C "$source_dir" CC="$cc_command" AR="$make_ar" libpg_query.a
     fi
-  elif [ "$define_strchrnul" = 1 ]; then
-    make -C "$source_dir" CC="$cc_command" CFLAGS=-DHAVE_STRCHRNUL libpg_query.a
+  elif [ -n "$make_cflags" ]; then
+    make -C "$source_dir" CC="$cc_command" CFLAGS="$make_cflags" libpg_query.a
   else
     make -C "$source_dir" CC="$cc_command" libpg_query.a
   fi
