@@ -4,10 +4,9 @@
 # scythe's hand-written source; this one governs the output scythe emits, and
 # the two disagree on purpose:
 #
-#   * `target_version` is py310, not py312. Generated Python is documented as
-#     supporting 3.10+ (see the python-conventions rules and the `python3.10`
-#     floor in every python-* backend manifest), so linting it against 3.12
-#     would accept syntax the supported floor cannot run.
+#   * `target_version` is py311, not py312. Generated Python is documented as
+#     supporting 3.11+ (see the python-conventions rules), so linting it
+#     against 3.12 would accept syntax the supported floor cannot run.
 #   * `line_length` is generous. Generated code is not written for humans to
 #     hand-edit; the provenance header alone exceeds ruff's 88-column default,
 #     which is why it carries `# noqa: E501`. Wrapping decisions belong to the
@@ -33,7 +32,7 @@ line_length = 200
 line_ending = "lf"
 
 [lint.python.ruff]
-target_version = "py310"
+target_version = "py311"
 line_length = 200
 
 [lint.php.mago]

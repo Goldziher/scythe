@@ -55,7 +55,7 @@ fn validate_python(code: &str) -> Vec<String> {
     let mut errors = Vec::new();
 
     if code.contains("from __future__ import annotations") {
-        errors.push("unnecessary `from __future__ import annotations` — target is Python 3.10+".into());
+        errors.push("unnecessary `from __future__ import annotations` — target is Python 3.11+".into());
     }
 
     let has_struct = code.contains("@dataclass")

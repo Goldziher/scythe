@@ -7,6 +7,12 @@ Scythe follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Ver
 
 For the latest changes, see the [CHANGELOG.md](https://github.com/Goldziher/scythe/blob/main/CHANGELOG.md) in the repository root.
 
+## [Unreleased]
+
+### Changed
+
+- Python 3.11 is now the minimum supported version; Python 3.10 reached end of life.
+
 ## [0.20.1] - 2026-10-27
 
 ### Fixed

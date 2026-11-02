@@ -1,34 +1,13 @@
 version = 1
 revision = 5
-requires-python = ">=3.10"
-
-[[package]]
-name = "async-timeout"
-version = "5.0.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/a5/ae/136395dfbfe00dfc94da3f3e136d0b13f394cba8f4841120e34226265780/async_timeout-5.0.1.tar.gz", hash = "sha256:d9321a7a3d5a6a5e187e824d2fa0793ce379a202935782d555d6e9d2735677d3", size = 9274, upload-time = "2024-11-06T16:41:39.6Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/fe/ba/e2081de779ca30d473f21f5b30e0e737c438205440784c7dfc81efc2b029/async_timeout-5.0.1-py3-none-any.whl", hash = "sha256:39e3809566ff85354557ec2398b55e096c8364bacac9405a7a1fa429e77fe76c", size = 6233, upload-time = "2024-11-06T16:41:37.9Z" },
-]
+requires-python = ">=3.11"
 
 [[package]]
 name = "asyncpg"
 version = "0.32.0"
 source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "async-timeout", marker = "python_full_version < '3.11'" },
-]
 sdist = { url = "https://files.pythonhosted.org/packages/80/4e/59dc964f962f09e3ed472e5d2d3ba670a41a2be25080dc62ab3db507ff5e/asyncpg-0.32.0.tar.gz", hash = "sha256:45e64e56714d888330b884aad1dfb363d0bf43fb343e3d1a8968525f3bade478", size = 1075156, upload-time = "2026-10-06T20:32:40.251Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/70/3a/6fa8478896f3f54d1aa7411ae6ba3105c7d3b172ab87d78839bdecc3f2e3/asyncpg-0.32.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:fd5adfb01cea16908d617af55b00a84c9e581964b77d4301c29fd735bb7850c3", size = 689260, upload-time = "2026-10-06T20:30:25.238Z" },
-    { url = "https://files.pythonhosted.org/packages/c3/77/d332193fe023b450b2de89e9c5d35350d95144e3a42ade2ec5131a026359/asyncpg-0.32.0-cp310-cp310-macosx_11_0_x86_64.whl", hash = "sha256:23638de661ac9a7975278a4fafb1f4c8613e7aae04562675f604dd20ec10e8d8", size = 693995, upload-time = "2026-10-06T20:30:27.111Z" },
-    { url = "https://files.pythonhosted.org/packages/31/ee/81338441f0d3749725b0543f199aeab20853fdfaebb749c217d6ed50f236/asyncpg-0.32.0-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:0549af18b697221d1992b7def18aa61652a85ecbe6e19ba2a75277560efe6016", size = 3074342, upload-time = "2026-10-06T20:30:28.809Z" },
-    { url = "https://files.pythonhosted.org/packages/18/bd/2460a47ad82956cf6e89e2577711b05b584dc98cc5e379bfc919a25d74fb/asyncpg-0.32.0-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5faf73279afe1b2137ce503491500b664621762485233ebacb6fb91f7f092baa", size = 3133917, upload-time = "2026-10-06T20:30:30.454Z" },
-    { url = "https://files.pythonhosted.org/packages/44/46/7e1e64ba336611e3a0f89c6502578aee34c99c8ee74711b80b0392f9a9a9/asyncpg-0.32.0-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:6e83cdc21ed0a027d3065b19f9fffaf864b91bc007f30bf6e385f2fe84061a79", size = 3007136, upload-time = "2026-10-06T20:30:31.994Z" },
-    { url = "https://files.pythonhosted.org/packages/84/97/38c138d7d189eac44f9b1c3e2374a3ce4e42f81e238d99cd1839edf1e8bf/asyncpg-0.32.0-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:4412cb864442355a6d944adb34c098924d1e14230b6ddbbe9665cffdf2708e8a", size = 3126880, upload-time = "2026-10-06T20:30:33.605Z" },
-    { url = "https://files.pythonhosted.org/packages/ba/cf/ee2dfa7b288ef1f5022fb4b2549f10903af78554e2b6ad1fc3e81591647f/asyncpg-0.32.0-cp310-cp310-win32.whl", hash = "sha256:0e25fe441cca81c277554e0f8f7f9c6987d2aaf47cedfc7783d9717ce2853371", size = 542014, upload-time = "2026-10-06T20:30:35.239Z" },
-    { url = "https://files.pythonhosted.org/packages/1b/3a/ca9a61df849a7689be13ca3bd956f8671eb895f09a44f5d5b5f9b9c3e201/asyncpg-0.32.0-cp310-cp310-win_amd64.whl", hash = "sha256:0b7706ff96cfe26fc48aa191f72f8076ddc2c52a5bc75fa9d3f34066e734e2d6", size = 607734, upload-time = "2026-10-06T20:30:36.487Z" },
-    { url = "https://files.pythonhosted.org/packages/88/a4/281f067513cc765a16ae73e3deffca9f9a959b23d0b1acabeb9ca2d54ddc/asyncpg-0.32.0-cp310-cp310-win_arm64.whl", hash = "sha256:87780aa30b40e2de89717b51cdae4bb80b21b8842c02fb560e1e907e5a856a3d", size = 573816, upload-time = "2026-10-06T20:30:37.816Z" },
     { url = "https://files.pythonhosted.org/packages/a3/27/1a7970f1ece6c205b03c79f45b89420dee9655ffb66bd2c11be8f40c248a/asyncpg-0.32.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:5789340b9bcdab94a19eb8ff119322a09991e3626d131b55828535b373e285d4", size = 686071, upload-time = "2026-10-06T20:30:39.115Z" },
     { url = "https://files.pythonhosted.org/packages/2b/47/085934d0290806a92789eee860109c44bea71ff8bc7850a9d3a30da7a819/asyncpg-0.32.0-cp311-cp311-macosx_11_0_x86_64.whl", hash = "sha256:057ed2455e4e14ad9949f1ac1829112c7d0454c9810b124f36de1486febe6824", size = 692193, upload-time = "2026-10-06T20:30:40.563Z" },
     { url = "https://files.pythonhosted.org/packages/b4/2c/d92524b9e860aecd119c0ebe43f3b9eca26dc2b75c4dfe1be3e999e3f6b1/asyncpg-0.32.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:c938c4da9166ac1ef330475e314e2b94c68bde2795be0f4e8a1e00ccd806cadd", size = 3196713, upload-time = "2026-10-06T20:30:42.123Z" },
