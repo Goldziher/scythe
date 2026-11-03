@@ -3,6 +3,6 @@
 	"description": "Scythe integration tests for php-pdo backend with custom namespace",
 	"type": "project",
 	"require": {
-		"php": ">=8.2"
+		"php": ">=8.3"
 	}
 }

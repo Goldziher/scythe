@@ -18,7 +18,7 @@
     "sqlc"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "os": [
     "linux",

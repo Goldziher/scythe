@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Minimum supported versions raised: Node.js 22, PHP 8.3, Elixir 1.17, Go 1.27, Java 25.
 - Python 3.11 is now the minimum supported version; Python 3.10 reached end of life.
 
 ## [0.20.3] - 2026-10-31

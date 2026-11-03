@@ -466,7 +466,7 @@ jobs:
       - uses: xberg-io/actions/setup-mise@v1
         with:
           mise-env: ci
-          tools: python=3.13 go java=temurin-21 ruby=3.3 pnpm node=22
+          tools: python=3.13 go java=temurin-25.0.5+8.0.LTS ruby=3.3 pnpm node=22
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0"
@@ -806,7 +806,7 @@ jobs:
       - uses: xberg-io/actions/setup-mise@v1
         with:
           mise-env: ci
-          tools: python=3.13 go java=temurin-21 ruby=3.3 pnpm
+          tools: python=3.13 go java=temurin-25.0.5+8.0.LTS ruby=3.3 pnpm
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0"

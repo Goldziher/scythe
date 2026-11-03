@@ -93,7 +93,7 @@ jobs:
       - uses: xberg-io/actions/setup-mise@v1
         with:
           mise-env: ci
-          tools: go python=3.12 node=22 java=temurin-21 ruby=3.4 uv pnpm
+          tools: go python=3.12 node=22 java=temurin-25.0.5+8.0.LTS ruby=3.4 uv pnpm
       # ~keep The committed Gemfile.lock files are written by Bundler 4, newer than the one Ruby ships.
       - run: gem install bundler --no-document
       - uses: actions/setup-dotnet@v6
@@ -112,8 +112,8 @@ jobs:
           fi
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "26"
-          elixir-version: "1.16"
+          otp-version: "27"
+          elixir-version: "1.17"
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
@@ -378,7 +378,7 @@ jobs:
       - uses: xberg-io/actions/setup-mise@v1
         with:
           mise-env: ci
-          tools: go python=3.12 node=22 java=temurin-21 ruby=3.4 uv pnpm
+          tools: go python=3.12 node=22 java=temurin-25.0.5+8.0.LTS ruby=3.4 uv pnpm
       # ~keep The committed Gemfile.lock files are written by Bundler 4, newer than the one Ruby ships.
       - run: gem install bundler --no-document
       - uses: actions/setup-dotnet@v6
@@ -397,8 +397,8 @@ jobs:
           fi
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "26"
-          elixir-version: "1.16"
+          otp-version: "27"
+          elixir-version: "1.17"
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
@@ -534,7 +534,7 @@ jobs:
       - uses: xberg-io/actions/setup-mise@v1
         with:
           mise-env: ci
-          tools: go python=3.12 node=22 java=temurin-21 ruby=3.4 uv pnpm
+          tools: go python=3.12 node=22 java=temurin-25.0.5+8.0.LTS ruby=3.4 uv pnpm
       # ~keep The committed Gemfile.lock files are written by Bundler 4, newer than the one Ruby ships.
       - run: gem install bundler --no-document
       - uses: actions/setup-dotnet@v6
@@ -553,8 +553,8 @@ jobs:
           fi
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "26"
-          elixir-version: "1.16"
+          otp-version: "27"
+          elixir-version: "1.17"
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
@@ -692,7 +692,7 @@ jobs:
       - uses: xberg-io/actions/setup-mise@v1
         with:
           mise-env: ci
-          tools: python=3.12 node=22 go java=temurin-21 ruby=3.4 uv pnpm
+          tools: python=3.12 node=22 go java=temurin-25.0.5+8.0.LTS ruby=3.4 uv pnpm
       # ~keep The committed Gemfile.lock files are written by Bundler 4, newer than the one Ruby ships.
       - run: gem install bundler --no-document
       - uses: actions/setup-dotnet@v6
@@ -711,8 +711,8 @@ jobs:
           fi
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "26"
-          elixir-version: "1.16"
+          otp-version: "27"
+          elixir-version: "1.17"
 
       # pnpm is mise.toml's, the same as ci.yml's generated-query-code gate, so a
       # new pnpm release cannot change the answer under one and not the other.
@@ -841,7 +841,7 @@ jobs:
       - uses: xberg-io/actions/setup-mise@v1
         with:
           mise-env: ci
-          tools: go python=3.12 node=22 java=temurin-21 ruby=3.4 uv pnpm
+          tools: go python=3.12 node=22 java=temurin-25.0.5+8.0.LTS ruby=3.4 uv pnpm
       # ~keep The committed Gemfile.lock files are written by Bundler 4, newer than the one Ruby ships.
       - run: gem install bundler --no-document
       - uses: actions/setup-dotnet@v6
@@ -860,8 +860,8 @@ jobs:
           fi
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "26"
-          elixir-version: "1.16"
+          otp-version: "27"
+          elixir-version: "1.17"
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
@@ -969,7 +969,7 @@ jobs:
       - uses: xberg-io/actions/setup-mise@v1
         with:
           mise-env: ci
-          tools: python=3.12 node=22 java=temurin-21 go uv pnpm
+          tools: python=3.12 node=22 java=temurin-25.0.5+8.0.LTS go uv pnpm
 
       # allowBuilds (pnpm-workspace.yaml.jinja:1) first appeared in pnpm 10.26 and
       # became the sole build-permission mechanism in pnpm 11 (onlyBuiltDependencies
@@ -1035,7 +1035,7 @@ jobs:
       - uses: xberg-io/actions/setup-mise@v1
         with:
           mise-env: ci
-          tools: go python=3.12 node=24 java=temurin-21 ruby=3.4 uv pnpm
+          tools: go python=3.12 node=24 java=temurin-25.0.5+8.0.LTS ruby=3.4 uv pnpm
       # ~keep The committed Gemfile.lock files are written by Bundler 4, newer than the one Ruby ships.
       - run: gem install bundler --no-document
       - uses: actions/setup-dotnet@v6
@@ -1054,8 +1054,8 @@ jobs:
           fi
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "26"
-          elixir-version: "1.16"
+          otp-version: "27"
+          elixir-version: "1.17"
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
@@ -1196,7 +1196,7 @@ jobs:
       - uses: xberg-io/actions/setup-mise@v1
         with:
           mise-env: ci
-          tools: go python=3.12 node=22 java=temurin-21 ruby=3.4 uv pnpm
+          tools: go python=3.12 node=22 java=temurin-25.0.5+8.0.LTS ruby=3.4 uv pnpm
       # ~keep The committed Gemfile.lock files are written by Bundler 4, newer than the one Ruby ships.
       - run: gem install bundler --no-document
       - uses: actions/setup-dotnet@v6
@@ -1215,8 +1215,8 @@ jobs:
           fi
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "26"
-          elixir-version: "1.16"
+          otp-version: "27"
+          elixir-version: "1.17"
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
@@ -1324,7 +1324,7 @@ jobs:
       - uses: xberg-io/actions/setup-mise@v1
         with:
           mise-env: ci
-          tools: python=3.12 node=22 go java=temurin-21 uv pnpm
+          tools: python=3.12 node=22 go java=temurin-25.0.5+8.0.LTS uv pnpm
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
