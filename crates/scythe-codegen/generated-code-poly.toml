@@ -11,6 +11,10 @@
 #     hand-edit; the provenance header alone exceeds ruff's 88-column default,
 #     which is why it carries `# noqa: E501`. Wrapping decisions belong to the
 #     backends and to `scythe fmt`, not to a linter run over their output.
+#   * ruff's UP042 is ignored. It asks for `StrEnum` in place of `str, Enum`,
+#     but `StrEnum` changes `str()` and `format()` of a member from
+#     `Status.ACTIVE` to `active`, so switching would change runtime behavior
+#     of generated code; the backends keep `str, Enum` deliberately.
 #   * Two mago rules are ignored for PHP because they are structurally
 #     inapplicable to this output rather than merely inconvenient:
 #     `single-class-per-file` — a generated PHP file is one module holding the
@@ -34,6 +38,7 @@ line_ending = "lf"
 [lint.python.ruff]
 target_version = "py311"
 line_length = 200
+ignore = ["UP042"]
 
 [lint.php.mago]
 ignore = ["single-class-per-file", "excessive-parameter-list"]
