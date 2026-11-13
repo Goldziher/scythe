@@ -45,11 +45,12 @@ class Scythe < Formula
   version "${version}"
   license "MIT"
 
+  url "${base}/scythe-aarch64-apple-darwin.tar.gz"
+  sha256 "${mac_arm}"
+
+  depends_on :macos
+
   on_macos do
-    on_arm do
-      url "${base}/scythe-aarch64-apple-darwin.tar.gz"
-      sha256 "${mac_arm}"
-    end
     on_intel do
       url "${base}/scythe-x86_64-apple-darwin.tar.gz"
       sha256 "${mac_x64}"
