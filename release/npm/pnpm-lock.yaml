@@ -171,7 +171,7 @@ importers:
         version: 9.1.0
       tar:
         specifier: ^7.5.22
-        version: 7.5.22
+        version: 7.5.23
       yauzl:
         specifier: ^3.4.0
         version: 3.4.0
@@ -226,8 +226,8 @@ packages:
       kerberos:
         optional: true
 
-  tar@7.5.22:
-    resolution: {integrity: sha512-MFO/QzvtAOmJbkhOaCTvbGcFN9L9b+JunIsDwaKljSOdcLMea3NJ1k9Usz/rjdfSXTq4dfzfeS7W4p4YOAAHeA==}
+  tar@7.5.23:
+    resolution: {integrity: sha512-lkukzdoGngZHJZXxW4S/E4Fp9ghTDlyZXrQGRNoJ/LXvDKcXUTq2sg5yQe74po7Voea6n/IN09+wE/QvJMiifA==}
     engines: {node: '>=18'}
 
   yallist@5.0.0:
@@ -273,7 +273,7 @@ snapshots:
 
   proxy-agent-negotiate@1.1.0: {}
 
-  tar@7.5.22:
+  tar@7.5.23:
     dependencies:
       '@isaacs/fs-minipass': 4.0.1
       chownr: 3.0.0
