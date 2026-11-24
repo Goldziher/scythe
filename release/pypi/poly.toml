@@ -1,0 +1,10 @@
+[engines.python-types]
+backend = "pyrefly"
+python_version = "3.12"
+src = ["src", "."]
+
+[per_file_ignores]
+# ~keep Command-line entry points report through stdout.
+"src/scythe_sql/cli.py" = ["T201"]
+# ~keep pytest lives in the dev venv, which a hook's staged snapshot does not contain.
+"tests/**" = ["missing-import"]

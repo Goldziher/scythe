@@ -1,7 +1,7 @@
 {
 	"name": "scythe-integration-test-oracledb",
 	"version": "0.1.0",
-	"packageManager": "pnpm@12.16.1",
+	"packageManager": "pnpm@12.21.0",
 	"private": true,
 	"type": "module",
 	"scripts": {
@@ -9,11 +9,11 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"oracledb": "^7.0.1"
+		"oracledb": "^26.0.0"
 	},
 	"devDependencies": {
-		"@types/node": "^26.6.4",
-		"@types/oracledb": "^7.0.3",
+		"@types/node": "^26.6.6",
+		"@types/oracledb": "^26.0.1",
 		"tsx": "^4.23.15",
 		"typescript": "^7.0.2"
 	}

@@ -11,7 +11,7 @@ repositories {
 }
 
 dependencies {
-    implementation("org.duckdb:duckdb_jdbc:1.5.5.1")
+    implementation("org.duckdb:duckdb_jdbc:2.0.1.0")
 }
 
 application {

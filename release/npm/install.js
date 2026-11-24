@@ -14,6 +14,8 @@ const { hasMatchingPathBinary } = require("./lib/preinstalled");
 
 const REPO = "https://github.com/Goldziher/scythe";
 
+const log = (message) => process.stderr.write(message);
+
 async function main() {
   if (process.env.SCYTHE_SKIP_DOWNLOAD === "1") {
     process.stderr.write("scythe-cli: SCYTHE_SKIP_DOWNLOAD=1 set, skipping binary download.\n");
@@ -59,8 +61,6 @@ async function main() {
 
   process.stderr.write(`scythe-cli: downloading scythe ${version} for ${target}...\n`);
 
-  const log = (message) => process.stderr.write(message);
-
   const checksumsText = await downloadText(checksumsUrl, { log });
   const checksums = parseChecksums(checksumsText);
   const expected = expectedChecksum(checksums, assetName, checksumsUrl);
@@ -80,7 +80,13 @@ async function main() {
   process.stderr.write(`scythe-cli: installed scythe ${version} to ${destPath}\n`);
 }
 
-main().catch((err) => {
-  process.stderr.write(`${err.message}\n`);
-  process.exit(1);
-});
+async function run() {
+  try {
+    await main();
+  } catch (err) {
+    process.stderr.write(`${err.message}\n`);
+    process.exit(1);
+  }
+}
+
+queueMicrotask(run);

@@ -1,2 +1,6 @@
-baseline = "v1.13.0"
+baseline = "v1.22.0"
 task_sets = ["docs-site", "lint-format"]
+
+[overrides.cargo-deny]
+version = "0.20.2"
+reason = "cargo-deny 0.21.0 publishes no x86_64-apple-darwin build and macos-x64 is locked for the release builds"

@@ -57,7 +57,7 @@ def write_binary_atomically(dest_path: Path, data: bytes) -> None:
             os.fsync(handle.fileno())
         if os.name != "nt":
             make_executable(tmp_path)
-        os.replace(tmp_path, dest_path)
+        tmp_path.replace(dest_path)
     finally:
         tmp_path.unlink(missing_ok=True)
 

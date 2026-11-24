@@ -62,13 +62,13 @@ Cargo's binary directory.
 Resolve and lock the Git revision, commit the lock file, then install Poly's Git shims:
 
 ```bash
-poly hooks update
-git add poly.toml poly-hooks.lock
+poly lock
+git add poly.toml poly.lock
 poly hooks install
 ```
 
 Normal hook runs use the locked commit and do not move the configured revision. Change `revision`
-and run `poly hooks update` when you intentionally upgrade Scythe. For local catalog development,
+and run `poly lock --upgrade` when you intentionally upgrade Scythe. For local catalog development,
 replace `git` and `revision` with `path = "../scythe"`; local sources reload on each run and do not
 create a lock entry.
 

@@ -11,7 +11,7 @@ repositories {
 }
 
 dependencies {
-    implementation("org.postgresql:postgresql:42.7.13")
+    implementation("org.postgresql:postgresql:42.7.15")
 }
 
 application {

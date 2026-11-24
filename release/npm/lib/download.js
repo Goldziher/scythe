@@ -27,7 +27,7 @@ const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
  */
 function buildProxyAgent(url, env) {
   const proxyUrl = resolveProxyUrl(env, new URL(url).hostname);
-  if (!proxyUrl) return undefined;
+  if (!proxyUrl) return;
   const { HttpsProxyAgent } = require("https-proxy-agent");
   return new HttpsProxyAgent(proxyUrl);
 }
@@ -45,11 +45,11 @@ function buildProxyAgent(url, env) {
  */
 function loadCaBundle(env, readFile = fs.readFileSync) {
   const caFile = resolveCaFile(env);
-  if (!caFile) return undefined;
+  if (!caFile) return;
   try {
     return readFile(caFile);
   } catch (err) {
-    throw new Error(`scythe-cli: failed to read CA bundle ${caFile}: ${err.message}`);
+    throw new Error(`scythe-cli: failed to read CA bundle ${caFile}: ${err.message}`, { cause: err });
   }
 }
 
@@ -141,7 +141,8 @@ async function downloadBuffer(url, { env = process.env, maxRedirects = MAX_REDIR
     const status = response.statusCode ?? 0;
 
     if (REDIRECT_STATUS.has(status) && response.headers.location) {
-      response.resume(); // drain, otherwise the socket is never released
+      // drain, otherwise the socket is never released
+      response.resume();
       currentUrl = resolveRedirect(response.headers.location, currentUrl);
       continue;
     }

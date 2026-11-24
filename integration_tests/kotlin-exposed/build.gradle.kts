@@ -11,13 +11,13 @@ repositories {
 }
 
 dependencies {
-    implementation("org.postgresql:postgresql:42.7.13")
-    implementation("org.jetbrains.exposed:exposed-core:1.5.0")
-    implementation("org.jetbrains.exposed:exposed-jdbc:1.5.0")
-    implementation("org.jetbrains.exposed:exposed-dao:1.5.0")
+    implementation("org.postgresql:postgresql:42.7.15")
+    implementation("org.jetbrains.exposed:exposed-core:1.6.1")
+    implementation("org.jetbrains.exposed:exposed-jdbc:1.6.1")
+    implementation("org.jetbrains.exposed:exposed-dao:1.6.1")
     // exposed-java-time supplies the Java*ColumnType classes the generated
     // queries.kt imports for date/time columns; exposed-core alone does not.
-    implementation("org.jetbrains.exposed:exposed-java-time:1.5.0")
+    implementation("org.jetbrains.exposed:exposed-java-time:1.6.1")
 }
 
 application {

@@ -43,5 +43,5 @@ def test_urllib_resolves_proxies_from_the_environment(monkeypatch: pytest.Monkey
 def test_urllib_honours_no_proxy_for_matching_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NO_PROXY", "github.com")
 
-    assert urllib.request.proxy_bypass_environment("github.com") is True
-    assert urllib.request.proxy_bypass_environment("example.org") is False
+    assert vars(urllib.request)["proxy_bypass_environment"]("github.com") is True
+    assert vars(urllib.request)["proxy_bypass_environment"]("example.org") is False

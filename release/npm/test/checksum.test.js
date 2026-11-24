@@ -32,7 +32,7 @@ test("expectedChecksum throws on a missing row rather than skipping verification
   const map = parseChecksums(SAMPLE);
   assert.throws(
     () => expectedChecksum(map, "scythe-riscv64-unknown-linux-gnu.tar.gz", "https://example/checksums.txt"),
-    /no checksum entry.*https:\/\/example\/checksums\.txt/s,
+    /no checksum entry.*https:\/\/example\/checksums\.txt/su,
   );
 });
 
@@ -51,9 +51,9 @@ test("verifyChecksum throws naming both hashes and the url on mismatch", () => {
   assert.throws(
     () => verifyChecksum(buf, "0".repeat(64), "https://example/asset.tar.gz"),
     (err) => {
-      assert.match(err.message, /https:\/\/example\/asset\.tar\.gz/);
-      assert.match(err.message, /expected: 0{64}/);
-      assert.match(err.message, new RegExp(`actual:\\s+${sha256Hex(buf)}`));
+      assert.match(err.message, /https:\/\/example\/asset\.tar\.gz/u);
+      assert.match(err.message, /expected: 0{64}/u);
+      assert.match(err.message, new RegExp(`actual:\\s+${sha256Hex(buf)}`, "u"));
       return true;
     },
   );

@@ -243,8 +243,7 @@ encoding, since tds's `:boolean` encoder accepts only integers or bitstrings, no
 
 ## Jamdb Oracle
 
-Backend: `elixir-jamdb` | Library: [jamdb_oracle](https://hex.pm/packages/jamdb_oracle) (alias:
-`jamdb`) | Engine: Oracle
+Backend: `elixir-jamdb` | Library: [jamdb_oracle](https://hex.pm/packages/jamdb_oracle) (alias: `jamdb`) | Engine: Oracle
 
 Query functions call `Jamdb.Oracle.query/3`. Placeholders are rewritten from `$1`, `$2`, ... to
 Oracle-style `:1`, `:2`, ... bind variables before the SQL string is emitted

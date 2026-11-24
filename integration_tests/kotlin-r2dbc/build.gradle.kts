@@ -18,13 +18,13 @@ dependencies {
     // project's scythe.toml selects by leaving extension_functions unset.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactive:1.11.0")
-    implementation("io.projectreactor:reactor-core:3.8.7")
+    implementation("io.projectreactor:reactor-core:3.9.0")
     // The blocking JDBC driver as well, and not by accident: R2DBC has no way
     // to run a multi-statement DDL script, so the harness sets the schema up
     // over java.sql.DriverManager before any reactive code runs. Without this
     // the project compiles and then dies at run time with "No suitable driver
     // found for jdbc:...".
-    implementation("org.postgresql:postgresql:42.7.13")
+    implementation("org.postgresql:postgresql:42.7.15")
 }
 
 application {

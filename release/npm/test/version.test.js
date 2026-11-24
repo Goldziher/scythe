@@ -19,7 +19,7 @@ test("extractVersion returns null when no version-shaped token is present", () =
 });
 
 test("assertRealVersion throws on the 0.0.0 placeholder", () => {
-  assert.throws(() => assertRealVersion("0.0.0"), /built incorrectly/);
+  assert.throws(() => assertRealVersion("0.0.0"), /built incorrectly/u);
 });
 
 test("assertRealVersion accepts a real version", () => {

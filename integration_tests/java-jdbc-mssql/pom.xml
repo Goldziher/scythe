@@ -21,7 +21,7 @@
       <dependency>
         <groupId>com.microsoft.sqlserver</groupId>
         <artifactId>mssql-jdbc</artifactId>
-        <version>13.6.0.jre11</version>
+        <version>13.6.2.jre11</version>
       </dependency>
     <dependency>
       <groupId>com.google.code.findbugs</groupId>
@@ -35,7 +35,7 @@
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
-        <version>3.1.0</version>
+        <version>3.7.0</version>
         <configuration>
           <mainClass>IntegrationTest</mainClass>
         </configuration>

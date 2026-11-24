@@ -20,7 +20,7 @@ test("findBinaryEntry matches by basename when nested in a directory", () => {
 });
 
 test("findBinaryEntry throws listing the archive contents when absent", () => {
-  assert.throws(() => findBinaryEntry(["LICENSE", "README.md"], "scythe"), /LICENSE, README\.md/);
+  assert.throws(() => findBinaryEntry(["LICENSE", "README.md"], "scythe"), /LICENSE, README\.md/u);
 });
 
 test("findBinaryEntry distinguishes scythe from scythe.exe", () => {
@@ -86,7 +86,7 @@ test("extractTarGz writes nothing when the archive lacks the binary", async (t) 
   const dir = tempDir(t);
   const dest = path.join(dir, "scythe");
 
-  await assert.rejects(() => extractTarGz(archive, "scythe", dest, 0o755), /could not find "scythe"/);
+  await assert.rejects(() => extractTarGz(archive, "scythe", dest, 0o755), /could not find "scythe"/u);
 
   assert.deepEqual(fs.readdirSync(dir), []);
 });

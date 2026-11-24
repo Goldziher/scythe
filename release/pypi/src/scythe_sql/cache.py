@@ -1,6 +1,5 @@
 """Cache directory resolution for the downloaded scythe binary."""
 
-import os
 from pathlib import Path
 
 
@@ -29,4 +28,4 @@ def cached_binary_path(*, env: dict[str, str], sys_platform: str, home: Path, ve
 
 def default_home() -> Path:
     """Returns the current user's home directory."""
-    return Path(os.path.expanduser("~"))
+    return Path("~").expanduser()

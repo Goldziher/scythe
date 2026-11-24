@@ -41,27 +41,27 @@ Usage: scripts/check-generated-backends.py [--keep]
   --keep  Print the scratch workspace path instead of deleting it on exit.
 """
 
-import glob
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import tomllib
+from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-INTEGRATION = os.path.join(ROOT, "integration_tests")
-SCYTHE_BIN = os.environ.get("SCYTHE_BIN", os.path.join(ROOT, "target", "release", "scythe"))
-TORTURE_SCHEMA = os.path.join(INTEGRATION, "sql", "torture", "schema.sql")
-TORTURE_QUERIES = os.path.join(INTEGRATION, "sql", "torture", "queries", "*.sql")
-EXPECTED_FAILURES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "torture-expected-failures.txt")
+ROOT = Path(__file__).resolve().parent.parent
+INTEGRATION = ROOT / "integration_tests"
+SCYTHE_BIN = os.environ.get("SCYTHE_BIN", str(ROOT / "target" / "release" / "scythe"))
+TORTURE_SCHEMA = INTEGRATION / "sql" / "torture" / "schema.sql"
+TORTURE_QUERIES = INTEGRATION / "sql" / "torture" / "queries" / "*.sql"
+EXPECTED_FAILURES_FILE = Path(__file__).resolve().parent / "torture-expected-failures.txt"
 
 
 def load_expected_failures() -> dict[str, str]:
     """Parse "<project> : <reason>" lines into {project: reason}. Blank lines
     and lines starting with # are ignored (see the file's own header)."""
     expected: dict[str, str] = {}
-    with open(EXPECTED_FAILURES_FILE, encoding="utf-8") as fh:
+    with EXPECTED_FAILURES_FILE.open(encoding="utf-8") as fh:
         for raw_line in fh:
             line = raw_line.strip()
             if not line or line.startswith("#"):
@@ -211,26 +211,26 @@ HARNESS_STUBS: dict[str, tuple[str, str]] = {
 
 def find_pg_projects() -> list[dict]:
     projects = []
-    for scythe_toml in sorted(glob.glob(os.path.join(INTEGRATION, "*", "scythe.toml"))):
-        proj_dir = os.path.dirname(scythe_toml)
-        with open(scythe_toml, "rb") as fh:
+    for scythe_toml in sorted(INTEGRATION.glob("*/scythe.toml")):
+        proj_dir = scythe_toml.parent
+        with scythe_toml.open("rb") as fh:
             data = tomllib.load(fh)
         for sql in data.get("sql", []):
             if sql.get("engine") != "postgresql":
                 continue
-            for gen in sql.get("gen", []):
-                projects.append(
-                    {
-                        "dir": proj_dir,
-                        "name": os.path.basename(proj_dir),
-                        "backend": gen["backend"],
-                        "output": gen["output"],
-                    }
-                )
+            projects.extend(
+                {
+                    "dir": proj_dir,
+                    "name": proj_dir.name,
+                    "backend": gen["backend"],
+                    "output": gen["output"],
+                }
+                for gen in sql.get("gen", [])
+            )
     return projects
 
 
-def patch_scythe_toml(path: str) -> None:
+def patch_scythe_toml(path: Path) -> None:
     """Point schema/queries at the torture fixture, in place, on the copy.
 
     Both substitutions are asserted, because a silent no-op here is the worst
@@ -242,8 +242,7 @@ def patch_scythe_toml(path: str) -> None:
     Every pg manifest matches the expected single-line form today; nothing
     but this assertion keeps that true.
     """
-    with open(path, encoding="utf-8") as fh:
-        text = fh.read()
+    text = path.read_text(encoding="utf-8")
     lines = text.splitlines()
     out = []
     patched_schema = False
@@ -269,8 +268,7 @@ def patch_scythe_toml(path: str) -> None:
             "The project would have been checked against its own schema and recorded PASS "
             "without ever seeing the torture schema."
         )
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(out) + "\n")
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
 def run(cmd: list[str], cwd: str, timeout: int = 300) -> tuple[bool, str]:
@@ -278,11 +276,11 @@ def run(cmd: list[str], cwd: str, timeout: int = 300) -> tuple[bool, str]:
         proc = subprocess.run(
             cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout, text=True
         )
-        return proc.returncode == 0, proc.stdout
     except subprocess.TimeoutExpired as e:
         return False, f"timed out after {timeout}s: {e.output or ''}"
     except FileNotFoundError as e:
         return False, f"tool not found: {e}"
+    return proc.returncode == 0, proc.stdout
 
 
 def run_syntax_check(backend: str, file_path: str, cwd: str) -> tuple[bool, str]:
@@ -290,7 +288,7 @@ def run_syntax_check(backend: str, file_path: str, cwd: str) -> tuple[bool, str]
 
     The extension map wins because a file's language is a property of the file,
     not of the backend that emitted it."""
-    ext = os.path.splitext(file_path)[1]
+    ext = Path(file_path).suffix
     ext_cmd = SYNTAX_BY_EXTENSION.get(ext)
     if ext_cmd is not None:
         return run([*ext_cmd, file_path], cwd=cwd, timeout=30)
@@ -309,133 +307,102 @@ def run_syntax_check(backend: str, file_path: str, cwd: str) -> tuple[bool, str]
     return run([*syntax_cmd, file_path], cwd=cwd, timeout=30)
 
 
-def main() -> int:
-    keep = "--keep" in sys.argv
+def _no_projects_message() -> str:
+    return (
+        f"FAIL: found no postgresql-engine projects under {INTEGRATION}. "
+        "This gate compiles every backend against the torture schema, so an "
+        "empty project list means it checked nothing. Discovery looks for "
+        'engine = "postgresql" in each project\'s scythe.toml -- check that '
+        "the key, its spelling, or the directory layout has not moved."
+    )
 
-    if not os.path.exists(SCYTHE_BIN):
-        print(f"FAIL: {SCYTHE_BIN} not built. Run: cargo build --release -p scythe-cli", file=sys.stderr)
-        return 1
 
-    projects = find_pg_projects()
-    # Zero projects is a broken discovery, never a clean run. `ok` below starts
-    # True and is only cleared by three lists all derived from `projects`, so an
-    # empty discovery empties every one of them and this script prints
-    # "0/0 failed" and exits 0 -- reporting success for having compiled nothing.
-    #
-    # `unknown_entries` used to catch this by accident: an allowlist naming
-    # projects that no longer exist would fire. That backstop went inert when
-    # the last active entry in the allowlist was deleted (#225), and nothing
-    # recorded that the vacuity guard depended on the allowlist being non-empty.
-    # An explicit guard does not.
-    if not projects:
-        print(
-            f"FAIL: found no postgresql-engine projects under {INTEGRATION}. "
-            "This gate compiles every backend against the torture schema, so an "
-            "empty project list means it checked nothing. Discovery looks for "
-            'engine = "postgresql" in each project\'s scythe.toml -- check that '
-            "the key, its spelling, or the directory layout has not moved.",
-            file=sys.stderr,
+def apply_harness_stub(proj: dict, dst: Path) -> None:
+    stub = HARNESS_STUBS.get(proj["backend"])
+    if stub is None:
+        return
+    rel_path, content = stub
+    stub_path = dst / rel_path
+    # `open(..., "w")` creates a missing file rather than failing, so a
+    # stub aimed at a path the project no longer has would write a stray
+    # file AND leave the real harness in place. In a compiled language
+    # that is a permanent undefined-symbol failure, which then gets
+    # allowlisted with a reason describing the generated code -- the
+    # exact rot that made csharp-npgsql's entry unfalsifiable for its
+    # whole life. In TypeScript it is worse: a stray `test.ts` would
+    # itself typecheck clean, so the project fails silently in the PASS
+    # direction. One directory rename is all it takes either way.
+    if not stub_path.exists():
+        raise RuntimeError(
+            f"{proj['name']}: HARNESS_STUBS targets {rel_path}, which does not exist in "
+            "this project. Writing it would leave the real harness in place and make this "
+            "project's result meaningless. Fix the stub path in HARNESS_STUBS."
         )
-        return 1
-    scratch = tempfile.mkdtemp(prefix="scythe-torture-")
-    print(f"scratch workspace: {scratch}")
+    stub_path.write_text(content, encoding="utf-8")
 
-    # sql/ is copied once and shared by every project below via the same
-    # `../sql/...` relative paths their committed scythe.toml already uses.
-    shutil.copytree(os.path.join(INTEGRATION, "sql"), os.path.join(scratch, "sql"))
 
-    results = []
-    for proj in projects:
-        dst = os.path.join(scratch, proj["name"])
-        shutil.copytree(
-            proj["dir"],
-            dst,
-            ignore=shutil.ignore_patterns(
-                "node_modules", "bin", "obj", "target", "__pycache__", "*.egg-info", "_build", "deps"
-            ),
+def check_syntax_only(proj: dict, dst: Path) -> tuple[str, str, str, str]:
+    out_dir = dst / proj["output"]
+    files = [f for f in out_dir.glob("*") if f.is_file()]
+    # An empty output directory used to fall straight through to PASS:
+    # `failed` stays empty when there is nothing to iterate, so a project
+    # whose generator wrote no file at all reported exactly the same
+    # result as one whose every file checked out. A gate that passes when
+    # it inspected nothing is indistinguishable from one that cannot fail.
+    if not files:
+        return (
+            proj["name"],
+            proj["backend"],
+            "syntax",
+            f"no generated files found in {proj['output']}/ -- nothing was checked, "
+            "so this project's PASS would have been vacuous",
         )
-        # No rmtree of the output dir first: `scythe generate` overwrites the
-        # files it owns in place, and for rust-sqlx-nested-json `output` is
-        # "src" -- the same directory main.rs (a HARNESS_STUBS target) lives
-        # in, so removing the directory would also remove the just-written
-        # stub (or race with writing it, depending on order).
-        patch_scythe_toml(os.path.join(dst, "scythe.toml"))
+    checked = [(f, *run_syntax_check(proj["backend"], str(f), cwd=str(dst))) for f in files]
+    failed = [f"{f}:\n{out}" for f, ok, out in checked if not ok]
+    if failed:
+        return proj["name"], proj["backend"], "syntax", "\n".join(failed)
+    return proj["name"], proj["backend"], "PASS", ""
 
-        stub = HARNESS_STUBS.get(proj["backend"])
-        if stub is not None:
-            rel_path, content = stub
-            stub_path = os.path.join(dst, rel_path)
-            # `open(..., "w")` creates a missing file rather than failing, so a
-            # stub aimed at a path the project no longer has would write a stray
-            # file AND leave the real harness in place. In a compiled language
-            # that is a permanent undefined-symbol failure, which then gets
-            # allowlisted with a reason describing the generated code -- the
-            # exact rot that made csharp-npgsql's entry unfalsifiable for its
-            # whole life. In TypeScript it is worse: a stray `test.ts` would
-            # itself typecheck clean, so the project fails silently in the PASS
-            # direction. One directory rename is all it takes either way.
-            if not os.path.exists(stub_path):
-                raise RuntimeError(
-                    f"{proj['name']}: HARNESS_STUBS targets {rel_path}, which does not exist in "
-                    "this project. Writing it would leave the real harness in place and make this "
-                    "project's result meaningless. Fix the stub path in HARNESS_STUBS."
-                )
-            with open(stub_path, "w", encoding="utf-8") as fh:
-                fh.write(content)
 
-        ok, out = run([SCYTHE_BIN, "generate"], cwd=dst, timeout=60)
-        if not ok:
-            results.append((proj["name"], proj["backend"], "generate", out.strip()))
-            continue
+def check_project(proj: dict, scratch: Path) -> tuple[str, str, str, str]:
+    dst = scratch / proj["name"]
+    shutil.copytree(
+        proj["dir"],
+        dst,
+        ignore=shutil.ignore_patterns(
+            "node_modules", "bin", "obj", "target", "__pycache__", "*.egg-info", "_build", "deps"
+        ),
+    )
+    # No rmtree of the output dir first: `scythe generate` overwrites the
+    # files it owns in place, and for rust-sqlx-nested-json `output` is
+    # "src" -- the same directory main.rs (a HARNESS_STUBS target) lives
+    # in, so removing the directory would also remove the just-written
+    # stub (or race with writing it, depending on order).
+    patch_scythe_toml(dst / "scythe.toml")
+    apply_harness_stub(proj, dst)
 
-        cmd = BUILD_COMMANDS.get(proj["backend"])
-        if cmd is None:
-            out_dir = os.path.join(dst, proj["output"])
-            files = [f for f in glob.glob(os.path.join(out_dir, "*")) if os.path.isfile(f)]
-            # An empty output directory used to fall straight through to PASS:
-            # `failed` stays empty when there is nothing to iterate, so a project
-            # whose generator wrote no file at all reported exactly the same
-            # result as one whose every file checked out. A gate that passes when
-            # it inspected nothing is indistinguishable from one that cannot fail.
-            if not files:
-                results.append(
-                    (
-                        proj["name"],
-                        proj["backend"],
-                        "syntax",
-                        f"no generated files found in {proj['output']}/ -- nothing was checked, "
-                        "so this project's PASS would have been vacuous",
-                    )
-                )
-                continue
-            failed = []
-            for f in files:
-                ok2, out2 = run_syntax_check(proj["backend"], f, cwd=dst)
-                if not ok2:
-                    failed.append(f"{f}:\n{out2}")
-            if failed:
-                results.append((proj["name"], proj["backend"], "syntax", "\n".join(failed)))
-            else:
-                results.append((proj["name"], proj["backend"], "PASS", ""))
-            continue
+    ok, out = run([SCYTHE_BIN, "generate"], cwd=str(dst), timeout=60)
+    if not ok:
+        return proj["name"], proj["backend"], "generate", out.strip()
 
-        ok3, out3 = run(cmd, cwd=dst, timeout=300)
-        if ok3:
-            results.append((proj["name"], proj["backend"], "PASS", ""))
-        else:
-            results.append((proj["name"], proj["backend"], "build", out3.strip()))
+    cmd = BUILD_COMMANDS.get(proj["backend"])
+    if cmd is None:
+        return check_syntax_only(proj, dst)
 
-    expected = load_expected_failures()
-    project_names = {p["name"] for p in projects}
-    unknown_entries = sorted(set(expected) - project_names)
+    ok, out = run(cmd, cwd=str(dst), timeout=300)
+    if ok:
+        return proj["name"], proj["backend"], "PASS", ""
+    return proj["name"], proj["backend"], "build", out.strip()
 
-    print()
-    print(f"{len(projects)} postgresql-engine project(s) regenerated against sql/torture/schema.sql:")
+
+def report_results(
+    results: list[tuple[str, str, str, str]], expected: dict[str, str]
+) -> tuple[list[str], list[str], int]:
     fail_count = 0
     regressions: list[str] = []
     stale_entries: list[str] = []
     for name, backend, stage, detail in results:
-        actually_failed = stage != "PASS" and stage != "SKIP"
+        actually_failed = stage not in {"PASS", "SKIP"}
         is_expected = name in expected
         if actually_failed:
             fail_count += 1
@@ -451,12 +418,12 @@ def main() -> int:
             # Tail, not head: dependency-fetch/compile noise (elixir's Hex
             # resolution, maven's plugin banners) comes first and the actual
             # error is what the tool reported last.
-            lines = detail.splitlines()
-            for ln in lines[-40:]:
+            for ln in detail.splitlines()[-40:]:
                 print(f"        {ln}")
-    print()
-    print(f"{fail_count}/{len(projects)} failed ({len(expected)} expected by {EXPECTED_FAILURES_FILE}).")
+    return regressions, stale_entries, fail_count
 
+
+def print_verdicts(regressions: list[str], stale_entries: list[str], unknown_entries: list[str]) -> bool:
     ok = True
     if regressions:
         ok = False
@@ -483,6 +450,50 @@ def main() -> int:
         for name in unknown_entries:
             print(f"  - {name}")
         print("Delete these lines, or the project was renamed and the entry needs to follow it.")
+    return ok
+
+
+def main() -> int:
+    keep = "--keep" in sys.argv
+
+    if not Path(SCYTHE_BIN).exists():
+        print(f"FAIL: {SCYTHE_BIN} not built. Run: cargo build --release -p scythe-cli", file=sys.stderr)
+        return 1
+
+    projects = find_pg_projects()
+    # Zero projects is a broken discovery, never a clean run. `ok` below starts
+    # True and is only cleared by three lists all derived from `projects`, so an
+    # empty discovery empties every one of them and this script prints
+    # "0/0 failed" and exits 0 -- reporting success for having compiled nothing.
+    #
+    # `unknown_entries` used to catch this by accident: an allowlist naming
+    # projects that no longer exist would fire. That backstop went inert when
+    # the last active entry in the allowlist was deleted (#225), and nothing
+    # recorded that the vacuity guard depended on the allowlist being non-empty.
+    # An explicit guard does not.
+    if not projects:
+        print(_no_projects_message(), file=sys.stderr)
+        return 1
+    scratch = Path(tempfile.mkdtemp(prefix="scythe-torture-"))
+    print(f"scratch workspace: {scratch}")
+
+    # sql/ is copied once and shared by every project below via the same
+    # `../sql/...` relative paths their committed scythe.toml already uses.
+    shutil.copytree(INTEGRATION / "sql", scratch / "sql")
+
+    results = [check_project(proj, scratch) for proj in projects]
+
+    expected = load_expected_failures()
+    project_names = {p["name"] for p in projects}
+    unknown_entries = sorted(set(expected) - project_names)
+
+    print()
+    print(f"{len(projects)} postgresql-engine project(s) regenerated against sql/torture/schema.sql:")
+    regressions, stale_entries, fail_count = report_results(results, expected)
+    print()
+    print(f"{fail_count}/{len(projects)} failed ({len(expected)} expected by {EXPECTED_FAILURES_FILE}).")
+
+    ok = print_verdicts(regressions, stale_entries, unknown_entries)
 
     if keep:
         print(f"scratch workspace kept at: {scratch}")

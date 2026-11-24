@@ -7,6 +7,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-      <PackageReference Include="Snowflake.Data" Version="6.3.0" />
+      <PackageReference Include="Snowflake.Data" Version="6.5.0" />
   </ItemGroup>
 </Project>

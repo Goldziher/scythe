@@ -21,8 +21,8 @@ defmodule ScytheIntegrationTest.MixProject do
   defp deps do
     [
       {:ecto_sql, "~> 3.14"},
-      {:postgrex, "~> 0.22.4"},
-      {:decimal, "~> 3.1"}
+      {:postgrex, "~> 0.23.0"},
+      {:decimal, "~> 3.2"}
     ]
   end
 end

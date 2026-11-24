@@ -120,7 +120,9 @@ class PackageReleaseTests(unittest.TestCase):
             self.assertEqual(POSIX_MEMBERS, set(names))
             for name in names:
                 self.assertNotIn("/", name, f"{name} is not flat at the archive root")
-            self.assertEqual(binary.read_bytes(), tar.extractfile("scythe").read())
+            member = tar.extractfile("scythe")
+            self.assertIsNotNone(member)
+            self.assertEqual(binary.read_bytes(), member.read())
 
     def test_refuses_to_ship_an_archive_missing_a_helper(self) -> None:
         self._write_binary(DARWIN_ARM, "scythe")

@@ -20,8 +20,8 @@ defmodule ScytheIntegrationTest.MixProject do
 
   defp deps do
     [
-      {:exqlite, "~> 0.42.0"},
-      {:decimal, "~> 3.1"}
+      {:exqlite, "~> 0.43.0"},
+      {:decimal, "~> 3.2"}
     ]
   end
 end

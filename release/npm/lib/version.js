@@ -1,6 +1,6 @@
 "use strict";
 
-const VERSION_RE = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/;
+const VERSION_RE = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/u;
 
 /**
  * Permissively extracts a semver-ish version string from arbitrary CLI

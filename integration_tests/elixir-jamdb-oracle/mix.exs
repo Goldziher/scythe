@@ -21,7 +21,7 @@ defmodule ScytheIntegrationTest.MixProject do
   defp deps do
     [
       {:jamdb_oracle, "~> 0.5.12"},
-      {:decimal, "~> 3.1"}
+      {:decimal, "~> 3.2"}
     ]
   end
 end

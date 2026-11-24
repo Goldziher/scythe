@@ -8,7 +8,7 @@ fi
 
 output_dir=$1
 rust_target=${2:-}
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 work_dir=$(mktemp -d)
 [ -n "$work_dir" ] && [ -d "$work_dir" ] || exit 1
 trap 'rm -rf -- "$work_dir"' EXIT HUP INT TERM

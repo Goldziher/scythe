@@ -1,0 +1,10 @@
+[engines.tsrs]
+enabled = true
+
+[per_file_ignores]
+# ~keep `astro:content` is an Astro virtual module resolved only by astro sync; tsrs reads no node_modules.
+"src/content.config.ts" = ["TS2307"]
+# ~keep The tsconfig extends the astro preset package, which tsrs cannot read without node_modules.
+"tsconfig.json" = ["TS6053"]
+# ~keep Throwaway database passwords in connection URLs in the documentation examples.
+"src/content/docs/**" = ["secrets/betterleaks.generic-credential-uri"]

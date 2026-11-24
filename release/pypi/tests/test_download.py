@@ -14,7 +14,7 @@ import sys
 import tarfile
 import threading
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -51,6 +51,9 @@ def build_archive(resolved: ResolvedTarget, payload: bytes = PAYLOAD) -> bytes:
         info.size = len(payload)
         archive.addfile(info, io.BytesIO(payload))
     return buffer.getvalue()
+
+
+ServeRoutes = Callable[[dict[str, tuple[int, bytes]]], "ReleaseServer"]
 
 
 class ReleaseServer:
@@ -121,7 +124,7 @@ def no_path_binary(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def served(monkeypatch: pytest.MonkeyPatch) -> Iterator[object]:
+def served(monkeypatch: pytest.MonkeyPatch) -> Iterator[ServeRoutes]:
     """Points `download.REPO` at a loopback server built from caller-supplied routes."""
 
     def _serve(routes: dict[str, tuple[int, bytes]]) -> ReleaseServer:
@@ -143,7 +146,7 @@ def cached_path(cache_env: dict[str, str], resolved: ResolvedTarget) -> Path:
     return Path(cache_env["SCYTHE_CACHE_DIR"]) / VERSION / resolved.binary_name
 
 
-def test_ensure_binary_downloads_verifies_extracts_and_caches(cache_env: dict[str, str], served: object) -> None:
+def test_ensure_binary_downloads_verifies_extracts_and_caches(cache_env: dict[str, str], served: ServeRoutes) -> None:
     resolved = current_target()
     archive = build_archive(resolved)
     served(release_routes(resolved, archive=archive))
@@ -155,7 +158,7 @@ def test_ensure_binary_downloads_verifies_extracts_and_caches(cache_env: dict[st
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits are meaningless on Windows")
-def test_ensure_binary_marks_the_cached_binary_executable(cache_env: dict[str, str], served: object) -> None:
+def test_ensure_binary_marks_the_cached_binary_executable(cache_env: dict[str, str], served: ServeRoutes) -> None:
     resolved = current_target()
     served(release_routes(resolved, archive=build_archive(resolved)))
 
@@ -164,7 +167,7 @@ def test_ensure_binary_marks_the_cached_binary_executable(cache_env: dict[str, s
     assert result.stat().st_mode & 0o111 == 0o111
 
 
-def test_ensure_binary_rejects_a_checksum_mismatch(cache_env: dict[str, str], served: object) -> None:
+def test_ensure_binary_rejects_a_checksum_mismatch(cache_env: dict[str, str], served: ServeRoutes) -> None:
     resolved = current_target()
     archive = build_archive(resolved)
     served(release_routes(resolved, archive=archive, checksum="00" * 32))
@@ -174,7 +177,7 @@ def test_ensure_binary_rejects_a_checksum_mismatch(cache_env: dict[str, str], se
 
 
 def test_ensure_binary_leaves_no_cache_entry_after_a_checksum_mismatch(
-    cache_env: dict[str, str], served: object
+    cache_env: dict[str, str], served: ServeRoutes
 ) -> None:
     """A rejected asset must not be reachable by the next run, in whole or in part."""
     resolved = current_target()
@@ -189,7 +192,7 @@ def test_ensure_binary_leaves_no_cache_entry_after_a_checksum_mismatch(
 
 
 def test_ensure_binary_raises_when_the_checksums_file_has_no_row_for_the_asset(
-    cache_env: dict[str, str], served: object
+    cache_env: dict[str, str], served: ServeRoutes
 ) -> None:
     prefix = f"/releases/download/v{VERSION}"
     served({f"{prefix}/scythe_{VERSION}_checksums.txt": (200, b"%s  scythe-other-target.tar.gz\n" % (b"aa" * 32))})
@@ -198,22 +201,28 @@ def test_ensure_binary_raises_when_the_checksums_file_has_no_row_for_the_asset(
         ensure_binary(VERSION, env=cache_env)
 
 
-def test_ensure_binary_reports_a_missing_asset_as_a_download_error(cache_env: dict[str, str], served: object) -> None:
+def test_ensure_binary_reports_a_missing_asset_as_a_download_error(
+    cache_env: dict[str, str], served: ServeRoutes
+) -> None:
     resolved = current_target()
     served(release_routes(resolved, archive=build_archive(resolved), serve_asset=False))
 
-    with pytest.raises(DownloadError, match="failed to download.*404"):
+    with pytest.raises(DownloadError, match=r"failed to download.*404"):
         ensure_binary(VERSION, env=cache_env)
 
 
-def test_ensure_binary_reports_a_missing_release_as_a_download_error(cache_env: dict[str, str], served: object) -> None:
+def test_ensure_binary_reports_a_missing_release_as_a_download_error(
+    cache_env: dict[str, str], served: ServeRoutes
+) -> None:
     served({})
 
-    with pytest.raises(DownloadError, match="failed to download.*404"):
+    with pytest.raises(DownloadError, match=r"failed to download.*404"):
         ensure_binary(VERSION, env=cache_env)
 
 
-def test_ensure_binary_short_circuits_on_an_already_cached_binary(cache_env: dict[str, str], served: object) -> None:
+def test_ensure_binary_short_circuits_on_an_already_cached_binary(
+    cache_env: dict[str, str], served: ServeRoutes
+) -> None:
     resolved = current_target()
     server = served(release_routes(resolved, archive=build_archive(resolved)))
     dest = cached_path(cache_env, resolved)
@@ -227,7 +236,7 @@ def test_ensure_binary_short_circuits_on_an_already_cached_binary(cache_env: dic
     assert server.requests == []
 
 
-def test_ensure_binary_replaces_a_zero_length_cached_binary(cache_env: dict[str, str], served: object) -> None:
+def test_ensure_binary_replaces_a_zero_length_cached_binary(cache_env: dict[str, str], served: ServeRoutes) -> None:
     """A truncated cache entry is not a binary; trusting it fails at exec time forever."""
     resolved = current_target()
     server = served(release_routes(resolved, archive=build_archive(resolved)))
@@ -243,7 +252,7 @@ def test_ensure_binary_replaces_a_zero_length_cached_binary(cache_env: dict[str,
 
 @pytest.mark.skipif(os.name == "nt", reason="the mode is not set on Windows, so this step cannot fail")
 def test_ensure_binary_leaves_nothing_behind_when_finalizing_the_write_fails(
-    cache_env: dict[str, str], served: object, monkeypatch: pytest.MonkeyPatch
+    cache_env: dict[str, str], served: ServeRoutes, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Stands in for an OOM kill or full disk part-way through installing the binary."""
     resolved = current_target()

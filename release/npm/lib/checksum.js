@@ -16,7 +16,7 @@ function parseChecksums(contents) {
   for (const line of contents.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    const match = trimmed.match(/^([0-9a-fA-F]{64})\s+\*?(\S+)$/);
+    const match = trimmed.match(/^([0-9a-fA-F]{64})\s+\*?(\S+)$/u);
     if (!match) continue;
     const [, hash, filename] = match;
     map.set(filename, hash.toLowerCase());

@@ -20,10 +20,15 @@ const { buildProxyAgent, loadCaBundle, resolveRedirect, downloadBuffer, download
  */
 async function startServer(handler) {
   const server = http.createServer(handler);
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
   return {
     origin: `http://127.0.0.1:${server.address().port}`,
-    close: () => new Promise((resolve) => server.close(resolve)),
+    close: () =>
+      new Promise((resolve) => {
+        server.close(() => resolve());
+      }),
   };
 }
 
@@ -40,7 +45,7 @@ async function startConnectProxy() {
       const match = chunk
         .toString("utf8")
         .split("\r\n")[0]
-        .match(/^CONNECT (\S+):(\d+)/);
+        .match(/^CONNECT (\S+):(\d+)/u);
       if (!match) {
         socket.destroy();
         return;
@@ -55,11 +60,16 @@ async function startConnectProxy() {
     });
     socket.on("error", () => {});
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
   return {
     url: `http://127.0.0.1:${server.address().port}`,
     tunnels,
-    close: () => new Promise((resolve) => server.close(resolve)),
+    close: () =>
+      new Promise((resolve) => {
+        server.close(() => resolve());
+      }),
   };
 }
 
@@ -125,7 +135,7 @@ test("downloadBuffer gives up on a redirect loop instead of hanging", async (t) 
 
   await assert.rejects(
     () => downloadBuffer(`${server.origin}/start`, { env: {}, maxRedirects: 3 }),
-    /exceeded 3 redirects/,
+    /exceeded 3 redirects/u,
   );
 });
 
@@ -136,7 +146,7 @@ test("downloadBuffer refuses a redirect that leaves http(s)", async (t) => {
   });
   t.after(() => server.close());
 
-  await assert.rejects(() => downloadBuffer(`${server.origin}/start`, { env: {} }), /non-http\(s\) URL/);
+  await assert.rejects(() => downloadBuffer(`${server.origin}/start`, { env: {} }), /non-http\(s\) URL/u);
 });
 
 test("downloadBuffer names the URL and status on an HTTP error", async (t) => {
@@ -150,7 +160,7 @@ test("downloadBuffer names the URL and status on an HTTP error", async (t) => {
   await assert.rejects(
     () => downloadBuffer(url, { env: {} }),
     (err) => {
-      assert.match(err.message, /HTTP 404/);
+      assert.match(err.message, /HTTP 404/u);
       assert.ok(err.message.includes(url), `expected the URL in: ${err.message}`);
       return true;
     },
@@ -159,15 +169,16 @@ test("downloadBuffer names the URL and status on an HTTP error", async (t) => {
 
 test("downloadBuffer names the URL on a transport failure, not a bare 'fetch failed'", async () => {
   const server = await startServer((req, res) => res.end());
-  await server.close(); // nothing is listening on this port any more
+  // nothing is listening on this port any more
+  await server.close();
 
   const url = `${server.origin}/asset.tar.gz`;
   await assert.rejects(
     () => downloadBuffer(url, { env: {} }),
     (err) => {
       assert.ok(err.message.includes(url), `expected the URL in: ${err.message}`);
-      assert.match(err.message, /ECONNREFUSED/);
-      assert.doesNotMatch(err.message, /^fetch failed$/);
+      assert.match(err.message, /ECONNREFUSED/u);
+      assert.doesNotMatch(err.message, /^fetch failed$/u);
       return true;
     },
   );
@@ -249,7 +260,10 @@ test("loadCaBundle reads the file named by npm_config_cafile", () => {
 
 test("loadCaBundle reports an unreadable CA bundle instead of silently ignoring it", () => {
   const missing = path.join(os.tmpdir(), "scythe-cli-no-such-ca.pem");
-  assert.throws(() => loadCaBundle({ npm_config_cafile: missing }), new RegExp(`failed to read CA bundle ${missing}`));
+  assert.throws(
+    () => loadCaBundle({ npm_config_cafile: missing }),
+    new RegExp(`failed to read CA bundle ${missing}`, "u"),
+  );
 });
 
 test("downloadBuffer surfaces a broken npm_config_cafile rather than logging a false reassurance", async (t) => {
@@ -258,15 +272,15 @@ test("downloadBuffer surfaces a broken npm_config_cafile rather than logging a f
 
   await assert.rejects(
     () => downloadBuffer(`${server.origin}/x`, { env: { npm_config_cafile: "/definitely/not/here.pem" } }),
-    /failed to read CA bundle/,
+    /failed to read CA bundle/u,
   );
 });
 
 test("resolveRedirect resolves against the current URL and rejects junk", () => {
   assert.equal(resolveRedirect("/b", "https://a.test/a"), "https://a.test/b");
   assert.equal(resolveRedirect("https://c.test/d", "https://a.test/a"), "https://c.test/d");
-  assert.throws(() => resolveRedirect("file:///etc/passwd", "https://a.test/a"), /non-http\(s\)/);
-  assert.throws(() => resolveRedirect("", "not a url"), /unparseable redirect Location/);
+  assert.throws(() => resolveRedirect("file:///etc/passwd", "https://a.test/a"), /non-http\(s\)/u);
+  assert.throws(() => resolveRedirect("", "not a url"), /unparseable redirect Location/u);
 });
 
 /**
@@ -280,10 +294,23 @@ function generateSelfSignedCert(dir) {
   const keyPath = path.join(dir, "key.pem");
   const certPath = path.join(dir, "cert.pem");
   try {
-    const args = ["req", "-x509", "-newkey", "rsa:2048", "-nodes"];
-    args.push("-keyout", keyPath, "-out", certPath, "-days", "1");
-    args.push("-subj", "/CN=localhost");
-    args.push("-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1");
+    const args = [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      keyPath,
+      "-out",
+      certPath,
+      "-days",
+      "1",
+      "-subj",
+      "/CN=localhost",
+      "-addext",
+      "subjectAltName=DNS:localhost,IP:127.0.0.1",
+    ];
     execFileSync("openssl", args, { stdio: "ignore" });
   } catch {
     return null;
@@ -302,13 +329,20 @@ test("downloadBuffer actually applies npm_config_cafile to the TLS handshake", a
   }
 
   const server = https.createServer({ key: generated.key, cert: generated.cert }, (req, res) => res.end("tls-ok"));
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => new Promise((resolve) => server.close(resolve)));
+  await new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  t.after(
+    () =>
+      new Promise((resolve) => {
+        server.close(() => resolve());
+      }),
+  );
 
   const url = `https://localhost:${server.address().port}/asset`;
 
   // Trusting only the system roots, this self-signed cert must be rejected.
-  await assert.rejects(() => downloadBuffer(url, { env: {} }), /self.signed|SELF_SIGNED|unable to verify/i);
+  await assert.rejects(() => downloadBuffer(url, { env: {} }), /self.signed|SELF_SIGNED|unable to verify/iu);
 
   // With the bundle configured, the same request must succeed -- which is
   // only possible if the file is read and handed to the TLS layer.

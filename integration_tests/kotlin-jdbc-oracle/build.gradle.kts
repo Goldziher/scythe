@@ -11,7 +11,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.oracle.database.jdbc:ojdbc11:23.26.3.0.0")
+    implementation("com.oracle.database.jdbc:ojdbc11:23.26.4.0.0")
 }
 
 application {

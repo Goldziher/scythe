@@ -7,15 +7,15 @@ lockfile_platforms = ["linux-x64", "linux-arm64", "macos-arm64", "macos-x64", "w
 
 [tools]
 python = "3.15.2"
-uv = "0.13.6"
-node = "26.13.0"
-pnpm = "12.16.1"
-go = "1.27.3"
+uv = "0.13.9"
+node = "26.13.1"
+pnpm = "12.21.0"
+go = "1.27.4"
 java = "temurin-25.0.5+8.0.LTS"
-maven = "3.10.0"
-gradle = "9.8.2"
+maven = "3.10.1"
+gradle = "9.9.1"
 ruby = "4.0.9"
-"github:Goldziher/poly" = "0.32.1"
+"github:polylint/polylint" = "0.36.1"
 cargo-deny = "0.20.2"
 actionlint = "1.7.12"
 
@@ -162,12 +162,8 @@ run = [
 
 [tasks."governance:hooks"]
 description = "Provision pinned native governance hooks without replacing local preferences"
-run = [
-  """python3 -c 'from pathlib import Path; p = Path("poly.local.toml"); \
-p.exists() or p.write_text("[hook_preferences]\\nchannels = [\\"system\\"]\\n")'""",
-  "poly hooks update",
-  "poly hooks install",
-]
+run = ["""python3 -c 'from pathlib import Path; p = Path("poly.local.toml"); \
+p.exists() or p.write_text("[hook_preferences]\\nchannels = [\\"system\\"]\\n")'""", "poly lock", "poly hooks install"]
 
 [tasks."governance:generate"]
 description = "Generate native AI governance outputs"

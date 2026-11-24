@@ -303,7 +303,7 @@ jobs:
       - uses: xberg-io/actions/setup-mise@v1
         with:
           mise-env: ci
-          tools: github:Goldziher/poly go ruby=3.3 node=22 pnpm
+          tools: github:polylint/polylint go ruby=3.3 node=22 pnpm
       - name: Install TypeScript
         run: |
           export PNPM_HOME="$RUNNER_TEMP/pnpm-global"

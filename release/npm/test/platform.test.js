@@ -29,15 +29,16 @@ test("resolveTarget picks tar.gz for unix and zip for windows, with correct bina
 test("resolveTarget hard-fails on musl linux, naming the platform and cargo fallback", () => {
   assert.throws(
     () => resolveTarget({ platform: "linux", arch: "x64", isMusl: () => true }),
-    /musl libc.*cargo install scythe-cli/s,
+    /musl libc.*cargo install scythe-cli/su,
   );
 });
 
+function throwingIsMusl() {
+  throw new Error("should not be called");
+}
+
 test("resolveTarget does not consult isMusl on non-linux platforms", () => {
-  const isMusl = () => {
-    throw new Error("should not be called");
-  };
-  assert.doesNotThrow(() => resolveTarget({ platform: "darwin", arch: "arm64", isMusl }));
+  assert.doesNotThrow(() => resolveTarget({ platform: "darwin", arch: "arm64", isMusl: throwingIsMusl }));
 });
 
 test("resolveTarget falls back to x64 with a warning on win32/arm64", () => {
@@ -45,12 +46,12 @@ test("resolveTarget falls back to x64 with a warning on win32/arm64", () => {
   const result = resolveTarget({ platform: "win32", arch: "arm64", warn: (msg) => warnings.push(msg) });
   assert.deepEqual(result, { target: "x86_64-pc-windows-msvc", archiveExt: "zip", binaryName: "scythe.exe" });
   assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /ARM64/);
+  assert.match(warnings[0], /ARM64/u);
 });
 
 test("resolveTarget hard-errors on unknown platform/arch, naming both", () => {
-  assert.throws(() => resolveTarget({ platform: "freebsd", arch: "x64" }), /freebsd\/x64/);
-  assert.throws(() => resolveTarget({ platform: "linux", arch: "ia32" }), /linux\/ia32/);
+  assert.throws(() => resolveTarget({ platform: "freebsd", arch: "x64" }), /freebsd\/x64/u);
+  assert.throws(() => resolveTarget({ platform: "linux", arch: "ia32" }), /linux\/ia32/u);
 });
 
 test("isMuslLinux detects absence of glibcVersionRuntime", () => {

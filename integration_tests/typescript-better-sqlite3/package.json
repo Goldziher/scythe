@@ -1,7 +1,7 @@
 {
 	"name": "scythe-integration-test-better-sqlite3",
 	"version": "0.1.0",
-	"packageManager": "pnpm@12.16.1",
+	"packageManager": "pnpm@12.21.0",
 	"private": true,
 	"type": "module",
 	"scripts": {
@@ -9,11 +9,11 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"better-sqlite3": "^13.0.3"
+		"better-sqlite3": "^13.2.0"
 	},
 	"devDependencies": {
 		"@types/better-sqlite3": "^9.6.0",
-		"@types/node": "^26.6.4",
+		"@types/node": "^26.6.6",
 		"tsx": "^4.23.15",
 		"typescript": "^7.0.2"
 	}

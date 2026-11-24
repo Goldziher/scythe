@@ -31,8 +31,9 @@ import os
 import re
 import sys
 import tomllib
+from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = Path(__file__).resolve().parent.parent
 
 # Every tree that contains generated artifacts carrying a provenance header.
 # Adding a root here is safe: if it contains no headers the run fails loudly
@@ -80,8 +81,8 @@ SKIP_DIRS = frozenset(
 
 def expected_version() -> str:
     """The version in crates/scythe-cli/Cargo.toml — the single source of truth."""
-    path = os.path.join(ROOT, "crates", "scythe-cli", "Cargo.toml")
-    with open(path, "rb") as handle:
+    path = ROOT / "crates" / "scythe-cli" / "Cargo.toml"
+    with path.open("rb") as handle:
         return tomllib.load(handle)["package"]["version"]
 
 
@@ -90,16 +91,16 @@ def scan_root(root: str) -> list[tuple[str, str]]:
     first provenance header was found. Unreadable or binary files are skipped;
     they cannot carry a header this generator wrote."""
     found: list[tuple[str, str]] = []
-    absolute_root = os.path.join(ROOT, root)
-    if not os.path.isdir(absolute_root):
+    absolute_root = ROOT / root
+    if not absolute_root.is_dir():
         print(f"error: scan root '{root}' does not exist", file=sys.stderr)
         sys.exit(1)
     for dirpath, dirnames, filenames in os.walk(absolute_root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for filename in filenames:
-            path = os.path.join(dirpath, filename)
+            path = Path(dirpath) / filename
             try:
-                with open(path, encoding="utf-8") as handle:
+                with path.open(encoding="utf-8") as handle:
                     contents = handle.read()
             except (OSError, UnicodeDecodeError):
                 continue
@@ -123,11 +124,11 @@ def main() -> int:
     # list rots into decoration. Fail on it here rather than let the list grow
     # stale entries nobody can distinguish from live ones.
     for excluded in sorted(EXCLUDED_FILES):
-        path = os.path.join(ROOT, excluded)
-        if not os.path.isfile(path):
+        path = ROOT / excluded
+        if not path.is_file():
             print(f"error: EXCLUDED_FILES names '{excluded}', which does not exist -- drop it", file=sys.stderr)
             return 1
-        with open(path, encoding="utf-8") as handle:
+        with path.open(encoding="utf-8") as handle:
             if not PROVENANCE_RE.search(handle.read()):
                 print(
                     f"error: EXCLUDED_FILES names '{excluded}', which carries no provenance header -- "

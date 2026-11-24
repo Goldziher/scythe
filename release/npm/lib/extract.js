@@ -93,7 +93,7 @@ async function extractZip(buffer, binaryName, destPath, mode) {
               readStream.pipe(out);
               out.on("finish", () => {
                 zipfile.close();
-                resolve(undefined);
+                resolve();
               });
               out.on("error", reject);
             });

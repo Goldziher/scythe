@@ -20,7 +20,7 @@ def load_config() -> dict[str, Any]:
 def configured_targets(config: dict[str, Any]) -> list[dict[str, Any]]:
     targets = config.get("targets")
     if not isinstance(targets, list):
-        raise ValueError("release size configuration must contain a targets list")
+        raise TypeError("release size configuration must contain a targets list")
     return targets
 
 
@@ -41,8 +41,13 @@ def validate(config: dict[str, Any], selected_target: str | None = None) -> list
         observed = target.get("observed_bundled_bytes")
         maximum = target.get("max_bytes")
         if not isinstance(triple, str) or not isinstance(binary, str):
-            raise ValueError("each release target requires string triple and binary fields")
-        if not all(isinstance(value, int) and value > 0 for value in (baseline, observed, maximum)):
+            raise TypeError("each release target requires string triple and binary fields")
+        if not (
+            isinstance(baseline, int)
+            and isinstance(observed, int)
+            and isinstance(maximum, int)
+            and min(baseline, observed, maximum) > 0
+        ):
             raise ValueError(f"{triple} size fields must be positive integers")
         if not baseline < observed <= maximum:
             raise ValueError(f"{triple} sizes must satisfy baseline < observed <= maximum")
@@ -107,5 +112,5 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+    except (OSError, TypeError, ValueError) as error:
         raise SystemExit(f"release canary: {error}") from error

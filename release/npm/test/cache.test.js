@@ -84,7 +84,7 @@ test("isUsableCachedBinary rejects a truncated non-executable leftover", (t) => 
   // The pre-atomic installer wrote the binary first and chmodded afterwards,
   // so a crash in between left exactly this: partial content, mode 0o644.
   const file = path.join(tempDir(t), "scythe");
-  fs.writeFileSync(file, "\x7fELF-partial", { mode: 0o644 });
+  fs.writeFileSync(file, "\u007FELF-partial", { mode: 0o644 });
   assert.equal(isUsableCachedBinary(file, "linux"), false);
   assert.equal(isUsableCachedBinary(file, "win32"), true, "windows has no executable bit to check");
 });

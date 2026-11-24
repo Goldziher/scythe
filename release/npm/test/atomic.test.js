@@ -56,7 +56,7 @@ test("writeAtomic leaves no destination and no scratch file when the write fails
         await fsp.writeFile(temp, "truncated");
         throw new Error("disk full");
       }),
-    /disk full/,
+    /disk full/u,
   );
 
   assert.equal(fs.existsSync(dest), false);

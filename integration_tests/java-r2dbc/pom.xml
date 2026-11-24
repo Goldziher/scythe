@@ -29,7 +29,7 @@
       <dependency>
         <groupId>io.projectreactor</groupId>
         <artifactId>reactor-core</artifactId>
-        <version>3.8.7</version>
+        <version>3.9.0</version>
       </dependency>
       <!-- The blocking JDBC driver as well, and not by accident: R2DBC has no
            way to run a multi-statement DDL script, so the harness sets the
@@ -39,7 +39,7 @@
       <dependency>
         <groupId>org.postgresql</groupId>
         <artifactId>postgresql</artifactId>
-        <version>42.7.13</version>
+        <version>42.7.15</version>
       </dependency>
     <dependency>
       <groupId>com.google.code.findbugs</groupId>
@@ -53,7 +53,7 @@
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
-        <version>3.1.0</version>
+        <version>3.7.0</version>
         <configuration>
           <mainClass>IntegrationTest</mainClass>
         </configuration>

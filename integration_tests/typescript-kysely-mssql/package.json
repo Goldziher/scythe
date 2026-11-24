@@ -1,7 +1,7 @@
 {
 	"name": "scythe-integration-test-kysely-mssql",
 	"version": "0.1.0",
-	"packageManager": "pnpm@12.16.1",
+	"packageManager": "pnpm@12.21.0",
 	"private": true,
 	"type": "module",
 	"scripts": {
@@ -9,12 +9,12 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"kysely": "^0.29.6",
+		"kysely": "^0.29.9",
 		"tarn": "^3.1.2",
-		"tedious": "^20.3.3"
+		"tedious": "^20.4.2"
 	},
 	"devDependencies": {
-		"@types/node": "^26.6.4",
+		"@types/node": "^26.6.6",
 		"tsx": "^4.23.15",
 		"typescript": "^7.0.2"
 	}
