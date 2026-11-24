@@ -104,7 +104,12 @@ impl LintRule for NotInSubquery {
     fn check_query(&self, ctx: &LintContext<'_>) -> Vec<Violation> {
         let mut violations = Vec::new();
         walk_exprs(ctx.stmt, &mut |expr| {
-            if let Expr::InSubquery { negated: true, .. } = expr {
+            if let Expr::In {
+                target: InTarget::Subquery(_),
+                negated: true,
+                ..
+            } = expr
+            {
                 violations.push(Violation {
                     rule_id: Cow::Borrowed("SC-P03"),
                     message: "NOT IN (SELECT ...) — consider NOT EXISTS for NULL safety".into(),
@@ -193,15 +198,18 @@ fn walk_expr(expr: &Expr, visitor: &mut dyn FnMut(&Expr)) {
             walk_expr(inner, visitor);
             walk_expr(pattern, visitor);
         }
-        Expr::InSubquery { expr: inner, .. } => {
-            walk_expr(inner, visitor);
-        }
-        Expr::InList { expr: inner, list, .. } => {
-            walk_expr(inner, visitor);
-            for e in list {
-                walk_expr(e, visitor);
+        Expr::In {
+            expr: inner, target, ..
+        } => match target {
+            InTarget::Subquery(_) => walk_expr(inner, visitor),
+            InTarget::List(list) => {
+                walk_expr(inner, visitor);
+                for e in list {
+                    walk_expr(e, visitor);
+                }
             }
-        }
+            InTarget::Unnest(_) | InTarget::Table { .. } => {}
+        },
         _ => {}
     }
 }

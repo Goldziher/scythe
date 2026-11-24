@@ -1,4 +1,4 @@
-use sqlparser::ast::{self, BinaryOperator, Expr, FunctionArg, FunctionArgExpr, UnaryOperator};
+use sqlparser::ast::{self, BinaryOperator, Expr, FunctionArg, FunctionArgExpr, InTarget, UnaryOperator};
 
 use crate::catalog::{Function, FunctionArgumentMode, FunctionReturn};
 use crate::dialect::SqlDialect;
@@ -158,8 +158,10 @@ impl<'a> Analyzer<'a> {
             | Expr::IsUnknown(_)
             | Expr::IsNotUnknown(_) => TypeInfo::new("bool", false),
 
-            Expr::InList {
-                expr: col_expr, list, ..
+            Expr::In {
+                expr: col_expr,
+                target: InTarget::List(list),
+                ..
             } => {
                 let col_ti = self.infer_expr_type(col_expr, scope);
                 for item in list {
@@ -175,7 +177,11 @@ impl<'a> Analyzer<'a> {
                 TypeInfo::new("bool", col_ti.nullable)
             }
 
-            Expr::InSubquery { expr: col_expr, .. } => {
+            Expr::In {
+                expr: col_expr,
+                target: InTarget::Subquery(_),
+                ..
+            } => {
                 let col_ti = self.infer_expr_type(col_expr, scope);
                 TypeInfo::new("bool", col_ti.nullable)
             }

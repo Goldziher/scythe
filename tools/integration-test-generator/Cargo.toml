@@ -17,4 +17,4 @@ minijinja = { version = "3", features = ["serde"] }
 # the test suite, so both crates are ordinary dependencies here.
 scythe-codegen = { path = "../../crates/scythe-codegen" }
 serde = { version = "1", features = ["derive"] }
-toml = "1.1"
+toml = "1.2"

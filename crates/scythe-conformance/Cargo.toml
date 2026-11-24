@@ -32,7 +32,7 @@ ahash = { version = "0.8", features = ["serde"] }
 glob = "0.3"
 
 mysql_async = { version = "0.37", optional = true }
-rusqlite = { version = "0.42", features = ["bundled"], optional = true }
+rusqlite = { version = "0.43", features = ["bundled"], optional = true }
 scythe-backend = { path = "../scythe-backend", version = "0.20.3" }
 scythe-codegen = { path = "../scythe-codegen" }
 scythe-core = { path = "../scythe-core" }
@@ -49,7 +49,7 @@ tiberius = { version = "0.13", default-features = false, features = [
 tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"], optional = true }
 tokio-util = { version = "0.7", features = ["compat"], optional = true }
-toml = "1.1"
+toml = "1.2"
 # Only for parsing the `sqlserver://` and `oracle://` connection URLs:
 # neither `tiberius` nor `sibyl` accepts a URL, unlike `tokio_postgres` and
 # `mysql_async`, which parse their own.

@@ -5,7 +5,9 @@
 # ~keep parses the dialect YAML shipped inside sqruff. `-D advisory-not-detected`
 # ~keep in CI fails this file the moment the entry stops matching, so the ignore
 # ~keep cannot outlive the dependency.
-ignore = ["RUSTSEC-2024-0449"]
+# ~keep RUSTSEC-2026-0543 (chrono unmaintained, no vulnerability) arrives through
+# ~keep duckdb's arrow dependency, which scythe does not control.
+ignore = ["RUSTSEC-2024-0449", "RUSTSEC-2026-0543"]
 
 [licenses]
 allow = [

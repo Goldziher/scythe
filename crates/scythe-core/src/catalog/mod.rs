@@ -1029,8 +1029,8 @@ impl Catalog {
                             let is_integer_rowid_alias = matches!(col_def.data_type, DataType::Integer(_));
                             if sqlite_primary_key_forces_not_null(
                                 dialect,
-                                ct.without_rowid,
-                                ct.strict,
+                                sqlite_without_rowid(&ct),
+                                sqlite_strict(&ct),
                                 is_integer_rowid_alias,
                             ) {
                                 nullable = false;
@@ -1091,8 +1091,8 @@ impl Catalog {
                     };
                     let force_not_null = sqlite_primary_key_forces_not_null(
                         dialect,
-                        ct.without_rowid,
-                        ct.strict,
+                        sqlite_without_rowid(&ct),
+                        sqlite_strict(&ct),
                         is_integer_rowid_alias,
                     );
 
@@ -1361,6 +1361,18 @@ impl Catalog {
     }
 }
 
+fn sqlite_without_rowid(ct: &sqlparser::ast::CreateTable) -> bool {
+    ct.sqlite_table_options
+        .options
+        .contains(&sqlparser::ast::SqliteTableOption::WithoutRowid)
+}
+
+fn sqlite_strict(ct: &sqlparser::ast::CreateTable) -> bool {
+    ct.sqlite_table_options
+        .options
+        .contains(&sqlparser::ast::SqliteTableOption::Strict)
+}
+
 fn function_sql_type(data_type: &DataType, domains: &AHashMap<String, DomainDef>, dialect: SqlDialect) -> String {
     match data_type {
         DataType::Custom(name, _) if lookup_qualified(domains, &object_name_to_key(name), None).is_some() => {
@@ -1371,6 +1383,7 @@ fn function_sql_type(data_type: &DataType, domains: &AHashMap<String, DomainDef>
                 sqlparser::ast::ArrayElemTypeDef::SquareBracket(inner, _)
                 | sqlparser::ast::ArrayElemTypeDef::AngleBracket(inner)
                 | sqlparser::ast::ArrayElemTypeDef::Parenthesis(inner)
+                | sqlparser::ast::ArrayElemTypeDef::ParenthesisNotNull(inner)
                 | sqlparser::ast::ArrayElemTypeDef::Qualified(inner, _) => inner.as_ref(),
                 sqlparser::ast::ArrayElemTypeDef::None => return "unknown[]".to_string(),
             };
@@ -2867,44 +2880,25 @@ EXECUTE PROCEDURE audit_row('api_key');\n";
 
     #[test]
     fn test_sqlite_without_rowid_then_strict_is_not_null() {
-        // sqlparser 0.62 parses `WITHOUT ROWID` immediately after the
-        // column/constraint list and `STRICT` much later (after ORDER BY /
-        // ON COMMIT / etc.) with no comma expected between them, so only
-        // this order (and no comma) round-trips.
         let catalog = Catalog::from_ddl_with_dialect(
-            &["CREATE TABLE t (k TEXT PRIMARY KEY) WITHOUT ROWID STRICT;"],
+            &["CREATE TABLE t (k TEXT PRIMARY KEY) WITHOUT ROWID, STRICT;"],
             &SqlDialect::SQLite,
-        );
-        match catalog {
-            Ok(catalog) => {
-                let table = catalog.get_table("t").unwrap();
-                assert!(!table.columns[0].nullable);
-            }
-            Err(err) => {
-                panic!("expected WITHOUT ROWID STRICT to parse, got: {err}");
-            }
-        }
+        )
+        .expect("WITHOUT ROWID, STRICT should parse");
+        let table = catalog.get_table("t").unwrap();
+        assert!(!table.columns[0].nullable);
     }
 
     #[test]
     fn test_sqlite_reverse_table_options_order() {
-        // issue #108 flagged that sqlparser reads `WITHOUT ROWID` and
-        // `STRICT` at different points in `parse_create_table`, so the
-        // reverse order (`STRICT` before `WITHOUT ROWID`) does not
-        // round-trip. This documents the actual behavior rather than
-        // silently masking it: if a future sqlparser upgrade changes this,
-        // this test should fail and be updated rather than deleted.
-        let result = Catalog::from_ddl_with_dialect(
+        // sqlparser 0.64 reads SQLite's comma-separated table-options list in either order (#108).
+        let catalog = Catalog::from_ddl_with_dialect(
             &["CREATE TABLE t (k TEXT PRIMARY KEY) STRICT, WITHOUT ROWID;"],
             &SqlDialect::SQLite,
-        );
-        assert!(
-            result.is_err(),
-            "sqlparser 0.62 parses STRICT well before WITHOUT ROWID's position and does not expect a comma \
-             between them, so `STRICT, WITHOUT ROWID` (STRICT first) is expected to fail to parse -- if this \
-             now succeeds, sqlparser's grammar changed and this test should be updated to assert the new \
-             behavior instead of just deleted"
-        );
+        )
+        .expect("STRICT, WITHOUT ROWID should parse");
+        let table = catalog.get_table("t").unwrap();
+        assert!(!table.columns[0].nullable);
     }
 
     #[test]

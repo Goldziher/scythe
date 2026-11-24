@@ -63,8 +63,5 @@ impl SnippetValidator for RubyValidator {
 /// `Kreuzberg.extract_file_sync(path, config: nil) -> Kreuzberg::Result`
 fn is_api_signature(code: &str) -> bool {
     let lines: Vec<&str> = code.lines().collect();
-    if lines.len() <= 3 && code.contains(" -> ") {
-        return true;
-    }
-    false
+    lines.len() <= 3 && code.contains(" -> ")
 }

@@ -28,7 +28,7 @@ pub(crate) fn normalize_data_type(
                 // DESCRIBE TABLE reports the storage behind INT, so a schema
                 // dumped from a live table typed its keys as decimal while the
                 // same table written with INT typed them as int64.
-                "number" if tokens.len() >= 2 && tokens[1] != "0" => {
+                "number" if tokens.len() >= 2 && tokens[1].to_string() != "0" => {
                     return (format!("numeric({},{})", tokens[0], tokens[1]), false);
                 }
                 "number" if tokens.len() >= 2 => return ("number".to_string(), false),
@@ -189,7 +189,7 @@ pub(crate) fn normalize_data_type(
                     let (inner_type, _) = normalize_data_type(inner_dt, domains, dialect);
                     inner_type
                 }
-                ArrayElemTypeDef::Parenthesis(inner_dt) => {
+                ArrayElemTypeDef::Parenthesis(inner_dt) | ArrayElemTypeDef::ParenthesisNotNull(inner_dt) => {
                     let (inner_type, _) = normalize_data_type(inner_dt, domains, dialect);
                     inner_type
                 }

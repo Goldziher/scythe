@@ -1031,7 +1031,7 @@ fn check_with_output(
 /// because it parses as well as lints, it also subsumes the `python3 -m ast`
 /// syntax pass.
 ///
-/// `--no-workspace` is not optional. Without it `poly lint` also runs the
+/// `--workspace never` is not optional. Without it `poly lint` also runs the
 /// whole-project tier -- `cargo clippy` over this very workspace -- once per
 /// generated file, turning a millisecond check into minutes.
 ///
@@ -1046,10 +1046,17 @@ fn poly_check(code: &str, ext: &str) -> ToolOutcome {
         code,
         ext,
         |path| {
-            ["lint", "--no-workspace", "--config", &config.to_string_lossy(), path]
-                .iter()
-                .map(|arg| (*arg).to_string())
-                .collect()
+            [
+                "lint",
+                "--workspace",
+                "never",
+                "--config",
+                &config.to_string_lossy(),
+                path,
+            ]
+            .iter()
+            .map(|arg| (*arg).to_string())
+            .collect()
         },
         Stream::Both,
         6,

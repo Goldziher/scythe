@@ -14,7 +14,7 @@
 //! text; scythe walks the typed `Expr` AST, stopping at any `Expr::Subquery`
 //! boundary (the wrapping is the safe form).
 
-use sqlparser::ast::{Expr, FunctionArg, FunctionArgExpr, FunctionArguments, ObjectName, Statement};
+use sqlparser::ast::{Expr, FunctionArg, FunctionArgExpr, FunctionArguments, InTarget, ObjectName, Statement};
 
 use crate::audit::registry::MatcherHit;
 use crate::types::LintContext;
@@ -73,7 +73,11 @@ fn walk_for_bare_auth_call(expr: &Expr) -> bool {
         Expr::Between { expr, low, high, .. } => {
             walk_for_bare_auth_call(expr) || walk_for_bare_auth_call(low) || walk_for_bare_auth_call(high)
         }
-        Expr::InList { expr, list, .. } => walk_for_bare_auth_call(expr) || list.iter().any(walk_for_bare_auth_call),
+        Expr::In {
+            expr,
+            target: InTarget::List(list),
+            ..
+        } => walk_for_bare_auth_call(expr) || list.iter().any(walk_for_bare_auth_call),
         Expr::Subquery(_) => false,
         _ => false,
     }

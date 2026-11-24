@@ -1,4 +1,4 @@
-use sqlparser::ast::{BinaryOperator, Expr};
+use sqlparser::ast::{BinaryOperator, Expr, InTarget};
 use sqlparser::tokenizer::Span;
 
 use super::helpers::*;
@@ -150,8 +150,10 @@ impl<'a> Analyzer<'a> {
                 let name = expr_to_name(col_expr);
                 self.collect_param_from_expr_with_type(pattern, "string", &name);
             }
-            Expr::InList {
-                expr: col_expr, list, ..
+            Expr::In {
+                expr: col_expr,
+                target: InTarget::List(list),
+                ..
             } => {
                 let col_ti = self.infer_expr_type(col_expr, scope);
                 let col_name = expr_to_name(col_expr);
@@ -190,7 +192,10 @@ impl<'a> Analyzer<'a> {
                 }
                 self.collect_param_from_any(right, &left_ti, &expr_to_name(left));
             }
-            Expr::InSubquery { subquery, .. } => {
+            Expr::In {
+                target: InTarget::Subquery(subquery),
+                ..
+            } => {
                 let _ = self.analyze_query(subquery);
             }
             Expr::Exists { subquery, .. } => {
@@ -422,7 +427,7 @@ mod tests {
     use super::*;
     use crate::catalog::Catalog;
     use ahash::AHashMap;
-    use sqlparser::ast::{Ident, Value, ValueWithSpan};
+    use sqlparser::ast::{Ident, InTarget, Value, ValueWithSpan};
     use sqlparser::tokenizer::{Location, Span};
 
     fn empty_catalog() -> Catalog {
@@ -655,10 +660,11 @@ mod tests {
                 nullable_from_join: false,
             }],
         };
-        let expr = Expr::InList {
+        let expr = Expr::In {
             expr: Box::new(Expr::Identifier(Ident::new("id"))),
-            list: vec![placeholder_expr("$1")],
+            target: InTarget::List(vec![placeholder_expr("$1")]),
             negated: false,
+            global: false,
         };
         analyzer.collect_params_from_where(&expr, &scope);
         assert_eq!(analyzer.params.len(), 1);

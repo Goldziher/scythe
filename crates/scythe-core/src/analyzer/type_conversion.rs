@@ -374,6 +374,7 @@ pub(super) fn datatype_to_neutral(dt: &DataType, catalog: &Catalog) -> String {
                 ast::ArrayElemTypeDef::SquareBracket(inner_dt, _) => datatype_to_neutral(inner_dt, catalog),
                 ast::ArrayElemTypeDef::AngleBracket(inner_dt) => datatype_to_neutral(inner_dt, catalog),
                 ast::ArrayElemTypeDef::Parenthesis(inner_dt) => datatype_to_neutral(inner_dt, catalog),
+                ast::ArrayElemTypeDef::ParenthesisNotNull(inner_dt) => datatype_to_neutral(inner_dt, catalog),
                 ast::ArrayElemTypeDef::Qualified(inner_dt, _) => datatype_to_neutral(inner_dt, catalog),
                 ast::ArrayElemTypeDef::None => "unknown".to_string(),
             };
@@ -415,7 +416,12 @@ pub(super) fn datatype_to_neutral(dt: &DataType, catalog: &Catalog) -> String {
                     0 => "decimal".to_string(),
                     1 => "int64".to_string(),
                     _ => {
-                        let scale_is_nonzero = tokens[1].trim().parse::<i64>().map(|s| s > 0).unwrap_or(true);
+                        let scale_is_nonzero = tokens[1]
+                            .to_string()
+                            .trim()
+                            .parse::<i64>()
+                            .map(|s| s > 0)
+                            .unwrap_or(true);
                         if scale_is_nonzero {
                             "decimal".to_string()
                         } else {
@@ -436,6 +442,10 @@ pub(super) fn datatype_to_neutral(dt: &DataType, catalog: &Catalog) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn number_modifier(n: &str) -> ast::TypeModifier {
+        ast::TypeModifier::Number(n.to_string(), false)
+    }
 
     fn empty_catalog() -> Catalog {
         Catalog::from_ddl(&[]).unwrap()
@@ -650,13 +660,13 @@ mod tests {
     fn test_oracle_number_datatype_custom_scale_aware() {
         let oracle = oracle_catalog();
         let name = ast::ObjectName(vec![ast::ObjectNamePart::Identifier(ast::Ident::new("NUMBER"))]);
-        let with_scale = DataType::Custom(name.clone(), vec!["10".to_string(), "2".to_string()]);
+        let with_scale = DataType::Custom(name.clone(), vec![number_modifier("10"), number_modifier("2")]);
         assert_eq!(datatype_to_neutral(&with_scale, &oracle), "decimal");
 
-        let zero_scale = DataType::Custom(name.clone(), vec!["10".to_string(), "0".to_string()]);
+        let zero_scale = DataType::Custom(name.clone(), vec![number_modifier("10"), number_modifier("0")]);
         assert_eq!(datatype_to_neutral(&zero_scale, &oracle), "int64");
 
-        let precision_only = DataType::Custom(name.clone(), vec!["10".to_string()]);
+        let precision_only = DataType::Custom(name.clone(), vec![number_modifier("10")]);
         assert_eq!(datatype_to_neutral(&precision_only, &oracle), "int64");
 
         // ~keep Bare `NUMBER` (no tokens at all) is Oracle's "floating" type, which can
